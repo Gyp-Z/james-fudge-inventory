@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  LineChart, Line, CartesianGrid, Legend
+  LineChart, Line, CartesianGrid,
 } from 'recharts'
 import { supabase } from '../lib/supabase'
 
@@ -13,7 +13,6 @@ export default function Analytics() {
 
   useEffect(() => {
     async function load() {
-      // Stockout frequency per flavor
       const { data: stockouts } = await supabase
         .from('shift_report_items')
         .select('flavor_id, flavors(name)')
@@ -32,14 +31,12 @@ export default function Analytics() {
         )
       }
 
-      // Production by flavor (total lbs)
       const { data: batches } = await supabase
         .from('batch_logs')
         .select('flavor_id, weight_lbs, batch_date, flavors(name)')
         .order('batch_date')
 
       if (batches) {
-        // Total lbs per flavor
         const totals = {}
         batches.forEach(({ weight_lbs, flavors }) => {
           const name = flavors?.name || 'Unknown'
@@ -51,7 +48,6 @@ export default function Analytics() {
             .sort((a, b) => b.lbs - a.lbs)
         )
 
-        // Weekly production totals
         const byWeek = {}
         batches.forEach(({ batch_date, weight_lbs }) => {
           const date = new Date(batch_date)
@@ -71,7 +67,7 @@ export default function Analytics() {
     load()
   }, [])
 
-  if (loading) return <p className="text-gray-400 text-center py-12">Loading analytics...</p>
+  if (loading) return <p className="text-store-brown-light text-center py-12">Loading analytics...</p>
 
   const noData = stockoutData.length === 0 && productionData.length === 0
 
@@ -79,8 +75,13 @@ export default function Analytics() {
     return (
       <div className="text-center py-20">
         <div className="text-5xl mb-4">📊</div>
-        <h2 className="text-xl font-bold text-gray-700">No data yet</h2>
-        <p className="text-gray-500 mt-2 text-sm">
+        <h2
+          className="text-xl font-bold text-store-brown"
+          style={{ fontFamily: 'var(--font-display)' }}
+        >
+          No data yet
+        </h2>
+        <p className="text-store-brown-light mt-2 text-sm">
           Start logging shift reports and batches to see analytics here.
         </p>
       </div>
@@ -89,18 +90,23 @@ export default function Analytics() {
 
   return (
     <div className="space-y-8">
-      <h2 className="text-xl font-bold text-gray-800">Analytics</h2>
+      <h2
+        className="text-2xl font-bold text-store-brown"
+        style={{ fontFamily: 'var(--font-display)' }}
+      >
+        Analytics
+      </h2>
 
       {stockoutData.length > 0 && (
         <div>
-          <h3 className="font-semibold text-gray-700 mb-4">Stockout Frequency</h3>
-          <p className="text-xs text-gray-400 mb-3">Which flavors run out most often</p>
+          <h3 className="font-semibold text-store-brown mb-1">Stockout Frequency</h3>
+          <p className="text-xs text-store-brown-light mb-3">Which flavors run out most often</p>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={stockoutData} layout="vertical" margin={{ left: 16, right: 16 }}>
-              <XAxis type="number" tick={{ fontSize: 12 }} />
-              <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12 }} />
-              <Tooltip />
-              <Bar dataKey="count" fill="#b45309" radius={[0, 4, 4, 0]} name="Times sold out" />
+              <XAxis type="number" tick={{ fontSize: 12, fill: '#8B5E3C' }} />
+              <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12, fill: '#4A2C17' }} />
+              <Tooltip contentStyle={{ borderRadius: 8, borderColor: '#F5EDD8' }} />
+              <Bar dataKey="count" fill="#2D5A1B" radius={[0, 4, 4, 0]} name="Times sold out" />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -108,14 +114,14 @@ export default function Analytics() {
 
       {productionData.length > 0 && (
         <div>
-          <h3 className="font-semibold text-gray-700 mb-4">Production by Flavor (lbs)</h3>
-          <p className="text-xs text-gray-400 mb-3">Total pounds made this season</p>
+          <h3 className="font-semibold text-store-brown mb-1">Production by Flavor (lbs)</h3>
+          <p className="text-xs text-store-brown-light mb-3">Total pounds made this season</p>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={productionData} layout="vertical" margin={{ left: 16, right: 16 }}>
-              <XAxis type="number" tick={{ fontSize: 12 }} />
-              <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12 }} />
-              <Tooltip />
-              <Bar dataKey="lbs" fill="#d97706" radius={[0, 4, 4, 0]} name="Total lbs" />
+              <XAxis type="number" tick={{ fontSize: 12, fill: '#8B5E3C' }} />
+              <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12, fill: '#4A2C17' }} />
+              <Tooltip contentStyle={{ borderRadius: 8, borderColor: '#F5EDD8' }} />
+              <Bar dataKey="lbs" fill="#4A2C17" radius={[0, 4, 4, 0]} name="Total lbs" />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -123,15 +129,22 @@ export default function Analytics() {
 
       {weeklyData.length > 1 && (
         <div>
-          <h3 className="font-semibold text-gray-700 mb-4">Weekly Production (lbs)</h3>
-          <p className="text-xs text-gray-400 mb-3">How much fudge was made each week</p>
+          <h3 className="font-semibold text-store-brown mb-1">Weekly Production (lbs)</h3>
+          <p className="text-xs text-store-brown-light mb-3">How much fudge was made each week</p>
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={weeklyData} margin={{ left: 0, right: 16 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-              <XAxis dataKey="week" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Line type="monotone" dataKey="lbs" stroke="#b45309" strokeWidth={2} dot={{ r: 4 }} name="lbs made" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+              <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#8B5E3C' }} />
+              <YAxis tick={{ fontSize: 11, fill: '#8B5E3C' }} />
+              <Tooltip contentStyle={{ borderRadius: 8, borderColor: '#F5EDD8' }} />
+              <Line
+                type="monotone"
+                dataKey="lbs"
+                stroke="#2D5A1B"
+                strokeWidth={2}
+                dot={{ r: 4, fill: '#2D5A1B' }}
+                name="lbs made"
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>

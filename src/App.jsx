@@ -6,11 +6,12 @@ import ShiftReport from './pages/ShiftReport'
 import BatchLog from './pages/BatchLog'
 import Analytics from './pages/Analytics'
 import Admin from './pages/Admin'
+import Ingredients from './pages/Ingredients'
 import NavBar from './components/NavBar'
 
 function ProtectedRoute({ children }) {
   const { session, loading } = useAuth()
-  if (loading) return <div className="flex items-center justify-center h-screen text-gray-500">Loading...</div>
+  if (loading) return <div className="flex items-center justify-center h-screen text-store-brown-light">Loading...</div>
   if (!session) return <Navigate to="/login" replace />
   return children
 }
@@ -24,7 +25,7 @@ export default function App() {
           path="/*"
           element={
             <ProtectedRoute>
-              <div className="min-h-screen bg-gray-50 flex flex-col">
+              <div className="min-h-screen bg-store-cream flex flex-col">
                 <NavBar />
                 <main className="flex-1 px-4 py-6 max-w-2xl mx-auto w-full">
                   <Routes>
@@ -32,6 +33,7 @@ export default function App() {
                     <Route path="/dashboard" element={<Dashboard />} />
                     <Route path="/shift" element={<ShiftReport />} />
                     <Route path="/batch" element={<BatchLog />} />
+                    <Route path="/ingredients" element={<Ingredients />} />
                     <Route path="/analytics" element={<Analytics />} />
                     <Route path="/admin" element={<Admin />} />
                   </Routes>

@@ -61,6 +61,36 @@ create policy "Authenticated users can insert shift_report_items" on shift_repor
 create policy "Authenticated users can read batch_logs" on batch_logs for select to authenticated using (true);
 create policy "Authenticated users can insert batch_logs" on batch_logs for insert to authenticated with check (true);
 
+-- ============================================================
+-- MIGRATION v2 -- Run this if you already set up v1
+-- ============================================================
+
+-- Replace stock_level (text) with tray_count (integer)
+alter table shift_report_items add column if not exists tray_count integer not null default 0;
+alter table shift_report_items drop column if exists stock_level;
+
+-- Ingredients checklist table
+create table if not exists ingredients (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  is_active boolean not null default true,
+  needs_reorder boolean not null default false,
+  last_checked timestamptz,
+  created_at timestamptz not null default now()
+);
+
+alter table ingredients enable row level security;
+create policy "Authenticated full access to ingredients" on ingredients
+  for all to authenticated using (true) with check (true);
+
+-- Seed common fudge ingredients
+insert into ingredients (name) values
+  ('Butter'), ('Granulated Sugar'), ('Heavy Cream'), ('Cocoa Powder'),
+  ('Vanilla Extract'), ('Chocolate Chips'), ('Peanut Butter'),
+  ('Walnuts'), ('Marshmallows'), ('Brown Sugar'), ('Corn Syrup'), ('Salt');
+
+-- ============================================================
+
 -- Seed some example flavors to get started
 insert into flavors (name) values
   ('Chocolate'),

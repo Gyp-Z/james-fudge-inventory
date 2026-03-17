@@ -2,26 +2,17 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useFlavors } from '../hooks/useFlavors'
-
-const STOCK_COLORS = {
-  full: 'bg-green-100 text-green-800',
-  medium: 'bg-yellow-100 text-yellow-800',
-  low: 'bg-red-100 text-red-800',
-  unknown: 'bg-gray-100 text-gray-500',
-}
-
-const STOCK_LABELS = { full: 'Full', medium: 'Medium', low: 'Low', unknown: '?' }
+import TrayCounter from '../components/TrayCounter'
 
 export default function Dashboard() {
   const { flavors, loading: flavorsLoading } = useFlavors()
-  const [stockMap, setStockMap] = useState({})
+  const [trayCounts, setTrayCounts] = useState({})
   const [needsMaking, setNeedsMaking] = useState([])
   const [todayBatches, setTodayBatches] = useState([])
   const navigate = useNavigate()
 
   useEffect(() => {
     async function loadLatestStock() {
-      // Get most recent shift report
       const { data: reports } = await supabase
         .from('shift_reports')
         .select('id')
@@ -32,17 +23,17 @@ export default function Dashboard() {
 
       const { data: items } = await supabase
         .from('shift_report_items')
-        .select('flavor_id, stock_level, needs_to_be_made')
+        .select('flavor_id, tray_count, needs_to_be_made')
         .eq('shift_report_id', reports[0].id)
 
       if (items) {
-        const map = {}
+        const counts = {}
         const needs = []
         items.forEach((item) => {
-          map[item.flavor_id] = item.stock_level
-          if (item.needs_to_be_made) needs.push(item.flavor_id)
+          counts[item.flavor_id] = item.tray_count
+          if (item.needs_to_be_made || item.tray_count === 0) needs.push(item.flavor_id)
         })
-        setStockMap(map)
+        setTrayCounts(counts)
         setNeedsMaking(needs)
       }
     }
@@ -61,17 +52,28 @@ export default function Dashboard() {
     loadTodayBatches()
   }, [])
 
-  if (flavorsLoading) return <p className="text-gray-400 text-center py-12">Loading...</p>
+  function handleTrayChange(flavorId, newCount) {
+    setTrayCounts((prev) => ({ ...prev, [flavorId]: newCount }))
+  }
 
-  const needsMakingFlavors = flavors.filter((f) => needsMaking.includes(f.id))
+  if (flavorsLoading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
+
+  const needsMakingFlavors = flavors.filter(
+    (f) => needsMaking.includes(f.id) || (trayCounts[f.id] ?? -1) === 0
+  )
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-gray-800">Dashboard</h2>
+        <h2
+          className="text-2xl font-bold text-store-brown"
+          style={{ fontFamily: 'var(--font-display)' }}
+        >
+          Dashboard
+        </h2>
         <button
           onClick={() => navigate('/shift')}
-          className="bg-amber-700 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-amber-800 transition-colors"
+          className="bg-store-green text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-store-green-dark transition-colors"
         >
           + Shift Report
         </button>
@@ -84,6 +86,9 @@ export default function Dashboard() {
             {needsMakingFlavors.map((f) => (
               <li key={f.id} className="text-red-600 text-sm flex items-center gap-2">
                 <span>⚠️</span> {f.name}
+                {(trayCounts[f.id] ?? -1) === 0 && (
+                  <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Out of stock</span>
+                )}
               </li>
             ))}
           </ul>
@@ -91,43 +96,58 @@ export default function Dashboard() {
       )}
 
       <div>
-        <h3 className="font-semibold text-gray-700 mb-3">Current Stock</h3>
-        <div className="grid grid-cols-2 gap-2">
+        <h3 className="font-semibold text-store-brown mb-3">Tray Counts</h3>
+        <div className="space-y-2">
           {flavors.map((flavor) => {
-            const level = stockMap[flavor.id] || 'unknown'
+            const count = trayCounts[flavor.id] ?? 0
+            const isEmpty = count === 0
             return (
               <div
                 key={flavor.id}
-                className="bg-white rounded-xl border border-gray-200 p-3 flex items-center justify-between shadow-sm"
+                className={`bg-white rounded-xl border p-4 flex items-center justify-between shadow-sm ${
+                  isEmpty ? 'border-red-200 bg-red-50' : 'border-store-tan'
+                }`}
               >
-                <span className="text-sm font-medium text-gray-800">{flavor.name}</span>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STOCK_COLORS[level]}`}>
-                  {STOCK_LABELS[level]}
-                </span>
+                <div>
+                  <span className="font-semibold text-store-brown">{flavor.name}</span>
+                  {isEmpty && (
+                    <span className="ml-2 text-xs text-red-500 font-medium">Out of stock</span>
+                  )}
+                </div>
+                <TrayCounter
+                  count={count}
+                  onChange={(n) => handleTrayChange(flavor.id, n)}
+                />
               </div>
             )
           })}
         </div>
+        <p className="text-xs text-store-brown-light mt-2 text-center">
+          Tap + / − to adjust counts during your shift
+        </p>
       </div>
 
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-gray-700">Today's Batches</h3>
+          <h3 className="font-semibold text-store-brown">Today's Batches</h3>
           <button
             onClick={() => navigate('/batch')}
-            className="text-amber-700 text-sm font-medium hover:underline"
+            className="text-store-green text-sm font-medium hover:underline"
           >
             + Log batch
           </button>
         </div>
         {todayBatches.length === 0 ? (
-          <p className="text-gray-400 text-sm text-center py-4">No batches logged today</p>
+          <p className="text-store-brown-light text-sm text-center py-4">No batches logged today</p>
         ) : (
           <div className="space-y-2">
             {todayBatches.map((b) => (
-              <div key={b.id} className="bg-white rounded-xl border border-gray-200 p-3 flex justify-between shadow-sm">
-                <span className="text-sm font-medium text-gray-800">{b.flavors?.name}</span>
-                <span className="text-sm text-gray-500">{b.weight_lbs} lbs</span>
+              <div
+                key={b.id}
+                className="bg-white rounded-xl border border-store-tan p-3 flex justify-between shadow-sm"
+              >
+                <span className="text-sm font-medium text-store-brown">{b.flavors?.name}</span>
+                <span className="text-sm text-store-brown-light">{b.weight_lbs} lbs</span>
               </div>
             ))}
           </div>
