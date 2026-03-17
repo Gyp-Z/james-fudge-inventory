@@ -17,10 +17,7 @@ export default function ShiftReport() {
   }
 
   function updateItem(flavorId, field, value) {
-    setItems((prev) => ({
-      ...prev,
-      [flavorId]: { ...getItem(flavorId), [field]: value },
-    }))
+    setItems((prev) => ({ ...prev, [flavorId]: { ...getItem(flavorId), [field]: value } }))
   }
 
   async function handleSubmit(e) {
@@ -28,12 +25,12 @@ export default function ShiftReport() {
     setSubmitting(true)
 
     const today = new Date().toISOString().split('T')[0]
-    const { data: session } = await supabase.auth.getSession()
-    const user = session?.session?.user
+    const { data: sessionData } = await supabase.auth.getSession()
+    const user = sessionData?.session?.user
 
     const { data: report, error } = await supabase
       .from('shift_reports')
-      .insert({ shift_date: today, notes, logged_by: user?.email })
+      .insert({ shift_date: today, notes, logged_by: user?.email ?? 'staff' })
       .select()
       .single()
 
@@ -56,6 +53,14 @@ export default function ShiftReport() {
 
     await supabase.from('shift_report_items').insert(reportItems)
 
+    // Upsert into current_inventory to set today's baseline
+    const inventoryUpserts = flavors.map((f) => ({
+      flavor_id: f.id,
+      tray_count: getItem(f.id).tray_count,
+      updated_at: new Date().toISOString(),
+    }))
+    await supabase.from('current_inventory').upsert(inventoryUpserts, { onConflict: 'flavor_id' })
+
     setSuccess(true)
     setTimeout(() => navigate('/dashboard'), 1500)
   }
@@ -66,10 +71,7 @@ export default function ShiftReport() {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <div className="text-5xl mb-4">✅</div>
-        <h2
-          className="text-xl font-bold text-store-brown"
-          style={{ fontFamily: 'var(--font-display)' }}
-        >
+        <h2 className="text-xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
           Shift Report Saved!
         </h2>
         <p className="text-store-brown-light mt-1">Redirecting to dashboard...</p>
@@ -80,10 +82,7 @@ export default function ShiftReport() {
   return (
     <div className="space-y-6">
       <div>
-        <h2
-          className="text-2xl font-bold text-store-brown"
-          style={{ fontFamily: 'var(--font-display)' }}
-        >
+        <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
           Start of Shift Report
         </h2>
         <p className="text-sm text-store-brown-light mt-1">
@@ -95,12 +94,8 @@ export default function ShiftReport() {
         {flavors.map((flavor) => {
           const item = getItem(flavor.id)
           return (
-            <div
-              key={flavor.id}
-              className="bg-white rounded-xl border border-store-tan p-4 shadow-sm space-y-4"
-            >
+            <div key={flavor.id} className="bg-white rounded-xl border border-store-tan p-4 shadow-sm space-y-4">
               <h3 className="font-semibold text-store-brown">{flavor.name}</h3>
-
               <div>
                 <label className="text-xs font-medium text-store-brown-light mb-2 block">
                   Trays at start of shift
@@ -110,7 +105,6 @@ export default function ShiftReport() {
                   onChange={(n) => updateItem(flavor.id, 'tray_count', n)}
                 />
               </div>
-
               <div className="flex gap-5">
                 <label className="flex items-center gap-2 text-sm text-store-brown cursor-pointer">
                   <input
@@ -141,7 +135,7 @@ export default function ShiftReport() {
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
-            placeholder="Anything unusual? Special orders? Weather affecting traffic?"
+            placeholder="Anything unusual? Special orders? Weather?"
             className="w-full border border-store-tan rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
           />
         </div>

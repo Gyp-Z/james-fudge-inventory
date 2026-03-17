@@ -1,7 +1,13 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../hooks/useAuth'
 
-const links = [
+const staffLinks = [
+  { to: '/dashboard', label: '🏠', title: 'Dashboard' },
+  { to: '/shift', label: '📋', title: 'Shift Report' },
+]
+
+const adminLinks = [
   { to: '/dashboard', label: '🏠', title: 'Dashboard' },
   { to: '/shift', label: '📋', title: 'Shift Report' },
   { to: '/batch', label: '🍫', title: 'Batch Log' },
@@ -11,8 +17,13 @@ const links = [
 ]
 
 export default function NavBar() {
+  const { session } = useAuth()
+  const navigate = useNavigate()
+  const links = session ? adminLinks : staffLinks
+
   async function handleSignOut() {
     await supabase.auth.signOut()
+    navigate('/dashboard')
   }
 
   return (
@@ -35,13 +46,22 @@ export default function NavBar() {
             {label}
           </NavLink>
         ))}
-        <button
-          onClick={handleSignOut}
-          title="Sign out"
-          className="ml-2 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-store-green-dark transition-colors"
-        >
-          🚪
-        </button>
+        {session ? (
+          <button
+            onClick={handleSignOut}
+            title="Sign out"
+            className="ml-2 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-store-green-dark transition-colors"
+          >
+            🚪
+          </button>
+        ) : (
+          <button
+            onClick={() => navigate('/login')}
+            className="ml-2 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white text-store-green hover:bg-store-tan transition-colors"
+          >
+            Admin
+          </button>
+        )}
       </div>
     </nav>
   )

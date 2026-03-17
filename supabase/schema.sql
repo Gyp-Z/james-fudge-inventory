@@ -62,6 +62,35 @@ create policy "Authenticated users can read batch_logs" on batch_logs for select
 create policy "Authenticated users can insert batch_logs" on batch_logs for insert to authenticated with check (true);
 
 -- ============================================================
+-- MIGRATION v3 -- Role system + persistent tray counts
+-- ============================================================
+
+create table if not exists current_inventory (
+  flavor_id uuid primary key references flavors(id) on delete cascade,
+  tray_count integer not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+alter table current_inventory enable row level security;
+
+create policy "Anyone can read current_inventory" on current_inventory
+  for select to anon, authenticated using (true);
+create policy "Anyone can insert current_inventory" on current_inventory
+  for insert to anon, authenticated with check (true);
+create policy "Anyone can update current_inventory" on current_inventory
+  for update to anon, authenticated using (true);
+
+-- Allow anon (staff) to submit shift reports without logging in
+create policy "Anyone can insert shift_reports" on shift_reports
+  for insert to anon with check (true);
+create policy "Anyone can read shift_reports" on shift_reports
+  for select to anon using (true);
+create policy "Anyone can insert shift_report_items" on shift_report_items
+  for insert to anon with check (true);
+create policy "Anyone can read shift_report_items" on shift_report_items
+  for select to anon using (true);
+
+-- ============================================================
 -- MIGRATION v2 -- Run this if you already set up v1
 -- ============================================================
 

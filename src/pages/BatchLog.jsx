@@ -10,8 +10,6 @@ export default function BatchLog() {
   const [submitting, setSubmitting] = useState(false)
   const [recentBatches, setRecentBatches] = useState([])
 
-  const suggestedTrays = weightLbs ? Math.round(parseFloat(weightLbs) / 6.5) : null
-
   async function loadRecent() {
     const { data } = await supabase
       .from('batch_logs')
@@ -25,21 +23,35 @@ export default function BatchLog() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!flavorId || !weightLbs) return
+    if (!flavorId) return
     setSubmitting(true)
 
     const { data: sessionData } = await supabase.auth.getSession()
     const user = sessionData?.session?.user
 
+    // Save the batch log record
     const { error } = await supabase.from('batch_logs').insert({
       flavor_id: flavorId,
-      weight_lbs: parseFloat(weightLbs),
+      weight_lbs: weightLbs ? parseFloat(weightLbs) : null,
       batch_date: new Date().toISOString(),
       notes,
       logged_by: user?.email,
     })
 
     if (!error) {
+      // Increment tray count in current_inventory by 1
+      const { data: existing } = await supabase
+        .from('current_inventory')
+        .select('tray_count')
+        .eq('flavor_id', flavorId)
+        .single()
+
+      const newCount = (existing?.tray_count ?? 0) + 1
+      await supabase.from('current_inventory').upsert(
+        { flavor_id: flavorId, tray_count: newCount, updated_at: new Date().toISOString() },
+        { onConflict: 'flavor_id' }
+      )
+
       setFlavorId('')
       setWeightLbs('')
       setNotes('')
@@ -54,12 +66,12 @@ export default function BatchLog() {
 
   return (
     <div className="space-y-6">
-      <h2
-        className="text-2xl font-bold text-store-brown"
-        style={{ fontFamily: 'var(--font-display)' }}
-      >
-        Log a Batch
-      </h2>
+      <div>
+        <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
+          Log a Batch
+        </h2>
+        <p className="text-sm text-store-brown-light mt-1">One batch = one tray added to inventory</p>
+      </div>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-store-tan p-4 shadow-sm space-y-4">
         <div>
@@ -78,31 +90,29 @@ export default function BatchLog() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-store-brown mb-1">Weight (lbs)</label>
+          <label className="block text-sm font-medium text-store-brown mb-1">
+            Estimated weight <span className="text-store-brown-light font-normal">(optional)</span>
+          </label>
           <input
             type="number"
             step="0.1"
             min="0.1"
             value={weightLbs}
             onChange={(e) => setWeightLbs(e.target.value)}
-            required
-            placeholder="e.g. 13.0"
+            placeholder="e.g. 6.5"
             className="w-full border border-store-tan rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
           />
-          {suggestedTrays !== null && (
-            <p className="text-xs text-store-brown-light mt-1">
-              ≈ {suggestedTrays} {suggestedTrays === 1 ? 'tray' : 'trays'} at 6.5 lbs/tray
-            </p>
-          )}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-store-brown mb-1">Notes (optional)</label>
+          <label className="block text-sm font-medium text-store-brown mb-1">
+            Notes <span className="text-store-brown-light font-normal">(optional)</span>
+          </label>
           <input
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="e.g. double batch, new recipe"
+            placeholder="e.g. new recipe, extra sugar"
             className="w-full border border-store-tan rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
           />
         </div>
@@ -112,7 +122,7 @@ export default function BatchLog() {
           disabled={submitting}
           className="w-full bg-store-green hover:bg-store-green-dark text-white font-semibold py-3 rounded-xl transition-colors disabled:opacity-50"
         >
-          {submitting ? 'Logging...' : 'Log Batch'}
+          {submitting ? 'Logging...' : '+ Log Batch (adds 1 tray)'}
         </button>
       </form>
 
@@ -126,7 +136,9 @@ export default function BatchLog() {
               <div key={b.id} className="bg-white rounded-xl border border-store-tan p-3 shadow-sm">
                 <div className="flex justify-between items-start">
                   <span className="font-medium text-store-brown text-sm">{b.flavors?.name}</span>
-                  <span className="text-sm font-semibold text-store-green">{b.weight_lbs} lbs</span>
+                  <span className="text-sm font-semibold text-store-green">
+                    {b.weight_lbs ? `~${b.weight_lbs} lbs` : '1 tray'}
+                  </span>
                 </div>
                 <div className="flex justify-between mt-1">
                   <span className="text-xs text-store-brown-light">
