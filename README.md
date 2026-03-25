@@ -4,7 +4,7 @@ A full-stack kitchen management app built for a real small business — James' F
 
 The store runs daily shifts where staff need to know what's in stock, what sold out, and what needs to be made. This app replaces a manual whiteboard-and-memory system with a real-time dashboard, production logs, and trend analytics.
 
-**Live app:** Coming soon — deploying to Vercel once Supabase is active
+**Live app:** [james-fudge-inventory.vercel.app](https://james-fudge-inventory.vercel.app/dashboard)
 
 ---
 
