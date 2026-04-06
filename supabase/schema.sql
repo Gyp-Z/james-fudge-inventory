@@ -98,10 +98,13 @@ create policy "Anyone can read shift_report_items" on shift_report_items
 alter table shift_report_items add column if not exists tray_count integer not null default 0;
 alter table shift_report_items drop column if exists stock_level;
 
--- Ingredients checklist table
+-- Ingredients supply tracking table
 create table if not exists ingredients (
   id uuid primary key default gen_random_uuid(),
   name text not null,
+  unit text not null default 'units',
+  quantity real not null default 0,
+  low_stock_threshold real not null default 0,
   is_active boolean not null default true,
   needs_reorder boolean not null default false,
   last_checked timestamptz,
@@ -112,11 +115,30 @@ alter table ingredients enable row level security;
 create policy "Authenticated full access to ingredients" on ingredients
   for all to authenticated using (true) with check (true);
 
--- Seed common fudge ingredients
-insert into ingredients (name) values
-  ('Butter'), ('Granulated Sugar'), ('Heavy Cream'), ('Cocoa Powder'),
-  ('Vanilla Extract'), ('Chocolate Chips'), ('Peanut Butter'),
-  ('Walnuts'), ('Marshmallows'), ('Brown Sugar'), ('Corn Syrup'), ('Salt');
+-- Real starting inventory (deep clean 2026-04-06)
+insert into ingredients (name, unit, quantity, low_stock_threshold) values
+  ('Sugar',                     'bags',       13,   5),
+  ('Fondant',                   'boxes',      13,   3),
+  ('Fondex',                    'barrels',    15,   3),
+  ('Evaporated Milk (cans)',    'cans',       31,   10),
+  ('Evaporated Milk (barrels)', 'barrels',    5,    2),
+  ('Vanilla Extract',           'containers', 1.5,  1),
+  ('Chocolate',                 'boxes',      0,    5),
+  ('Butter',                    'units',      0,    3),
+  ('Heavy Cream',               'units',      0,    3),
+  ('Corn Syrup',                'jugs',       0,    2),
+  ('Popcorn',                   'bags',       0,    5),
+  ('Brown Sugar',               'bags',       0,    3),
+  ('Baking Soda',               'containers', 0,    2),
+  ('Salt',                      'containers', 0,    1);
+
+-- ============================================================
+-- MIGRATION v4 -- Add quantity tracking to existing ingredients table
+-- Run this if you already ran v1/v2/v3 above
+-- ============================================================
+alter table ingredients add column if not exists unit text not null default 'units';
+alter table ingredients add column if not exists quantity real not null default 0;
+alter table ingredients add column if not exists low_stock_threshold real not null default 0;
 
 -- ============================================================
 
