@@ -166,7 +166,6 @@ create policy "Authenticated full access to ingredient_restocks" on ingredient_r
 
 -- Seed some example flavors to get started
 insert into flavors (name) values
-  ('Chocolate'),
   ('Vanilla'),
   ('Peanut Butter'),
   ('Chocolate Peanut Butter'),
