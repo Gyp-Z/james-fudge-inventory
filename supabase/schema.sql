@@ -7,6 +7,7 @@ create table if not exists flavors (
   name text not null,
   is_active boolean not null default true,
   reorder_threshold text default 'low',
+  low_tray_threshold integer not null default 2,
   created_at timestamptz not null default now()
 );
 
@@ -126,10 +127,10 @@ insert into ingredients (name, unit, quantity, low_stock_threshold) values
   ('Chocolate',                 'boxes',      0,    5),
   ('Butter',                    'units',      0,    3),
   ('Heavy Cream',               'units',      0,    3),
-  ('Corn Syrup',                'jugs',       0,    2),
+  ('Corn Syrup',                'barrels',    0,    2),
   ('Popcorn',                   'bags',       0,    5),
   ('Brown Sugar',               'bags',       0,    3),
-  ('Baking Soda',               'containers', 0,    2),
+
   ('Salt',                      'containers', 0,    1);
 
 -- ============================================================
@@ -171,5 +172,5 @@ insert into flavors (name) values
   ('Chocolate Peanut Butter'),
   ('Cookies & Cream'),
   ('Maple Walnut'),
-  ('Strawberry'),
+
   ('Rocky Road');

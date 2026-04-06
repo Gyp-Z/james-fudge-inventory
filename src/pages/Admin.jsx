@@ -6,6 +6,8 @@ export default function Admin() {
   const [newName, setNewName] = useState('')
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
+  const [editingThresholdId, setEditingThresholdId] = useState(null)
+  const [editThreshold, setEditThreshold] = useState('')
 
   async function loadFlavors() {
     const { data } = await supabase.from('flavors').select('*').order('name')
@@ -30,6 +32,15 @@ export default function Admin() {
     await loadFlavors()
   }
 
+  async function saveThreshold(flavor) {
+    const val = parseInt(editThreshold)
+    if (isNaN(val) || val < 0) return
+    await supabase.from('flavors').update({ low_tray_threshold: val }).eq('id', flavor.id)
+    setEditingThresholdId(null)
+    setEditThreshold('')
+    await loadFlavors()
+  }
+
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
 
   const active = flavors.filter((f) => f.is_active)
@@ -37,10 +48,7 @@ export default function Admin() {
 
   return (
     <div className="space-y-6">
-      <h2
-        className="text-2xl font-bold text-store-brown"
-        style={{ fontFamily: 'var(--font-display)' }}
-      >
+      <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
         Admin
       </h2>
 
@@ -65,20 +73,57 @@ export default function Admin() {
       </div>
 
       <div>
-        <h3 className="font-semibold text-store-brown mb-3">Active Flavors ({active.length})</h3>
+        <h3 className="font-semibold text-store-brown mb-1">Active Flavors ({active.length})</h3>
+        <p className="text-xs text-store-brown-light mb-3">
+          "Alert at" controls when a flavor shows as Make Soon on the dashboard.
+        </p>
         <div className="space-y-2">
           {active.map((f) => (
-            <div
-              key={f.id}
-              className="bg-white rounded-xl border border-store-tan p-3 flex items-center justify-between shadow-sm"
-            >
-              <span className="text-sm font-medium text-store-brown">{f.name}</span>
-              <button
-                onClick={() => toggleActive(f)}
-                className="text-xs text-store-brown-light hover:text-red-500 transition-colors px-2 py-1 rounded-lg hover:bg-red-50"
-              >
-                Archive
-              </button>
+            <div key={f.id} className="bg-white rounded-xl border border-store-tan shadow-sm overflow-hidden">
+              <div className="p-3 flex items-center justify-between">
+                <span className="text-sm font-medium text-store-brown">{f.name}</span>
+                <div className="flex items-center gap-3">
+                  {editingThresholdId === f.id ? (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        value={editThreshold}
+                        onChange={(e) => setEditThreshold(e.target.value)}
+                        min="0"
+                        max="20"
+                        autoFocus
+                        className="w-14 border border-store-tan rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+                      />
+                      <span className="text-xs text-store-brown-light">trays</span>
+                      <button
+                        onClick={() => saveThreshold(f)}
+                        className="text-xs bg-store-green text-white px-2 py-1 rounded-lg hover:bg-store-green-dark transition-colors"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => { setEditingThresholdId(null); setEditThreshold('') }}
+                        className="text-xs text-store-brown-light hover:text-store-brown px-2 py-1 rounded-lg transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setEditingThresholdId(f.id); setEditThreshold(String(f.low_tray_threshold ?? 2)) }}
+                      className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
+                    >
+                      Alert at {f.low_tray_threshold ?? 2} trays
+                    </button>
+                  )}
+                  <button
+                    onClick={() => toggleActive(f)}
+                    className="text-xs text-store-brown-light hover:text-red-500 transition-colors px-2 py-1 rounded-lg hover:bg-red-50"
+                  >
+                    Archive
+                  </button>
+                </div>
+              </div>
             </div>
           ))}
           {active.length === 0 && (
@@ -92,10 +137,7 @@ export default function Admin() {
           <h3 className="font-semibold text-store-brown-light mb-3">Archived ({archived.length})</h3>
           <div className="space-y-2">
             {archived.map((f) => (
-              <div
-                key={f.id}
-                className="bg-store-cream rounded-xl border border-store-tan p-3 flex items-center justify-between"
-              >
+              <div key={f.id} className="bg-store-cream rounded-xl border border-store-tan p-3 flex items-center justify-between">
                 <span className="text-sm text-store-brown-light">{f.name}</span>
                 <button
                   onClick={() => toggleActive(f)}

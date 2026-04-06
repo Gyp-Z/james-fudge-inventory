@@ -55,7 +55,7 @@ export default function Dashboard() {
   if (flavorsLoading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
 
   const makeNow = flavors.filter((f) => (trayCounts[f.id] ?? 0) === 0)
-  const makeSoon = flavors.filter((f) => { const c = trayCounts[f.id] ?? 0; return c > 0 && c <= 2 })
+  const makeSoon = flavors.filter((f) => { const c = trayCounts[f.id] ?? 0; return c > 0 && c <= (f.low_tray_threshold ?? 2) })
   const orderNow = ingredients.filter((i) => i.quantity === 0)
   const orderSoon = ingredients.filter((i) => i.quantity > 0 && i.quantity <= i.low_stock_threshold)
   const allGood = makeNow.length === 0 && makeSoon.length === 0 && orderNow.length === 0 && orderSoon.length === 0
