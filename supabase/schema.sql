@@ -141,6 +141,27 @@ alter table ingredients add column if not exists quantity real not null default 
 alter table ingredients add column if not exists low_stock_threshold real not null default 0;
 
 -- ============================================================
+-- MIGRATION v5 -- Restock log + Invert Sugar
+-- ============================================================
+
+-- Add Invert Sugar
+insert into ingredients (name, unit, quantity, low_stock_threshold)
+values ('Invert Sugar', 'barrels', 0, 3);
+
+-- Restock log: tracks every time an ingredient is restocked
+create table if not exists ingredient_restocks (
+  id uuid primary key default gen_random_uuid(),
+  ingredient_id uuid not null references ingredients(id) on delete cascade,
+  quantity_added real not null,
+  notes text,
+  restocked_at timestamptz not null default now()
+);
+
+alter table ingredient_restocks enable row level security;
+create policy "Authenticated full access to ingredient_restocks" on ingredient_restocks
+  for all to authenticated using (true) with check (true);
+
+-- ============================================================
 
 -- Seed some example flavors to get started
 insert into flavors (name) values

@@ -8,6 +8,7 @@ export default function Dashboard() {
   const { flavors, loading: flavorsLoading } = useFlavors()
   const [trayCounts, setTrayCounts] = useState({})
   const [todayBatches, setTodayBatches] = useState([])
+  const [ingredients, setIngredients] = useState([])
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -30,8 +31,17 @@ export default function Dashboard() {
       setTodayBatches(data || [])
     }
 
+    async function loadIngredients() {
+      const { data } = await supabase
+        .from('ingredients')
+        .select('id, name, quantity, low_stock_threshold')
+        .eq('is_active', true)
+      setIngredients(data || [])
+    }
+
     loadInventory()
     loadTodayBatches()
+    loadIngredients()
   }, [])
 
   async function handleTrayChange(flavorId, newCount) {
@@ -44,7 +54,11 @@ export default function Dashboard() {
 
   if (flavorsLoading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
 
-  const outOfStock = flavors.filter((f) => (trayCounts[f.id] ?? 0) === 0)
+  const makeNow = flavors.filter((f) => (trayCounts[f.id] ?? 0) === 0)
+  const makeSoon = flavors.filter((f) => { const c = trayCounts[f.id] ?? 0; return c > 0 && c <= 2 })
+  const orderNow = ingredients.filter((i) => i.quantity === 0)
+  const orderSoon = ingredients.filter((i) => i.quantity > 0 && i.quantity <= i.low_stock_threshold)
+  const allGood = makeNow.length === 0 && makeSoon.length === 0 && orderNow.length === 0 && orderSoon.length === 0
 
   return (
     <div className="space-y-6">
@@ -60,16 +74,62 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {outOfStock.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-          <h3 className="font-semibold text-red-700 mb-2">Out of Stock</h3>
-          <ul className="space-y-1">
-            {outOfStock.map((f) => (
-              <li key={f.id} className="text-red-600 text-sm flex items-center gap-2">
-                <span>⚠️</span> {f.name}
-              </li>
-            ))}
-          </ul>
+      {/* Priority section */}
+      {allGood ? (
+        <div className="bg-store-green-light border border-store-green rounded-xl p-4">
+          <p className="text-store-green font-semibold text-sm">✓ All good — nothing urgent right now</p>
+        </div>
+      ) : (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+          <h3 className="font-semibold text-amber-800 text-sm uppercase tracking-wide">Today's Priorities</h3>
+          {makeNow.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-1">Make Now</p>
+              <div className="flex flex-wrap gap-2">
+                {makeNow.map((f) => (
+                  <span key={f.id} className="bg-red-100 text-red-700 text-sm font-medium px-3 py-1 rounded-full">
+                    {f.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {makeSoon.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">Make Soon</p>
+              <div className="flex flex-wrap gap-2">
+                {makeSoon.map((f) => (
+                  <span key={f.id} className="bg-amber-100 text-amber-800 text-sm font-medium px-3 py-1 rounded-full">
+                    {f.name} ({trayCounts[f.id]} tray{trayCounts[f.id] !== 1 ? 's' : ''})
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {orderNow.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-1">Order Now</p>
+              <div className="flex flex-wrap gap-2">
+                {orderNow.map((i) => (
+                  <span key={i.id} className="bg-red-100 text-red-700 text-sm font-medium px-3 py-1 rounded-full">
+                    {i.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {orderSoon.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">Order Soon</p>
+              <div className="flex flex-wrap gap-2">
+                {orderSoon.map((i) => (
+                  <span key={i.id} className="bg-amber-100 text-amber-800 text-sm font-medium px-3 py-1 rounded-full">
+                    {i.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
