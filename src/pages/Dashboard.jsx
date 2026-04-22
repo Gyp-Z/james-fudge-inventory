@@ -186,7 +186,7 @@ export default function Dashboard() {
               <div key={b.id} className="bg-white rounded-xl border border-store-tan p-3 flex justify-between shadow-sm">
                 <span className="text-sm font-medium text-store-brown">{b.flavors?.name}</span>
                 <span className="text-sm text-store-brown-light">
-                  {b.weight_lbs ? `~${b.weight_lbs} lbs` : '1 tray'}
+                  {b.weight_lbs ? `~${b.weight_lbs} lbs` : `${b.tray_count ?? 1} tray${(b.tray_count ?? 1) !== 1 ? 's' : ''}`}
                 </span>
               </div>
             ))}

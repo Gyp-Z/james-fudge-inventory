@@ -27,7 +27,7 @@ export default function App() {
           element={
             <div className="min-h-screen bg-store-cream flex flex-col">
               <NavBar />
-              <main className="flex-1 px-4 py-6 max-w-2xl mx-auto w-full">
+              <main className="flex-1 px-4 py-6 pb-24 sm:pb-6 max-w-2xl mx-auto w-full">
                 <Routes>
                   <Route path="/" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/dashboard" element={<Dashboard />} />
