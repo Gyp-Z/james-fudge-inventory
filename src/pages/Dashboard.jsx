@@ -35,8 +35,15 @@ export default function Dashboard() {
       const { data } = await supabase
         .from('ingredients')
         .select('id, name, quantity, low_stock_threshold')
-        .eq('is_active', true)
-      setIngredients(data || [])
+      if (data) {
+        // Deduplicate by id in case of phantom duplicates
+        const seen = new Set()
+        setIngredients(data.filter((i) => {
+          if (seen.has(i.id)) return false
+          seen.add(i.id)
+          return true
+        }))
+      }
     }
 
     loadInventory()
@@ -66,12 +73,20 @@ export default function Dashboard() {
         <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
           Dashboard
         </h2>
-        <button
-          onClick={() => navigate('/shift')}
-          className="bg-store-green text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-store-green-dark transition-colors"
-        >
-          + Shift Report
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => navigate('/batch')}
+            className="bg-store-brown text-white px-4 py-2 rounded-xl text-sm font-semibold hover:opacity-80 transition-opacity"
+          >
+            + Log Batch
+          </button>
+          <button
+            onClick={() => navigate('/shift')}
+            className="bg-store-green text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-store-green-dark transition-colors"
+          >
+            + Shift Report
+          </button>
+        </div>
       </div>
 
       {/* Priority section */}

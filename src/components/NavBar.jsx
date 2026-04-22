@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 const staffLinks = [
   { to: '/dashboard', label: '🏠', title: 'Dashboard' },
   { to: '/shift', label: '📋', title: 'Shift Report' },
+  { to: '/batch', label: '🍫', title: 'Batch Log' },
   { to: '/ingredients', label: '🧂', title: 'Ingredients' },
   { to: '/analytics', label: '📊', title: 'Analytics' },
   { to: '/summary', label: '📝', title: 'Summary' },
