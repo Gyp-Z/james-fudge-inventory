@@ -186,9 +186,9 @@ function FlavorRow({ f, trays, editingThresholdId, editThreshold, setEditingThre
 
   return (
     <div className="bg-white rounded-xl border border-store-tan shadow-sm overflow-hidden">
-      <div className="p-3 flex items-center justify-between">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm font-medium text-store-brown truncate">{f.name}</span>
+      <div className="p-3 flex items-start sm:items-center justify-between gap-4 flex-col sm:flex-row">
+        <div className="flex items-start sm:items-center gap-2 flex-1">
+          <span className="text-sm font-medium text-store-brown leading-tight">{f.name}</span>
           {isOut && (
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Out</span>
           )}
@@ -196,7 +196,7 @@ function FlavorRow({ f, trays, editingThresholdId, editThreshold, setEditingThre
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Low</span>
           )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           {editingThresholdId === f.id ? (
             <div className="flex items-center gap-1.5">
               <input

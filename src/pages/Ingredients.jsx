@@ -287,12 +287,12 @@ function IngredientRow({
   return (
     <div className="bg-white rounded-xl border border-store-tan shadow-sm overflow-hidden">
       {/* Main row */}
-      <div className="flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="text-sm font-medium text-store-brown truncate">{ing.name}</span>
+      <div className="flex items-start sm:items-center justify-between px-4 py-3 gap-4 flex-col sm:flex-row">
+        <div className="flex items-start sm:items-center gap-3 flex-1">
+          <span className="text-sm font-medium text-store-brown leading-tight">{ing.name}</span>
           <StatusBadge quantity={ing.quantity} threshold={ing.low_stock_threshold} />
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
           <span className="text-sm text-store-brown-light font-mono">{ing.quantity} {ing.unit}</span>
           {!isEditing && !isRestocking && (
             <>
