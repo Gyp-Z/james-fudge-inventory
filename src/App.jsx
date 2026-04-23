@@ -2,12 +2,10 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './hooks/useAuth'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
-import MorningReport from './pages/MorningReport'
-import ClosingReport from './pages/ClosingReport'
+import ShiftReport from './pages/ShiftReport'
 import Analytics from './pages/Analytics'
 import Admin from './pages/Admin'
 import Ingredients from './pages/Ingredients'
-import Summary from './pages/Summary'
 import NavBar from './components/NavBar'
 
 function AdminRoute({ children }) {
@@ -29,13 +27,11 @@ export default function App() {
               <NavBar />
               <main className="flex-1 px-4 py-6 pb-24 sm:pb-6 max-w-2xl mx-auto w-full">
                 <Routes>
-                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                  <Route path="/dashboard" element={<Dashboard />} />
-                  <Route path="/morning" element={<MorningReport />} />
-                  <Route path="/closing" element={<ClosingReport />} />
-                  <Route path="/ingredients" element={<AdminRoute><Ingredients /></AdminRoute>} />
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/dashboard" element={<Navigate to="/" replace />} />
+                  <Route path="/report" element={<ShiftReport />} />
+                  <Route path="/ingredients" element={<Ingredients />} />
                   <Route path="/analytics" element={<AdminRoute><Analytics /></AdminRoute>} />
-                  <Route path="/summary" element={<Summary />} />
                   <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
                 </Routes>
               </main>

@@ -4,20 +4,19 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
 const staffTabs = [
-  { to: '/dashboard', label: '📋', title: 'Dashboard' },
-  { to: '/morning', label: '☀️', title: 'Morning' },
-  { to: '/closing', label: '🌙', title: 'Closing' },
+  { to: '/', label: '📋', title: 'Dashboard', end: true },
+  { to: '/report', label: '📝', title: 'Report' },
+  { to: '/ingredients', label: '🧂', title: 'Ingredients' },
 ]
 
 const adminMainTabs = [
-  { to: '/dashboard', label: '📋', title: 'Dashboard' },
-  { to: '/morning', label: '☀️', title: 'Morning' },
-  { to: '/closing', label: '🌙', title: 'Closing' },
+  { to: '/', label: '📋', title: 'Dashboard', end: true },
+  { to: '/report', label: '📝', title: 'Report' },
   { to: '/analytics', label: '📊', title: 'Analytics' },
+  { to: '/ingredients', label: '🧂', title: 'Ingredients' },
 ]
 
 const moreItems = [
-  { to: '/ingredients', label: '🧂', title: 'Ingredients' },
   { to: '/admin', label: '🍬', title: 'Flavors' },
 ]
 
@@ -97,10 +96,11 @@ export default function NavBar() {
         )}
 
         <div className="flex items-stretch">
-          {tabs.map(({ to, label, title }) => (
+          {tabs.map(({ to, label, title, end }) => (
             <NavLink
               key={to}
               to={to}
+              end={end}
               title={title}
               className={({ isActive }) =>
                 `flex-1 flex flex-col items-center justify-center py-2 text-xs font-medium transition-colors gap-0.5 ${
@@ -129,10 +129,11 @@ export default function NavBar() {
 
       {/* Desktop nav — hidden on mobile, shows all links inline */}
       <nav className="hidden sm:flex bg-store-green text-white px-4 py-2 items-center gap-1 shadow-sm">
-        {tabs.map(({ to, label, title }) => (
+        {tabs.map(({ to, label, title, end }) => (
           <NavLink
             key={to}
             to={to}
+            end={end}
             className={({ isActive }) =>
               `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 isActive ? 'bg-store-green-dark' : 'hover:bg-store-green-dark'

@@ -57,7 +57,7 @@ export default function Ingredients() {
   const [showArchived, setShowArchived] = useState(false)
 
   async function loadIngredients() {
-    let query = supabase.from('ingredients').select('*').eq('is_active', true).order('name')
+    let query = supabase.from('ingredients').select('*').order('name')
     if (!showArchived) query = query.eq('archived', false)
     const { data } = await query
     setIngredients(data || [])
@@ -150,10 +150,6 @@ export default function Ingredients() {
     setNewThreshold('')
     setAdding(false)
     await loadIngredients()
-  }
-
-  if (!isAdmin) {
-    return <p className="text-store-brown-light text-center py-12">Admin access required</p>
   }
 
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
@@ -298,7 +294,7 @@ function IngredientRow({
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-sm text-store-brown-light font-mono">{ing.quantity} {ing.unit}</span>
-          {isAdmin && !isEditing && !isRestocking && (
+          {!isEditing && !isRestocking && (
             <>
               {ing.archived ? (
                 <button
@@ -309,18 +305,22 @@ function IngredientRow({
                 </button>
               ) : (
                 <>
-                  <button
-                    onClick={() => onEditStart(ing)}
-                    className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => onRestockStart(ing)}
-                    className="text-xs bg-store-green text-white px-2 py-1 rounded-lg hover:bg-store-green-dark transition-colors"
-                  >
-                    + Restock
-                  </button>
+                  {isAdmin && (
+                    <>
+                      <button
+                        onClick={() => onEditStart(ing)}
+                        className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => onRestockStart(ing)}
+                        className="text-xs bg-store-green text-white px-2 py-1 rounded-lg hover:bg-store-green-dark transition-colors"
+                      >
+                        + Restock
+                      </button>
+                    </>
+                  )}
                   <button
                     onClick={() => onArchive(ing)}
                     className="text-xs text-store-brown-light hover:text-red-600 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"

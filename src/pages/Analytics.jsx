@@ -78,11 +78,13 @@ export default function Analytics() {
     return [...dates].sort()
   }, [filteredReports])
 
-  // Chart A — Daily Production: stacked bars, trays_made from closing per day
+  const isClosingLike = (r) => r.report_type === 'closing' || r.report_type === 'snapshot'
+
+  // Chart A — Daily Production: stacked bars, trays_made from closing/snapshot per day
   const chartAData = useMemo(() => {
     const closingByDate = {}
     filteredReports
-      .filter((r) => r.report_type === 'closing')
+      .filter(isClosingLike)
       .forEach((r) => { closingByDate[r.report_date] = r })
 
     return uniqueDates
@@ -98,33 +100,31 @@ export default function Analytics() {
       .filter((row) => flavors.some((f) => row[f.name] > 0))
   }, [filteredReports, uniqueDates, flavors])
 
-  // Chart B — Sales: grouped bars, trays_sold per day (morning + closing required)
+  // Chart B — Sales: trays_sold between consecutive reports
+  // Formula: (prev full_trays + curr trays_made) - (curr full_trays + curr trays_wasted)
   const chartBData = useMemo(() => {
-    const morningByDate = {}
-    const closingByDate = {}
-    filteredReports.forEach((r) => {
-      if (r.report_type === 'morning') morningByDate[r.report_date] = r
-      if (r.report_type === 'closing') closingByDate[r.report_date] = r
-    })
-
-    return uniqueDates
-      .filter((d) => morningByDate[d] && closingByDate[d])
-      .map((date) => {
-        const morning = morningByDate[date]
-        const closing = closingByDate[date]
-        const row = { date: formatDate(date) }
-        flavors.forEach((f) => {
-          const me = morning.shift_report_entries?.find((e) => e.flavor_id === f.id)
-          const ce = closing.shift_report_entries?.find((e) => e.flavor_id === f.id)
-          const morningFull = me?.full_trays ?? 0
-          const traysMade = ce?.trays_made ?? 0
-          const closingFull = ce?.full_trays ?? 0
-          const traysWasted = ce?.trays_wasted ?? 0
-          row[f.name] = Math.max(0, morningFull + traysMade - closingFull - traysWasted)
-        })
-        return row
+    const sorted = filteredReports.slice().sort((a, b) => a.report_date.localeCompare(b.report_date))
+    const result = []
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1]
+      const curr = sorted[i]
+      const row = { date: formatDate(curr.report_date) }
+      let hasData = false
+      flavors.forEach((f) => {
+        const pe = prev.shift_report_entries?.find((e) => e.flavor_id === f.id)
+        const ce = curr.shift_report_entries?.find((e) => e.flavor_id === f.id)
+        const prevFull = pe?.full_trays ?? 0
+        const traysMade = ce?.trays_made ?? 0
+        const currFull = ce?.full_trays ?? 0
+        const traysWasted = ce?.trays_wasted ?? 0
+        const sold = Math.max(0, prevFull + traysMade - currFull - traysWasted)
+        row[f.name] = sold
+        if (sold > 0) hasData = true
       })
-  }, [filteredReports, uniqueDates, flavors])
+      if (hasData) result.push(row)
+    }
+    return result
+  }, [filteredReports, flavors])
 
   // Chart C — Waste: total per flavor + detail table
   const { chartCData, wasteTable } = useMemo(() => {
@@ -133,7 +133,7 @@ export default function Analytics() {
     flavors.forEach((f) => { totals[f.name] = 0 })
 
     filteredReports
-      .filter((r) => r.report_type === 'closing')
+      .filter(isClosingLike)
       .forEach((r) => {
         r.shift_report_entries?.forEach((e) => {
           if ((e.trays_wasted ?? 0) > 0) {
@@ -157,11 +157,11 @@ export default function Analytics() {
     return { chartCData: chartData, wasteTable: table }
   }, [filteredReports, flavors])
 
-  // Chart D — Stock Trend: full_trays at close per day per flavor
+  // Chart D — Stock Trend: full_trays at close/snapshot per day per flavor
   const chartDData = useMemo(() => {
     const closingByDate = {}
     filteredReports
-      .filter((r) => r.report_type === 'closing')
+      .filter(isClosingLike)
       .forEach((r) => { closingByDate[r.report_date] = r })
 
     return uniqueDates
@@ -178,7 +178,7 @@ export default function Analytics() {
   }, [filteredReports, uniqueDates, flavors])
 
   const closingDays = new Set(
-    reports.filter((r) => r.report_type === 'closing').map((r) => r.report_date)
+    reports.filter(isClosingLike).map((r) => r.report_date)
   ).size
 
   if (loading) {
