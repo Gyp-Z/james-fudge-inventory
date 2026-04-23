@@ -160,29 +160,8 @@ export default function Analytics() {
       })
   }, [filteredReports, uniqueDates, flavors])
 
-  const closingDays = new Set(
-    reports.filter(isClosingLike).map((r) => r.report_date)
-  ).size
-
   if (loading) {
     return <p className="text-store-brown-light text-center py-12">Loading analytics...</p>
-  }
-
-  if (closingDays < 1) {
-    return (
-      <div className="text-center py-20">
-        <div className="text-5xl mb-4">📊</div>
-        <h2
-          className="text-xl font-bold text-store-brown"
-          style={{ fontFamily: 'var(--font-display)' }}
-        >
-          Keep logging shifts
-        </h2>
-        <p className="text-store-brown-light mt-2 text-sm">
-          Analytics will appear after a few days of data! 📊
-        </p>
-      </div>
-    )
   }
 
   const tooltipStyle = { borderRadius: 8, borderColor: '#F5EDD8', fontSize: 12 }
