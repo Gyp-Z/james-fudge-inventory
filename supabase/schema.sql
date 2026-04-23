@@ -164,6 +164,21 @@ create policy "Authenticated full access to ingredient_restocks" on ingredient_r
 
 -- ============================================================
 
+-- ============================================================
+-- MIGRATION v6 -- Public read access + archive for ingredients
+-- Run these in Supabase SQL Editor
+-- ============================================================
+
+-- Allow anon (public/chef) to read flavors and current_inventory
+-- (current_inventory anon SELECT already exists from v3; flavors was missing it)
+create policy if not exists "Public read flavors" on flavors
+  for select to anon using (true);
+
+-- Archive column for ingredients
+alter table ingredients add column if not exists archived boolean not null default false;
+
+-- ============================================================
+
 -- Seed some example flavors to get started
 insert into flavors (name) values
   ('Vanilla'),

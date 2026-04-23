@@ -6,8 +6,6 @@ const staffTabs = [
   { to: '/dashboard', label: '🏠', title: 'Dashboard' },
   { to: '/batch', label: '🍫', title: 'Batch' },
   { to: '/shift', label: '📋', title: 'Shift' },
-  { to: '/ingredients', label: '🧂', title: 'Ingredients' },
-  { to: '/analytics', label: '📊', title: 'Analytics' },
 ]
 
 const adminTabs = [

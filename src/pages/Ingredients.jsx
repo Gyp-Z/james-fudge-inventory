@@ -53,14 +53,26 @@ export default function Ingredients() {
   // History toggle
   const [showHistoryId, setShowHistoryId] = useState(null)
 
+  // Archive toggle
+  const [showArchived, setShowArchived] = useState(false)
+
   async function loadIngredients() {
     const { data } = await supabase
       .from('ingredients')
       .select('*')
       .eq('is_active', true)
+      .eq('archived', showArchived)
       .order('name')
     setIngredients(data || [])
     setLoading(false)
+  }
+
+  async function handleArchive(ingredient) {
+    await supabase
+      .from('ingredients')
+      .update({ archived: true })
+      .eq('id', ingredient.id)
+    await loadIngredients()
   }
 
   async function loadRestocks() {
@@ -81,7 +93,7 @@ export default function Ingredients() {
   useEffect(() => {
     loadIngredients()
     loadRestocks()
-  }, [])
+  }, [showArchived])
 
   async function saveQuantity(ingredient) {
     const qty = parseFloat(editQty)
@@ -140,7 +152,7 @@ export default function Ingredients() {
   const needsOrder = ingredients.filter(i => getStatus(i.quantity, i.low_stock_threshold) !== 'ok')
   const inStock = ingredients.filter(i => getStatus(i.quantity, i.low_stock_threshold) === 'ok')
 
-  const rowProps = { isAdmin, editingId, editQty, saving, restockingId, restockQty, restockNotes, restockSaving, showHistoryId, restocks }
+  const rowProps = { isAdmin, editingId, editQty, saving, restockingId, restockQty, restockNotes, restockSaving, showHistoryId, restocks, showArchived }
   const rowHandlers = {
     onEditStart: (ing) => { setEditingId(ing.id); setEditQty(String(ing.quantity)) },
     onEditChange: setEditQty,
@@ -152,13 +164,24 @@ export default function Ingredients() {
     onRestockSave: logRestock,
     onRestockCancel: () => { setRestockingId(null); setRestockQty(''); setRestockNotes('') },
     onToggleHistory: (id) => setShowHistoryId(showHistoryId === id ? null : id),
+    onArchive: handleArchive,
   }
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
-        Ingredients
-      </h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
+          {showArchived ? 'Archived Ingredients' : 'Ingredients'}
+        </h2>
+        {isAdmin && (
+          <button
+            onClick={() => setShowArchived((v) => !v)}
+            className="text-xs text-store-brown-light underline hover:text-store-brown"
+          >
+            {showArchived ? 'Show Active' : 'Show Archived'}
+          </button>
+        )}
+      </div>
 
       {/* Order Report */}
       {needsOrder.length > 0 && (
@@ -233,7 +256,7 @@ function IngredientRow({
   ing, isAdmin,
   editingId, editQty, saving, onEditStart, onEditChange, onSave, onEditCancel,
   restockingId, restockQty, restockNotes, restockSaving, onRestockStart, onRestockQtyChange, onRestockNotesChange, onRestockSave, onRestockCancel,
-  showHistoryId, restocks, onToggleHistory,
+  showHistoryId, restocks, onToggleHistory, showArchived, onArchive,
 }) {
   const isEditing = editingId === ing.id
   const isRestocking = restockingId === ing.id
@@ -252,18 +275,28 @@ function IngredientRow({
           <span className="text-sm text-store-brown-light font-mono">{ing.quantity} {ing.unit}</span>
           {isAdmin && !isEditing && !isRestocking && (
             <>
-              <button
-                onClick={() => onEditStart(ing)}
-                className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
-              >
-                Edit
-              </button>
-              <button
-                onClick={() => onRestockStart(ing)}
-                className="text-xs bg-store-green text-white px-2 py-1 rounded-lg hover:bg-store-green-dark transition-colors"
-              >
-                + Restock
-              </button>
+              {!showArchived && (
+                <>
+                  <button
+                    onClick={() => onEditStart(ing)}
+                    className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => onRestockStart(ing)}
+                    className="text-xs bg-store-green text-white px-2 py-1 rounded-lg hover:bg-store-green-dark transition-colors"
+                  >
+                    + Restock
+                  </button>
+                  <button
+                    onClick={() => onArchive(ing)}
+                    className="text-xs text-store-brown-light hover:text-red-600 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
+                  >
+                    Archive
+                  </button>
+                </>
+              )}
             </>
           )}
           {history.length > 0 && !isEditing && !isRestocking && (

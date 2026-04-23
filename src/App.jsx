@@ -34,7 +34,7 @@ export default function App() {
                   <Route path="/shift" element={<ShiftReport />} />
                   <Route path="/batch" element={<BatchLog />} />
                   <Route path="/ingredients" element={<Ingredients />} />
-                  <Route path="/analytics" element={<Analytics />} />
+                  <Route path="/analytics" element={<AdminRoute><Analytics /></AdminRoute>} />
                   <Route path="/summary" element={<Summary />} />
                   <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
                 </Routes>

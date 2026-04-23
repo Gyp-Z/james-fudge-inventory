@@ -319,7 +319,7 @@ export default function BatchLog() {
                 <div className="flex justify-between mt-1">
                   <span className="text-xs text-store-brown-light">
                     {new Date(b.batch_date).toLocaleDateString('en-US', {
-                      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+                      timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
                     })}
                   </span>
                   {b.notes && <span className="text-xs text-store-brown-light italic">{b.notes}</span>}
