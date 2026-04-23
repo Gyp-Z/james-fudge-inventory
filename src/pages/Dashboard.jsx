@@ -11,19 +11,12 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function loadIngredients() {
-      // Try with archived filter first; fall back to all ingredients if column doesn't exist yet
-      let result = await supabase
+      const { data } = await supabase
         .from('ingredients')
         .select('id, name, quantity, unit, low_stock_threshold')
-        .eq('archived', false)
+        .eq('is_active', true)
         .order('name')
-      if (result.error && (result.error.code === 'PGRST204' || result.error.message?.toLowerCase().includes('archived'))) {
-        result = await supabase
-          .from('ingredients')
-          .select('id, name, quantity, unit, low_stock_threshold')
-          .order('name')
-      }
-      setIngredients(result.data || [])
+      setIngredients(data || [])
       setIngredientsLoading(false)
     }
     loadIngredients()
@@ -45,7 +38,7 @@ export default function Dashboard() {
           .eq('report_id', latestReports[0].id)
 
         const map = {}
-        ;(reportEntries || []).forEach((e) => { map[e.flavor_id] = e })
+          ; (reportEntries || []).forEach((e) => { map[e.flavor_id] = e })
         setEntries(map)
         setReportFound(true)
         return
@@ -144,20 +137,18 @@ export default function Dashboard() {
                 return (
                   <div
                     key={ing.id}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${
-                      isOut
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${isOut
                         ? 'bg-red-50 border-red-300 text-red-700'
                         : 'bg-amber-50 border-amber-300 text-amber-700'
-                    }`}
+                      }`}
                   >
                     <span>{ing.name}</span>
                     <span className="opacity-70">
                       {ing.quantity} {ing.unit}
                     </span>
                     <span
-                      className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
-                        isOut ? 'bg-red-200 text-red-800' : 'bg-amber-200 text-amber-800'
-                      }`}
+                      className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${isOut ? 'bg-red-200 text-red-800' : 'bg-amber-200 text-amber-800'
+                        }`}
                     >
                       {isOut ? 'Out' : 'Low'}
                     </span>

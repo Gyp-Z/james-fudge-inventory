@@ -21,7 +21,7 @@ export default function ShiftReport() {
       const { data: flavorsData } = await supabase
         .from('flavors')
         .select('id, name, low_tray_threshold')
-        .eq('active', true)
+        .eq('is_active', true)
         .order('name')
 
       const activeFlavors = flavorsData || []
@@ -40,7 +40,7 @@ export default function ShiftReport() {
           .from('shift_report_entries')
           .select('flavor_id, full_trays, in_progress_trays')
           .eq('report_id', latestReport[0].id)
-        ;(prevEntries || []).forEach((e) => { prefill[e.flavor_id] = e })
+          ; (prevEntries || []).forEach((e) => { prefill[e.flavor_id] = e })
       }
 
       const initial = {}

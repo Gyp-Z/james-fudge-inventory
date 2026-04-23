@@ -58,7 +58,7 @@ export default function Ingredients() {
 
   async function loadIngredients() {
     let query = supabase.from('ingredients').select('*').order('name')
-    if (!showArchived) query = query.eq('archived', false)
+    if (!showArchived) query = query.eq('is_active', true)
     const { data } = await query
     setIngredients(data || [])
     setLoading(false)
@@ -67,7 +67,7 @@ export default function Ingredients() {
   async function handleArchive(ingredient) {
     await supabase
       .from('ingredients')
-      .update({ archived: true })
+      .update({ is_active: false })
       .eq('id', ingredient.id)
     await loadIngredients()
   }
@@ -75,7 +75,7 @@ export default function Ingredients() {
   async function handleUnarchive(ingredient) {
     await supabase
       .from('ingredients')
-      .update({ archived: false })
+      .update({ is_active: true })
       .eq('id', ingredient.id)
     await loadIngredients()
   }
@@ -154,8 +154,8 @@ export default function Ingredients() {
 
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
 
-  const activeIngredients = ingredients.filter(i => !i.archived)
-  const archivedIngredients = ingredients.filter(i => i.archived)
+  const activeIngredients = ingredients.filter(i => i.is_active !== false)
+  const archivedIngredients = ingredients.filter(i => i.is_active === false)
   const needsOrder = activeIngredients.filter(i => getStatus(i.quantity, i.low_stock_threshold) !== 'ok')
   const inStock = activeIngredients.filter(i => getStatus(i.quantity, i.low_stock_threshold) === 'ok')
 
@@ -296,7 +296,7 @@ function IngredientRow({
           <span className="text-sm text-store-brown-light font-mono">{ing.quantity} {ing.unit}</span>
           {!isEditing && !isRestocking && (
             <>
-              {ing.archived ? (
+              {!ing.is_active ? (
                 <button
                   onClick={() => onUnarchive(ing)}
                   className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"

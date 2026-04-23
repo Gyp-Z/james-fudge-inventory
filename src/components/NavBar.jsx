@@ -17,7 +17,7 @@ const adminMainTabs = [
 ]
 
 const moreItems = [
-  { to: '/admin', label: '🍬', title: 'Flavors' },
+  { to: '/admin', label: '🍬', title: 'Products' },
 ]
 
 export default function NavBar() {
@@ -81,10 +81,9 @@ export default function NavBar() {
                 to={to}
                 onClick={() => setMoreOpen(false)}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 px-5 py-3 text-sm font-medium border-b border-store-tan last:border-b-0 transition-colors ${
-                    isActive
-                      ? 'text-store-green bg-store-green-light'
-                      : 'text-store-brown hover:bg-store-cream'
+                  `flex items-center gap-3 px-5 py-3 text-sm font-medium border-b border-store-tan last:border-b-0 transition-colors ${isActive
+                    ? 'text-store-green bg-store-green-light'
+                    : 'text-store-brown hover:bg-store-cream'
                   }`
                 }
               >
@@ -103,8 +102,7 @@ export default function NavBar() {
               end={end}
               title={title}
               className={({ isActive }) =>
-                `flex-1 flex flex-col items-center justify-center py-2 text-xs font-medium transition-colors gap-0.5 ${
-                  isActive ? 'text-store-green' : 'text-store-brown-light'
+                `flex-1 flex flex-col items-center justify-center py-2 text-xs font-medium transition-colors gap-0.5 ${isActive ? 'text-store-green' : 'text-store-brown-light'
                 }`
               }
             >
@@ -116,9 +114,8 @@ export default function NavBar() {
             <button
               onClick={() => setMoreOpen(prev => !prev)}
               title="More"
-              className={`flex-1 flex flex-col items-center justify-center py-2 text-xs font-medium transition-colors gap-0.5 ${
-                isMoreActive || moreOpen ? 'text-store-green' : 'text-store-brown-light'
-              }`}
+              className={`flex-1 flex flex-col items-center justify-center py-2 text-xs font-medium transition-colors gap-0.5 ${isMoreActive || moreOpen ? 'text-store-green' : 'text-store-brown-light'
+                }`}
             >
               <span className="text-lg leading-none">⋯</span>
               <span>More</span>
@@ -135,8 +132,7 @@ export default function NavBar() {
             to={to}
             end={end}
             className={({ isActive }) =>
-              `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                isActive ? 'bg-store-green-dark' : 'hover:bg-store-green-dark'
+              `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${isActive ? 'bg-store-green-dark' : 'hover:bg-store-green-dark'
               }`
             }
           >
@@ -148,8 +144,7 @@ export default function NavBar() {
             key={to}
             to={to}
             className={({ isActive }) =>
-              `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                isActive ? 'bg-store-green-dark' : 'hover:bg-store-green-dark'
+              `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${isActive ? 'bg-store-green-dark' : 'hover:bg-store-green-dark'
               }`
             }
           >
