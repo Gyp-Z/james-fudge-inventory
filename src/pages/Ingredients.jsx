@@ -57,12 +57,9 @@ export default function Ingredients() {
   const [showArchived, setShowArchived] = useState(false)
 
   async function loadIngredients() {
-    const { data } = await supabase
-      .from('ingredients')
-      .select('*')
-      .eq('is_active', true)
-      .eq('archived', showArchived)
-      .order('name')
+    let query = supabase.from('ingredients').select('*').eq('is_active', true).order('name')
+    if (!showArchived) query = query.eq('archived', false)
+    const { data } = await query
     setIngredients(data || [])
     setLoading(false)
   }
@@ -71,6 +68,14 @@ export default function Ingredients() {
     await supabase
       .from('ingredients')
       .update({ archived: true })
+      .eq('id', ingredient.id)
+    await loadIngredients()
+  }
+
+  async function handleUnarchive(ingredient) {
+    await supabase
+      .from('ingredients')
+      .update({ archived: false })
       .eq('id', ingredient.id)
     await loadIngredients()
   }
@@ -147,10 +152,16 @@ export default function Ingredients() {
     await loadIngredients()
   }
 
+  if (!isAdmin) {
+    return <p className="text-store-brown-light text-center py-12">Admin access required</p>
+  }
+
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
 
-  const needsOrder = ingredients.filter(i => getStatus(i.quantity, i.low_stock_threshold) !== 'ok')
-  const inStock = ingredients.filter(i => getStatus(i.quantity, i.low_stock_threshold) === 'ok')
+  const activeIngredients = ingredients.filter(i => !i.archived)
+  const archivedIngredients = ingredients.filter(i => i.archived)
+  const needsOrder = activeIngredients.filter(i => getStatus(i.quantity, i.low_stock_threshold) !== 'ok')
+  const inStock = activeIngredients.filter(i => getStatus(i.quantity, i.low_stock_threshold) === 'ok')
 
   const rowProps = { isAdmin, editingId, editQty, saving, restockingId, restockQty, restockNotes, restockSaving, showHistoryId, restocks, showArchived }
   const rowHandlers = {
@@ -165,22 +176,21 @@ export default function Ingredients() {
     onRestockCancel: () => { setRestockingId(null); setRestockQty(''); setRestockNotes('') },
     onToggleHistory: (id) => setShowHistoryId(showHistoryId === id ? null : id),
     onArchive: handleArchive,
+    onUnarchive: handleUnarchive,
   }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
-          {showArchived ? 'Archived Ingredients' : 'Ingredients'}
+          Ingredients
         </h2>
-        {isAdmin && (
-          <button
-            onClick={() => setShowArchived((v) => !v)}
-            className="text-xs text-store-brown-light underline hover:text-store-brown"
-          >
-            {showArchived ? 'Show Active' : 'Show Archived'}
-          </button>
-        )}
+        <button
+          onClick={() => setShowArchived((v) => !v)}
+          className="text-xs text-store-brown-light underline hover:text-store-brown"
+        >
+          {showArchived ? 'Hide Archived' : 'Show Archived'}
+        </button>
       </div>
 
       {/* Order Report */}
@@ -207,6 +217,21 @@ export default function Ingredients() {
           )}
         </div>
       </div>
+
+      {/* Archived */}
+      {showArchived && archivedIngredients.length > 0 && (
+        <div>
+          <h3 className="font-semibold text-store-brown-light mb-3">Archived ({archivedIngredients.length})</h3>
+          <div className="space-y-2 opacity-60">
+            {archivedIngredients.map(ing => (
+              <IngredientRow key={ing.id} ing={ing} {...rowProps} {...rowHandlers} />
+            ))}
+          </div>
+        </div>
+      )}
+      {showArchived && archivedIngredients.length === 0 && (
+        <p className="text-store-brown-light text-sm text-center py-2">No archived ingredients</p>
+      )}
 
       {/* Add Ingredient — admin only */}
       {isAdmin && (
@@ -256,7 +281,7 @@ function IngredientRow({
   ing, isAdmin,
   editingId, editQty, saving, onEditStart, onEditChange, onSave, onEditCancel,
   restockingId, restockQty, restockNotes, restockSaving, onRestockStart, onRestockQtyChange, onRestockNotesChange, onRestockSave, onRestockCancel,
-  showHistoryId, restocks, onToggleHistory, showArchived, onArchive,
+  showHistoryId, restocks, onToggleHistory, showArchived, onArchive, onUnarchive,
 }) {
   const isEditing = editingId === ing.id
   const isRestocking = restockingId === ing.id
@@ -275,7 +300,14 @@ function IngredientRow({
           <span className="text-sm text-store-brown-light font-mono">{ing.quantity} {ing.unit}</span>
           {isAdmin && !isEditing && !isRestocking && (
             <>
-              {!showArchived && (
+              {ing.archived ? (
+                <button
+                  onClick={() => onUnarchive(ing)}
+                  className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
+                >
+                  Unarchive
+                </button>
+              ) : (
                 <>
                   <button
                     onClick={() => onEditStart(ing)}

@@ -2,8 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './hooks/useAuth'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
-import ShiftReport from './pages/ShiftReport'
-import BatchLog from './pages/BatchLog'
+import MorningReport from './pages/MorningReport'
+import ClosingReport from './pages/ClosingReport'
 import Analytics from './pages/Analytics'
 import Admin from './pages/Admin'
 import Ingredients from './pages/Ingredients'
@@ -13,7 +13,7 @@ import NavBar from './components/NavBar'
 function AdminRoute({ children }) {
   const { session, loading } = useAuth()
   if (loading) return <div className="flex items-center justify-center h-screen text-store-brown-light">Loading...</div>
-  if (!session) return <Navigate to="/login" replace />
+  if (!session) return <Navigate to="/" replace />
   return children
 }
 
@@ -31,9 +31,9 @@ export default function App() {
                 <Routes>
                   <Route path="/" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/dashboard" element={<Dashboard />} />
-                  <Route path="/shift" element={<ShiftReport />} />
-                  <Route path="/batch" element={<BatchLog />} />
-                  <Route path="/ingredients" element={<Ingredients />} />
+                  <Route path="/morning" element={<MorningReport />} />
+                  <Route path="/closing" element={<ClosingReport />} />
+                  <Route path="/ingredients" element={<AdminRoute><Ingredients /></AdminRoute>} />
                   <Route path="/analytics" element={<AdminRoute><Analytics /></AdminRoute>} />
                   <Route path="/summary" element={<Summary />} />
                   <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />

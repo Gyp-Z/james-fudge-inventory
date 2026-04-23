@@ -1,26 +1,45 @@
-import { NavLink, useNavigate } from 'react-router-dom'
+import { useState, useRef, useEffect } from 'react'
+import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
 const staffTabs = [
-  { to: '/dashboard', label: '🏠', title: 'Dashboard' },
-  { to: '/batch', label: '🍫', title: 'Batch' },
-  { to: '/shift', label: '📋', title: 'Shift' },
+  { to: '/dashboard', label: '📋', title: 'Dashboard' },
+  { to: '/morning', label: '☀️', title: 'Morning' },
+  { to: '/closing', label: '🌙', title: 'Closing' },
 ]
 
-const adminTabs = [
-  { to: '/dashboard', label: '🏠', title: 'Dashboard' },
-  { to: '/batch', label: '🍫', title: 'Batch' },
-  { to: '/shift', label: '📋', title: 'Shift' },
-  { to: '/ingredients', label: '🧂', title: 'Ingredients' },
+const adminMainTabs = [
+  { to: '/dashboard', label: '📋', title: 'Dashboard' },
+  { to: '/morning', label: '☀️', title: 'Morning' },
+  { to: '/closing', label: '🌙', title: 'Closing' },
   { to: '/analytics', label: '📊', title: 'Analytics' },
-  { to: '/admin', label: '⚙️', title: 'Admin' },
+]
+
+const moreItems = [
+  { to: '/ingredients', label: '🧂', title: 'Ingredients' },
+  { to: '/admin', label: '🍬', title: 'Flavors' },
 ]
 
 export default function NavBar() {
   const { session } = useAuth()
   const navigate = useNavigate()
-  const tabs = session ? adminTabs : staffTabs
+  const location = useLocation()
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreRef = useRef(null)
+
+  const tabs = session ? adminMainTabs : staffTabs
+  const isMoreActive = session && moreItems.some(item => location.pathname === item.to)
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (moreRef.current && !moreRef.current.contains(e.target)) {
+        setMoreOpen(false)
+      }
+    }
+    if (moreOpen) document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [moreOpen])
 
   async function handleSignOut() {
     await supabase.auth.signOut()
@@ -54,6 +73,29 @@ export default function NavBar() {
 
       {/* Bottom tab bar — mobile only */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-store-tan shadow-lg sm:hidden">
+        {/* More drawer — slides up above tab bar */}
+        {session && moreOpen && (
+          <div ref={moreRef} className="absolute bottom-full left-0 right-0 bg-white border-t border-store-tan shadow-lg">
+            {moreItems.map(({ to, label, title }) => (
+              <NavLink
+                key={to}
+                to={to}
+                onClick={() => setMoreOpen(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-5 py-3 text-sm font-medium border-b border-store-tan last:border-b-0 transition-colors ${
+                    isActive
+                      ? 'text-store-green bg-store-green-light'
+                      : 'text-store-brown hover:bg-store-cream'
+                  }`
+                }
+              >
+                <span className="text-lg">{label}</span>
+                <span>{title}</span>
+              </NavLink>
+            ))}
+          </div>
+        )}
+
         <div className="flex items-stretch">
           {tabs.map(({ to, label, title }) => (
             <NavLink
@@ -70,16 +112,40 @@ export default function NavBar() {
               <span>{title}</span>
             </NavLink>
           ))}
+          {session && (
+            <button
+              onClick={() => setMoreOpen(prev => !prev)}
+              title="More"
+              className={`flex-1 flex flex-col items-center justify-center py-2 text-xs font-medium transition-colors gap-0.5 ${
+                isMoreActive || moreOpen ? 'text-store-green' : 'text-store-brown-light'
+              }`}
+            >
+              <span className="text-lg leading-none">⋯</span>
+              <span>More</span>
+            </button>
+          )}
         </div>
       </nav>
 
-      {/* Desktop nav — hidden on mobile */}
+      {/* Desktop nav — hidden on mobile, shows all links inline */}
       <nav className="hidden sm:flex bg-store-green text-white px-4 py-2 items-center gap-1 shadow-sm">
         {tabs.map(({ to, label, title }) => (
           <NavLink
             key={to}
             to={to}
-            title={title}
+            className={({ isActive }) =>
+              `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                isActive ? 'bg-store-green-dark' : 'hover:bg-store-green-dark'
+              }`
+            }
+          >
+            {label} {title}
+          </NavLink>
+        ))}
+        {session && moreItems.map(({ to, label, title }) => (
+          <NavLink
+            key={to}
+            to={to}
             className={({ isActive }) =>
               `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 isActive ? 'bg-store-green-dark' : 'hover:bg-store-green-dark'

@@ -1,107 +1,191 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  LineChart, Line, CartesianGrid,
+  LineChart, Line, CartesianGrid, Legend,
 } from 'recharts'
 import { supabase } from '../lib/supabase'
 
+const FLAVOR_COLORS = [
+  '#7C4B2A', '#2D5A1B', '#C4843A', '#5B3A7E', '#2E86AB',
+  '#E84855', '#3BB273', '#F6AE2D', '#8B5E3C', '#4A7B35',
+]
+
+const RANGE_OPTIONS = [
+  { label: '7 Days', days: 7 },
+  { label: '30 Days', days: 30 },
+  { label: 'All Time', days: null },
+]
+
+function getDateStr(date) {
+  return date.toLocaleDateString('en-CA')
+}
+
+function formatDate(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00')
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
 export default function Analytics() {
-  const [traysByFlavor, setTraysByFlavor] = useState([])
-  const [dailyProduction, setDailyProduction] = useState([])
-  const [stockoutData, setStockoutData] = useState([])
-  const [productionData, setProductionData] = useState([])
-  const [weeklyData, setWeeklyData] = useState([])
+  const [reports, setReports] = useState([])
+  const [flavors, setFlavors] = useState([])
+  const [range, setRange] = useState(7)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function load() {
-      const { data: stockouts } = await supabase
-        .from('shift_report_items')
-        .select('flavor_id, flavors(name)')
-        .eq('sold_out', true)
+      const [{ data: reportData }, { data: flavorData }] = await Promise.all([
+        supabase
+          .from('shift_reports')
+          .select(`
+            id,
+            report_date,
+            report_type,
+            shift_report_entries(
+              flavor_id,
+              full_trays,
+              in_progress_trays,
+              trays_made,
+              trays_wasted,
+              waste_reason,
+              flavors(name)
+            )
+          `)
+          .order('report_date'),
+        supabase
+          .from('flavors')
+          .select('id, name')
+          .eq('is_active', true)
+          .order('name'),
+      ])
 
-      if (stockouts) {
-        const counts = {}
-        stockouts.forEach(({ flavor_id, flavors }) => {
-          const name = flavors?.name || flavor_id
-          counts[name] = (counts[name] || 0) + 1
-        })
-        setStockoutData(
-          Object.entries(counts)
-            .map(([name, count]) => ({ name, count }))
-            .sort((a, b) => b.count - a.count)
-        )
-      }
-
-      const { data: batches } = await supabase
-        .from('batch_logs')
-        .select('flavor_id, tray_count, weight_lbs, batch_date, flavors(name)')
-        .order('batch_date')
-
-      if (batches) {
-        // Trays by flavor (tray_count, fall back to 1 per row if column missing)
-        const trayTotals = {}
-        batches.forEach(({ tray_count, flavors }) => {
-          const name = flavors?.name || 'Unknown'
-          trayTotals[name] = (trayTotals[name] || 0) + (tray_count ?? 1)
-        })
-        setTraysByFlavor(
-          Object.entries(trayTotals)
-            .map(([name, trays]) => ({ name, trays }))
-            .sort((a, b) => b.trays - a.trays)
-        )
-
-        // Daily production — last 30 days
-        const thirtyDaysAgo = new Date()
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-        const byDay = {}
-        batches
-          .filter(({ batch_date }) => new Date(batch_date) >= thirtyDaysAgo)
-          .forEach(({ batch_date, tray_count }) => {
-            const day = new Date(batch_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-            byDay[day] = (byDay[day] || 0) + (tray_count ?? 1)
-          })
-        setDailyProduction(
-          Object.entries(byDay).map(([day, trays]) => ({ day, trays }))
-        )
-
-        // Weight-based charts (existing)
-        const totals = {}
-        batches.forEach(({ weight_lbs, flavors }) => {
-          const name = flavors?.name || 'Unknown'
-          totals[name] = (totals[name] || 0) + (weight_lbs || 0)
-        })
-        const weightData = Object.entries(totals)
-          .filter(([, lbs]) => lbs > 0)
-          .map(([name, lbs]) => ({ name, lbs: Math.round(lbs * 10) / 10 }))
-          .sort((a, b) => b.lbs - a.lbs)
-        setProductionData(weightData)
-
-        const byWeek = {}
-        batches.forEach(({ batch_date, weight_lbs }) => {
-          if (!weight_lbs) return
-          const date = new Date(batch_date)
-          const weekStart = new Date(date)
-          weekStart.setDate(date.getDate() - date.getDay())
-          const key = weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-          byWeek[key] = (byWeek[key] || 0) + weight_lbs
-        })
-        setWeeklyData(
-          Object.entries(byWeek).map(([week, lbs]) => ({ week, lbs: Math.round(lbs * 10) / 10 }))
-        )
-      }
-
+      setReports(reportData || [])
+      setFlavors(flavorData || [])
       setLoading(false)
     }
-
     load()
   }, [])
 
-  if (loading) return <p className="text-store-brown-light text-center py-12">Loading analytics...</p>
+  const filteredReports = useMemo(() => {
+    if (!range) return reports
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - range)
+    const cutoffStr = getDateStr(cutoff)
+    return reports.filter((r) => r.report_date >= cutoffStr)
+  }, [reports, range])
 
-  const noData = stockoutData.length === 0 && traysByFlavor.length === 0
+  const uniqueDates = useMemo(() => {
+    const dates = new Set(filteredReports.map((r) => r.report_date))
+    return [...dates].sort()
+  }, [filteredReports])
 
-  if (noData) {
+  // Chart A — Daily Production: stacked bars, trays_made from closing per day
+  const chartAData = useMemo(() => {
+    const closingByDate = {}
+    filteredReports
+      .filter((r) => r.report_type === 'closing')
+      .forEach((r) => { closingByDate[r.report_date] = r })
+
+    return uniqueDates
+      .map((date) => {
+        const report = closingByDate[date]
+        const row = { date: formatDate(date) }
+        flavors.forEach((f) => {
+          const entry = report?.shift_report_entries?.find((e) => e.flavor_id === f.id)
+          row[f.name] = entry?.trays_made ?? 0
+        })
+        return row
+      })
+      .filter((row) => flavors.some((f) => row[f.name] > 0))
+  }, [filteredReports, uniqueDates, flavors])
+
+  // Chart B — Sales: grouped bars, trays_sold per day (morning + closing required)
+  const chartBData = useMemo(() => {
+    const morningByDate = {}
+    const closingByDate = {}
+    filteredReports.forEach((r) => {
+      if (r.report_type === 'morning') morningByDate[r.report_date] = r
+      if (r.report_type === 'closing') closingByDate[r.report_date] = r
+    })
+
+    return uniqueDates
+      .filter((d) => morningByDate[d] && closingByDate[d])
+      .map((date) => {
+        const morning = morningByDate[date]
+        const closing = closingByDate[date]
+        const row = { date: formatDate(date) }
+        flavors.forEach((f) => {
+          const me = morning.shift_report_entries?.find((e) => e.flavor_id === f.id)
+          const ce = closing.shift_report_entries?.find((e) => e.flavor_id === f.id)
+          const morningFull = me?.full_trays ?? 0
+          const traysMade = ce?.trays_made ?? 0
+          const closingFull = ce?.full_trays ?? 0
+          const traysWasted = ce?.trays_wasted ?? 0
+          row[f.name] = Math.max(0, morningFull + traysMade - closingFull - traysWasted)
+        })
+        return row
+      })
+  }, [filteredReports, uniqueDates, flavors])
+
+  // Chart C — Waste: total per flavor + detail table
+  const { chartCData, wasteTable } = useMemo(() => {
+    const totals = {}
+    const table = []
+    flavors.forEach((f) => { totals[f.name] = 0 })
+
+    filteredReports
+      .filter((r) => r.report_type === 'closing')
+      .forEach((r) => {
+        r.shift_report_entries?.forEach((e) => {
+          if ((e.trays_wasted ?? 0) > 0) {
+            const name = e.flavors?.name || e.flavor_id
+            totals[name] = (totals[name] ?? 0) + e.trays_wasted
+            table.push({
+              date: formatDate(r.report_date),
+              flavor: name,
+              amount: e.trays_wasted,
+              reason: e.waste_reason || '—',
+            })
+          }
+        })
+      })
+
+    const chartData = Object.entries(totals)
+      .filter(([, v]) => v > 0)
+      .map(([name, trays]) => ({ name, trays }))
+      .sort((a, b) => b.trays - a.trays)
+
+    return { chartCData: chartData, wasteTable: table }
+  }, [filteredReports, flavors])
+
+  // Chart D — Stock Trend: full_trays at close per day per flavor
+  const chartDData = useMemo(() => {
+    const closingByDate = {}
+    filteredReports
+      .filter((r) => r.report_type === 'closing')
+      .forEach((r) => { closingByDate[r.report_date] = r })
+
+    return uniqueDates
+      .filter((date) => closingByDate[date])
+      .map((date) => {
+        const report = closingByDate[date]
+        const row = { date: formatDate(date) }
+        flavors.forEach((f) => {
+          const entry = report?.shift_report_entries?.find((e) => e.flavor_id === f.id)
+          row[f.name] = entry?.full_trays ?? null
+        })
+        return row
+      })
+  }, [filteredReports, uniqueDates, flavors])
+
+  const closingDays = new Set(
+    reports.filter((r) => r.report_type === 'closing').map((r) => r.report_date)
+  ).size
+
+  if (loading) {
+    return <p className="text-store-brown-light text-center py-12">Loading analytics...</p>
+  }
+
+  if (closingDays < 2) {
     return (
       <div className="text-center py-20">
         <div className="text-5xl mb-4">📊</div>
@@ -109,106 +193,191 @@ export default function Analytics() {
           className="text-xl font-bold text-store-brown"
           style={{ fontFamily: 'var(--font-display)' }}
         >
-          No data yet
+          Keep logging shifts
         </h2>
         <p className="text-store-brown-light mt-2 text-sm">
-          Start logging shift reports and batches to see analytics here.
+          Analytics will appear after a few days of data! 📊
         </p>
       </div>
     )
   }
 
+  const tooltipStyle = { borderRadius: 8, borderColor: '#F5EDD8', fontSize: 12 }
+  const xProps = { tick: { fontSize: 11, fill: '#8B5E3C' } }
+  const yProps = { tick: { fontSize: 11, fill: '#8B5E3C' } }
+  const emptyMsg = (msg) => (
+    <p className="text-store-brown-light text-sm text-center py-8">{msg}</p>
+  )
+
   return (
-    <div className="space-y-8">
-      <h2
-        className="text-2xl font-bold text-store-brown"
-        style={{ fontFamily: 'var(--font-display)' }}
-      >
-        Analytics
-      </h2>
-
-      {traysByFlavor.length > 0 && (
-        <div>
-          <h3 className="font-semibold text-store-brown mb-1">Trays by Flavor</h3>
-          <p className="text-xs text-store-brown-light mb-3">Total trays made per flavor this season</p>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={traysByFlavor} layout="vertical" margin={{ left: 16, right: 16 }}>
-              <XAxis type="number" tick={{ fontSize: 12, fill: '#8B5E3C' }} />
-              <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12, fill: '#4A2C17' }} />
-              <Tooltip contentStyle={{ borderRadius: 8, borderColor: '#F5EDD8' }} />
-              <Bar dataKey="trays" fill="#7C4B2A" radius={[0, 4, 4, 0]} name="Trays made" />
-            </BarChart>
-          </ResponsiveContainer>
+    <div className="space-y-10">
+      {/* Header + date range buttons */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h2
+          className="text-2xl font-bold text-store-brown"
+          style={{ fontFamily: 'var(--font-display)' }}
+        >
+          Analytics
+        </h2>
+        <div className="flex gap-2">
+          {RANGE_OPTIONS.map((opt) => (
+            <button
+              key={opt.label}
+              onClick={() => setRange(opt.days)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors touch-manipulation ${
+                range === opt.days
+                  ? 'bg-store-brown text-white'
+                  : 'bg-store-tan text-store-brown hover:bg-store-brown hover:text-white'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
-      )}
+      </div>
 
-      {dailyProduction.length > 0 && (
-        <div>
-          <h3 className="font-semibold text-store-brown mb-1">Daily Production</h3>
-          <p className="text-xs text-store-brown-light mb-3">Trays logged per day — last 30 days</p>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={dailyProduction} margin={{ left: 0, right: 16 }}>
-              <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#8B5E3C' }} />
-              <YAxis tick={{ fontSize: 11, fill: '#8B5E3C' }} />
-              <Tooltip contentStyle={{ borderRadius: 8, borderColor: '#F5EDD8' }} />
-              <Bar dataKey="trays" fill="#2D5A1B" radius={[4, 4, 0, 0]} name="Trays" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {stockoutData.length > 0 && (
-        <div>
-          <h3 className="font-semibold text-store-brown mb-1">Stockout Frequency</h3>
-          <p className="text-xs text-store-brown-light mb-3">Which flavors run out most often</p>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={stockoutData} layout="vertical" margin={{ left: 16, right: 16 }}>
-              <XAxis type="number" tick={{ fontSize: 12, fill: '#8B5E3C' }} />
-              <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12, fill: '#4A2C17' }} />
-              <Tooltip contentStyle={{ borderRadius: 8, borderColor: '#F5EDD8' }} />
-              <Bar dataKey="count" fill="#2D5A1B" radius={[0, 4, 4, 0]} name="Times sold out" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {productionData.length > 0 && (
-        <div>
-          <h3 className="font-semibold text-store-brown mb-1">Production by Flavor (lbs)</h3>
-          <p className="text-xs text-store-brown-light mb-3">Total pounds made this season</p>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={productionData} layout="vertical" margin={{ left: 16, right: 16 }}>
-              <XAxis type="number" tick={{ fontSize: 12, fill: '#8B5E3C' }} />
-              <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12, fill: '#4A2C17' }} />
-              <Tooltip contentStyle={{ borderRadius: 8, borderColor: '#F5EDD8' }} />
-              <Bar dataKey="lbs" fill="#4A2C17" radius={[0, 4, 4, 0]} name="Total lbs" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {weeklyData.length > 1 && (
-        <div>
-          <h3 className="font-semibold text-store-brown mb-1">Weekly Production (lbs)</h3>
-          <p className="text-xs text-store-brown-light mb-3">How much fudge was made each week</p>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={weeklyData} margin={{ left: 0, right: 16 }}>
+      {/* Chart A — Daily Production */}
+      <div>
+        <h3 className="font-semibold text-store-brown mb-1">Daily Production</h3>
+        <p className="text-xs text-store-brown-light mb-3">
+          Trays made per day (stacked by flavor)
+        </p>
+        {chartAData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={chartAData} margin={{ left: 0, right: 16 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-              <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#8B5E3C' }} />
-              <YAxis tick={{ fontSize: 11, fill: '#8B5E3C' }} />
-              <Tooltip contentStyle={{ borderRadius: 8, borderColor: '#F5EDD8' }} />
-              <Line
-                type="monotone"
-                dataKey="lbs"
-                stroke="#2D5A1B"
-                strokeWidth={2}
-                dot={{ r: 4, fill: '#2D5A1B' }}
-                name="lbs made"
-              />
+              <XAxis dataKey="date" {...xProps} />
+              <YAxis {...yProps} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              {flavors.map((f, i) => (
+                <Bar
+                  key={f.id}
+                  dataKey={f.name}
+                  stackId="prod"
+                  fill={FLAVOR_COLORS[i % FLAVOR_COLORS.length]}
+                  radius={i === flavors.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          emptyMsg('No production data in this range.')
+        )}
+      </div>
+
+      {/* Chart B — Sales */}
+      <div>
+        <h3 className="font-semibold text-store-brown mb-1">Sales</h3>
+        <p className="text-xs text-store-brown-light mb-3">
+          Trays sold per day, grouped by flavor (requires both morning + closing reports)
+        </p>
+        {chartBData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={chartBData} margin={{ left: 0, right: 16 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+              <XAxis dataKey="date" {...xProps} />
+              <YAxis {...yProps} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              {flavors.map((f, i) => (
+                <Bar
+                  key={f.id}
+                  dataKey={f.name}
+                  fill={FLAVOR_COLORS[i % FLAVOR_COLORS.length]}
+                  radius={[4, 4, 0, 0]}
+                />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          emptyMsg('No days with both morning and closing reports in this range.')
+        )}
+      </div>
+
+      {/* Chart C — Waste */}
+      <div>
+        <h3 className="font-semibold text-store-brown mb-1">Waste</h3>
+        <p className="text-xs text-store-brown-light mb-3">
+          Total trays wasted per flavor over selected range
+        </p>
+        {chartCData.length > 0 ? (
+          <>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={chartCData} layout="vertical" margin={{ left: 16, right: 16 }}>
+                <XAxis type="number" {...xProps} />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  width={100}
+                  tick={{ fontSize: 12, fill: '#4A2C17' }}
+                />
+                <Tooltip contentStyle={tooltipStyle} />
+                <Bar dataKey="trays" fill="#C4843A" radius={[0, 4, 4, 0]} name="Trays wasted" />
+              </BarChart>
+            </ResponsiveContainer>
+
+            {wasteTable.length > 0 && (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-store-tan">
+                      <th className="text-left py-2 pr-4 text-store-brown-light font-medium">Date</th>
+                      <th className="text-left py-2 pr-4 text-store-brown-light font-medium">Flavor</th>
+                      <th className="text-left py-2 pr-4 text-store-brown-light font-medium">Trays</th>
+                      <th className="text-left py-2 text-store-brown-light font-medium">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {wasteTable.map((row, i) => (
+                      <tr key={i} className="border-b border-store-tan last:border-0">
+                        <td className="py-2 pr-4 text-store-brown-light">{row.date}</td>
+                        <td className="py-2 pr-4 text-store-brown font-medium">{row.flavor}</td>
+                        <td className="py-2 pr-4 text-store-brown">{row.amount}</td>
+                        <td className="py-2 text-store-brown-light">{row.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        ) : (
+          emptyMsg('No waste logged in this range.')
+        )}
+      </div>
+
+      {/* Chart D — Stock Trend */}
+      <div>
+        <h3 className="font-semibold text-store-brown mb-1">Stock Trend</h3>
+        <p className="text-xs text-store-brown-light mb-3">
+          Full tray count at close of day, one line per flavor
+        </p>
+        {chartDData.length > 1 ? (
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={chartDData} margin={{ left: 0, right: 16 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+              <XAxis dataKey="date" {...xProps} />
+              <YAxis {...yProps} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              {flavors.map((f, i) => (
+                <Line
+                  key={f.id}
+                  type="monotone"
+                  dataKey={f.name}
+                  stroke={FLAVOR_COLORS[i % FLAVOR_COLORS.length]}
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                  connectNulls
+                />
+              ))}
             </LineChart>
           </ResponsiveContainer>
-        </div>
-      )}
+        ) : (
+          emptyMsg('Need at least 2 closing reports for a trend line.')
+        )}
+      </div>
     </div>
   )
 }
