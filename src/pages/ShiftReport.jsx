@@ -30,21 +30,6 @@ export default function ShiftReport() {
 
       const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
-      // Pre-fill from most recent report today only — resets to 0 each new day
-      const { data: latestReport } = await supabase
-        .from('shift_reports')
-        .select('id, report_date')
-        .order('created_at', { ascending: false })
-        .limit(1)
-
-      let prefill = {}
-      if (latestReport && latestReport.length > 0 && latestReport[0].report_date === todayStr) {
-        const { data: prevEntries } = await supabase
-          .from('shift_report_entries')
-          .select('flavor_id, full_trays, in_progress_trays')
-          .eq('report_id', latestReport[0].id)
-          ; (prevEntries || []).forEach((e) => { prefill[e.flavor_id] = e })
-      }
 
       // Load today's existing reports to show running totals per flavor
       const { data: todayReports } = await supabase
@@ -73,8 +58,8 @@ export default function ShiftReport() {
       const initial = {}
       activeFlavors.forEach((f) => {
         initial[f.id] = {
-          full_trays: prefill[f.id]?.full_trays ?? 0,
-          in_progress_trays: prefill[f.id]?.in_progress_trays ?? 0,
+          full_trays: 0,
+          in_progress_trays: 0,
           trays_sold: 0,
           trays_wasted: 0,
           waste_reason: '',
