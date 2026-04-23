@@ -270,7 +270,7 @@ export default function Analytics() {
       <div>
         <h3 className="font-semibold text-store-brown mb-1">Sales</h3>
         <p className="text-xs text-store-brown-light mb-3">
-          Trays sold per day, grouped by flavor (requires both morning + closing reports)
+          Trays sold per day, grouped by flavor (calculated between consecutive reports)
         </p>
         {chartBData.length > 0 ? (
           <ResponsiveContainer width="100%" height={300}>

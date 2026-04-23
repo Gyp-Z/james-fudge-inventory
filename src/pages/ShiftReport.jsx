@@ -4,84 +4,56 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import Stepper from '../components/Stepper'
 
-export default function MorningReport() {
+export default function ShiftReport() {
   const { session } = useAuth()
   const navigate = useNavigate()
 
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
 
   const [flavors, setFlavors] = useState([])
-  const [entries, setEntries] = useState({}) // flavor_id -> { full_trays, in_progress_trays }
-  const [existingReport, setExistingReport] = useState(null) // null=none, object=found
-  const [existingEntries, setExistingEntries] = useState({})
+  const [entries, setEntries] = useState({}) // flavor_id -> { full_trays, in_progress_trays, trays_made, trays_wasted, waste_reason }
 
   useEffect(() => {
     async function load() {
-      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-
-      // Check if morning report already submitted today
-      const { data: existing } = await supabase
-        .from('shift_reports')
-        .select('id, created_at')
-        .eq('report_date', todayStr)
-        .eq('report_type', 'morning')
-        .order('created_at', { ascending: false })
-        .limit(1)
-
-      if (existing && existing.length > 0) {
-        const { data: exEntries } = await supabase
-          .from('shift_report_entries')
-          .select('flavor_id, full_trays, in_progress_trays')
-          .eq('report_id', existing[0].id)
-        const map = {}
-        ;(exEntries || []).forEach((e) => { map[e.flavor_id] = e })
-
-        const { data: flavorsData } = await supabase
-          .from('flavors')
-          .select('id, name')
-          .eq('active', true)
-          .order('name')
-
-        setFlavors(flavorsData || [])
-        setExistingReport(existing[0])
-        setExistingEntries(map)
-        setLoading(false)
-        return
-      }
-
-      // Get last closing report for pre-fill
-      const { data: lastClosingReport } = await supabase
-        .from('shift_reports')
-        .select('id')
-        .eq('report_type', 'closing')
-        .order('created_at', { ascending: false })
-        .limit(1)
-
-      let closingEntries = {}
-      if (lastClosingReport && lastClosingReport.length > 0) {
-        const { data: ces } = await supabase
-          .from('shift_report_entries')
-          .select('flavor_id, full_trays, in_progress_trays')
-          .eq('report_id', lastClosingReport[0].id)
-        ;(ces || []).forEach((e) => { closingEntries[e.flavor_id] = e })
-      }
-
+      // Get active flavors
       const { data: flavorsData } = await supabase
         .from('flavors')
         .select('id, name, low_tray_threshold')
-        .eq('is_active', true)
+        .eq('active', true)
         .order('name')
 
+      const activeFlavors = flavorsData || []
+      setFlavors(activeFlavors)
+
+      // Pre-fill from most recent report (any type)
+      const { data: latestReport } = await supabase
+        .from('shift_reports')
+        .select('id')
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      let prefill = {}
+      if (latestReport && latestReport.length > 0) {
+        const { data: prevEntries } = await supabase
+          .from('shift_report_entries')
+          .select('flavor_id, full_trays, in_progress_trays')
+          .eq('report_id', latestReport[0].id)
+        ;(prevEntries || []).forEach((e) => { prefill[e.flavor_id] = e })
+      }
+
       const initial = {}
-      ;(flavorsData || []).forEach((f) => {
+      activeFlavors.forEach((f) => {
         initial[f.id] = {
-          full_trays: closingEntries[f.id]?.full_trays ?? 0,
-          in_progress_trays: closingEntries[f.id]?.in_progress_trays ?? 0,
+          full_trays: prefill[f.id]?.full_trays ?? 0,
+          in_progress_trays: prefill[f.id]?.in_progress_trays ?? 0,
+          trays_made: 0,
+          trays_wasted: 0,
+          waste_reason: '',
         }
       })
 
-      setFlavors(flavorsData || [])
       setEntries(initial)
       setLoading(false)
     }
@@ -104,13 +76,14 @@ export default function MorningReport() {
       .from('shift_reports')
       .insert({
         report_date: todayStr,
-        report_type: 'morning',
+        report_type: 'snapshot',
         logged_by: session?.user?.id ?? null,
       })
       .select('id')
       .single()
 
     if (error || !report) {
+      console.error('Failed to create report:', error)
       setSubmitting(false)
       return
     }
@@ -120,12 +93,13 @@ export default function MorningReport() {
       flavor_id: f.id,
       full_trays: entries[f.id]?.full_trays ?? 0,
       in_progress_trays: entries[f.id]?.in_progress_trays ?? 0,
-      trays_made: 0,
-      trays_wasted: 0,
-      waste_reason: null,
+      trays_made: entries[f.id]?.trays_made ?? 0,
+      trays_wasted: entries[f.id]?.trays_wasted ?? 0,
+      waste_reason: entries[f.id]?.waste_reason?.trim() || null,
     }))
     await supabase.from('shift_report_entries').insert(entryRows)
 
+    // Upsert current_inventory to match submitted counts
     const inventoryRows = flavors.map((f) => ({
       flavor_id: f.id,
       tray_count: entries[f.id]?.full_trays ?? 0,
@@ -133,7 +107,9 @@ export default function MorningReport() {
     }))
     await supabase.from('current_inventory').upsert(inventoryRows, { onConflict: 'flavor_id' })
 
-    navigate('/dashboard')
+    setSubmitted(true)
+    setSubmitting(false)
+    setTimeout(() => navigate('/'), 1500)
   }
 
   if (loading) {
@@ -147,58 +123,42 @@ export default function MorningReport() {
     day: 'numeric',
   })
 
-  // Already submitted — read-only view
-  if (existingReport) {
+  if (submitted) {
     return (
       <div className="space-y-6">
         <div>
           <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
-            Morning Report
+            Report
           </h2>
           <p className="text-store-brown-light text-sm mt-1">{todayLabel}</p>
         </div>
-
-        <div className="bg-store-green-light border border-store-green rounded-xl px-4 py-3">
-          <p className="text-store-green font-semibold text-sm">Morning report already submitted for today ✓</p>
-        </div>
-
-        <div className="space-y-2">
-          {flavors.map((f) => {
-            const e = existingEntries[f.id]
-            return (
-              <div key={f.id} className="bg-white rounded-xl border border-store-tan p-4 shadow-sm">
-                <p className="font-semibold text-store-brown mb-2">{f.name}</p>
-                <div className="flex gap-6 text-sm text-store-brown-light">
-                  <span><span className="font-bold text-store-brown text-xl">{e?.full_trays ?? 0}</span> full</span>
-                  <span><span className="font-bold text-store-brown text-xl">{e?.in_progress_trays ?? 0}</span> in progress</span>
-                </div>
-              </div>
-            )
-          })}
+        <div className="bg-store-green-light border border-store-green rounded-xl px-4 py-4 text-center">
+          <p className="text-store-green font-semibold text-lg">Report submitted ✓</p>
+          <p className="text-store-green text-sm mt-1">Redirecting to dashboard...</p>
         </div>
       </div>
     )
   }
 
-  // Submit form
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
-          Morning Report
+          Report
         </h2>
         <p className="text-store-brown-light text-sm mt-1">{todayLabel}</p>
+        <p className="text-store-brown-light text-xs mt-1">What's on the shelf right now?</p>
       </div>
 
       <div className="space-y-3">
         {flavors.map((f) => {
-          const e = entries[f.id] || { full_trays: 0, in_progress_trays: 0 }
+          const e = entries[f.id] || { full_trays: 0, in_progress_trays: 0, trays_made: 0, trays_wasted: 0, waste_reason: '' }
           return (
             <div key={f.id} className="bg-white rounded-xl border border-store-tan p-4 shadow-sm space-y-4">
               <p className="font-semibold text-store-brown text-lg">{f.name}</p>
 
               <div className="flex items-center justify-between">
-                <span className="text-sm text-store-brown-light">Full trays on shelf</span>
+                <span className="text-sm text-store-brown-light">Full trays</span>
                 <Stepper
                   value={e.full_trays}
                   onChange={(v) => setField(f.id, 'full_trays', v)}
@@ -206,12 +166,41 @@ export default function MorningReport() {
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-sm text-store-brown-light">In-progress trays</span>
+                <div>
+                  <p className="text-sm text-store-brown-light">In-progress trays</p>
+                  <p className="text-xs text-store-brown-light">half trays drying</p>
+                </div>
                 <Stepper
                   value={e.in_progress_trays}
                   onChange={(v) => setField(f.id, 'in_progress_trays', v)}
                 />
               </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-store-brown-light">Trays made since last report</span>
+                <Stepper
+                  value={e.trays_made}
+                  onChange={(v) => setField(f.id, 'trays_made', v)}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-store-brown-light">Trays wasted</span>
+                <Stepper
+                  value={e.trays_wasted}
+                  onChange={(v) => setField(f.id, 'trays_wasted', v)}
+                />
+              </div>
+
+              {e.trays_wasted > 0 && (
+                <input
+                  type="text"
+                  value={e.waste_reason}
+                  onChange={(ev) => setField(f.id, 'waste_reason', ev.target.value)}
+                  placeholder="Waste reason"
+                  className="w-full border border-store-tan rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+                />
+              )}
             </div>
           )
         })}
@@ -222,7 +211,7 @@ export default function MorningReport() {
         disabled={submitting}
         className="w-full bg-store-green hover:bg-store-green-dark text-white py-4 rounded-xl text-lg font-semibold transition-colors disabled:opacity-50 touch-manipulation"
       >
-        {submitting ? 'Submitting…' : 'Submit Morning Report'}
+        {submitting ? 'Submitting…' : 'Submit Report'}
       </button>
     </div>
   )

@@ -9,50 +9,41 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function load() {
-      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-      const yesterdayDate = new Date()
-      yesterdayDate.setDate(yesterdayDate.getDate() - 1)
-      const yesterdayStr = yesterdayDate.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-
-      // Try today's reports first (any type, latest)
-      let reportId = null
-      const { data: todayReports } = await supabase
+      // Primary: most recent shift report entries (any type, any date)
+      const { data: latestReports } = await supabase
         .from('shift_reports')
         .select('id')
-        .eq('report_date', todayStr)
         .order('created_at', { ascending: false })
         .limit(1)
 
-      if (todayReports && todayReports.length > 0) {
-        reportId = todayReports[0].id
-      } else {
-        // Fall back to yesterday's closing
-        const { data: yestReports } = await supabase
-          .from('shift_reports')
-          .select('id')
-          .eq('report_date', yesterdayStr)
-          .eq('report_type', 'closing')
-          .order('created_at', { ascending: false })
-          .limit(1)
-        if (yestReports && yestReports.length > 0) {
-          reportId = yestReports[0].id
-        }
-      }
+      if (latestReports && latestReports.length > 0) {
+        const { data: reportEntries } = await supabase
+          .from('shift_report_entries')
+          .select('flavor_id, full_trays, in_progress_trays')
+          .eq('report_id', latestReports[0].id)
 
-      if (!reportId) {
-        setReportFound(false)
+        const map = {}
+        ;(reportEntries || []).forEach((e) => { map[e.flavor_id] = e })
+        setEntries(map)
+        setReportFound(true)
         return
       }
 
-      const { data: reportEntries } = await supabase
-        .from('shift_report_entries')
-        .select('flavor_id, full_trays, in_progress_trays')
-        .eq('report_id', reportId)
+      // Fallback: current_inventory if no reports exist
+      const { data: inventory } = await supabase
+        .from('current_inventory')
+        .select('flavor_id, tray_count')
 
-      const map = {}
-      ;(reportEntries || []).forEach((e) => { map[e.flavor_id] = e })
-      setEntries(map)
-      setReportFound(true)
+      if (inventory && inventory.length > 0) {
+        const map = {}
+        inventory.forEach((row) => {
+          map[row.flavor_id] = { full_trays: row.tray_count, in_progress_trays: 0 }
+        })
+        setEntries(map)
+        setReportFound(true)
+      } else {
+        setReportFound(false)
+      }
     }
 
     load()
@@ -73,7 +64,7 @@ export default function Dashboard() {
         <div className="bg-store-tan rounded-xl p-8 text-center space-y-2">
           <p className="text-store-brown text-lg font-semibold">No reports yet</p>
           <p className="text-store-brown-light text-sm">
-            Submit your first morning report to get started!
+            Submit a report to get started.
           </p>
         </div>
       </div>
@@ -116,7 +107,7 @@ export default function Dashboard() {
                 </div>
               </div>
               <p className="text-sm text-store-brown-light mt-2">
-                <span className="font-medium text-store-brown">{inProgress}</span> in progress
+                <span className="font-medium text-store-brown">{inProgress}</span> half trays drying
               </p>
             </div>
           )
