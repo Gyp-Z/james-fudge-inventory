@@ -91,6 +91,7 @@ export default function Analytics() {
     const closingByDate = {}
     filteredReports
       .filter(isClosingLike)
+      .filter((r) => (r.shift_report_entries?.length ?? 0) > 0)
       .forEach((r) => { closingByDate[r.report_date] = r })
 
     return unique.map((date) => {
@@ -142,6 +143,7 @@ export default function Analytics() {
     const closingByDate = {}
     filteredReports
       .filter(isClosingLike)
+      .filter((r) => (r.shift_report_entries?.length ?? 0) > 0)
       .forEach((r) => { closingByDate[r.report_date] = r })
 
     return uniqueDates
