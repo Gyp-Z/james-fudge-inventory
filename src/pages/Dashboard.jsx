@@ -70,92 +70,146 @@ export default function Dashboard() {
     return <p className="text-store-brown-light text-center py-12">Loading...</p>
   }
 
+  const needsMaking = flavors.filter((f) => {
+    const fullTrays = entries[f.id]?.full_trays ?? 0
+    return fullTrays <= (f.low_tray_threshold ?? 2)
+  })
+
+  const stockedFlavors = flavors.filter((f) => {
+    const fullTrays = entries[f.id]?.full_trays ?? 0
+    return fullTrays > (f.low_tray_threshold ?? 2)
+  })
+
   const lowIngredients = ingredients.filter(
     (i) => i.low_stock_threshold != null && i.quantity <= i.low_stock_threshold
   )
 
-  return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
-        Make Soon
-      </h2>
-      <div className="flex flex-wrap gap-2">
-        {flavors.map((flavor) => {
-          const entry = entries[flavor.id]
-          const fullTrays = entry?.full_trays ?? 0
-          const inProgress = entry?.in_progress_trays ?? 0
-          const threshold = flavor.low_tray_threshold ?? 2
+  const stockedIngredients = ingredients.filter(
+    (i) => !(i.low_stock_threshold != null && i.quantity <= i.low_stock_threshold)
+  )
 
-          const isOut = fullTrays === 0
-          const isLow = !isOut && fullTrays < threshold
+  const renderFlavorPill = (flavor) => {
+    const entry = entries[flavor.id]
+    const fullTrays = entry?.full_trays ?? 0
+    const inProgress = entry?.in_progress_trays ?? 0
+    const threshold = flavor.low_tray_threshold ?? 2
 
-          const pillClass = isOut
+    const isOut = fullTrays === 0
+    const isLow = !isOut && fullTrays <= threshold
+
+    const pillClass = isOut
+      ? 'bg-red-50 border-red-300 text-red-700'
+      : isLow
+        ? 'bg-amber-50 border-amber-300 text-amber-700'
+        : 'bg-store-green-light border-store-green text-store-green'
+
+    const countClass = isOut
+      ? 'bg-red-200 text-red-800'
+      : isLow
+        ? 'bg-amber-200 text-amber-800'
+        : 'bg-store-green text-white'
+
+    return (
+      <div
+        key={flavor.id}
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${pillClass}`}
+      >
+        <span>{flavor.name}</span>
+        <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${countClass}`}>
+          {fullTrays}
+        </span>
+        {inProgress > 0 && (
+          <span className="text-xs opacity-60">+{inProgress}½</span>
+        )}
+      </div>
+    )
+  }
+
+  const renderIngredientPill = (ing) => {
+    const isOut = ing.quantity === 0
+    const isLow = !isOut && ing.quantity <= (ing.low_stock_threshold ?? 0)
+
+    return (
+      <div
+        key={ing.id}
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${isOut
             ? 'bg-red-50 border-red-300 text-red-700'
             : isLow
               ? 'bg-amber-50 border-amber-300 text-amber-700'
               : 'bg-store-green-light border-store-green text-store-green'
+          }`}
+      >
+        <span>{ing.name}</span>
+        <span className="opacity-70">
+          {ing.quantity} {ing.unit}
+        </span>
+        {(isOut || isLow) && (
+          <span
+            className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${isOut ? 'bg-red-200 text-red-800' : 'bg-amber-200 text-amber-800'
+              }`}
+          >
+            {isOut ? 'Out' : 'Low'}
+          </span>
+        )}
+      </div>
+    )
+  }
 
-          const countClass = isOut
-            ? 'bg-red-200 text-red-800'
-            : isLow
-              ? 'bg-amber-200 text-amber-800'
-              : 'bg-store-green text-white'
-
-          return (
-            <div
-              key={flavor.id}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${pillClass}`}
-            >
-              <span>{flavor.name}</span>
-              <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${countClass}`}>
-                {fullTrays}
-              </span>
-              {inProgress > 0 && (
-                <span className="text-xs opacity-60">+{inProgress}½</span>
-              )}
+  return (
+    <div className="space-y-8">
+      {/* Flavors Section */}
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
+            Make Soon
+          </h2>
+          {needsMaking.length > 0 ? (
+            <div className="flex flex-wrap gap-2 mt-2">
+              {needsMaking.map(renderFlavorPill)}
             </div>
-          )
-        })}
+          ) : (
+            <p className="text-sm text-store-green font-medium mt-2">All products stocked ✓</p>
+          )}
+        </div>
+
+        {stockedFlavors.length > 0 && (
+          <div>
+            <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">
+              In Stock
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {stockedFlavors.map(renderFlavorPill)}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Ingredients section */}
-      <div className="space-y-2">
-        <h3 className="text-lg font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
-          Ingredients
-        </h3>
-        {ingredientsLoading ? (
-          <p className="text-store-brown-light text-sm">Loading ingredients...</p>
-        ) : lowIngredients.length === 0 ? (
-          <p className="text-sm text-store-green font-medium">All ingredients stocked ✓</p>
-        ) : (
+      <hr className="border-store-tan" />
+
+      {/* Ingredients Section */}
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
+            Ingredients Alert
+          </h2>
+          {ingredientsLoading ? (
+            <p className="text-store-brown-light text-sm mt-2">Loading ingredients...</p>
+          ) : lowIngredients.length > 0 ? (
+            <div className="flex flex-wrap gap-2 mt-2">
+              {lowIngredients.map(renderIngredientPill)}
+            </div>
+          ) : (
+            <p className="text-sm text-store-green font-medium mt-2">All ingredients stocked ✓</p>
+          )}
+        </div>
+
+        {!ingredientsLoading && stockedIngredients.length > 0 && (
           <div>
-            <p className="text-xs font-semibold text-store-brown-light uppercase tracking-wide mb-2">
-              Needs Ordering
-            </p>
+            <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">
+              In Stock
+            </h3>
             <div className="flex flex-wrap gap-2">
-              {lowIngredients.map((ing) => {
-                const isOut = ing.quantity === 0
-                return (
-                  <div
-                    key={ing.id}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${isOut
-                      ? 'bg-red-50 border-red-300 text-red-700'
-                      : 'bg-amber-50 border-amber-300 text-amber-700'
-                      }`}
-                  >
-                    <span>{ing.name}</span>
-                    <span className="opacity-70">
-                      {ing.quantity} {ing.unit}
-                    </span>
-                    <span
-                      className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${isOut ? 'bg-red-200 text-red-800' : 'bg-amber-200 text-amber-800'
-                        }`}
-                    >
-                      {isOut ? 'Out' : 'Low'}
-                    </span>
-                  </div>
-                )
-              })}
+              {stockedIngredients.map(renderIngredientPill)}
             </div>
           </div>
         )}
