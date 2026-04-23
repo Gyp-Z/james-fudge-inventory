@@ -48,7 +48,6 @@ export default function ShiftReport() {
         initial[f.id] = {
           full_trays: prefill[f.id]?.full_trays ?? 0,
           in_progress_trays: prefill[f.id]?.in_progress_trays ?? 0,
-          trays_made: 0,
           trays_wasted: 0,
           waste_reason: '',
         }
@@ -93,7 +92,6 @@ export default function ShiftReport() {
       flavor_id: f.id,
       full_trays: entries[f.id]?.full_trays ?? 0,
       in_progress_trays: entries[f.id]?.in_progress_trays ?? 0,
-      trays_made: entries[f.id]?.trays_made ?? 0,
       trays_wasted: entries[f.id]?.trays_wasted ?? 0,
       waste_reason: entries[f.id]?.waste_reason?.trim() || null,
     }))
@@ -166,21 +164,10 @@ export default function ShiftReport() {
               </div>
 
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-store-brown-light">In-progress trays</p>
-                  <p className="text-xs text-store-brown-light">half trays drying</p>
-                </div>
+                <span className="text-sm text-store-brown-light">In-progress trays</span>
                 <Stepper
                   value={e.in_progress_trays}
                   onChange={(v) => setField(f.id, 'in_progress_trays', v)}
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-store-brown-light">Trays made since last report</span>
-                <Stepper
-                  value={e.trays_made}
-                  onChange={(v) => setField(f.id, 'trays_made', v)}
                 />
               </div>
 

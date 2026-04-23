@@ -79,39 +79,40 @@ export default function Dashboard() {
       <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
         Fudge Status
       </h2>
-      <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
         {flavors.map((flavor) => {
           const entry = entries[flavor.id]
           const fullTrays = entry?.full_trays ?? 0
           const inProgress = entry?.in_progress_trays ?? 0
           const threshold = flavor.low_tray_threshold ?? 2
 
-          let cardBg = 'bg-store-green-light border-store-green'
-          let countColor = 'text-store-green'
-          if (fullTrays === 0) {
-            cardBg = 'bg-red-50 border-red-300'
-            countColor = 'text-red-600'
-          } else if (fullTrays < threshold) {
-            cardBg = 'bg-amber-50 border-amber-300'
-            countColor = 'text-amber-700'
-          }
+          const isOut = fullTrays === 0
+          const isLow = !isOut && fullTrays < threshold
+
+          const pillClass = isOut
+            ? 'bg-red-50 border-red-300 text-red-700'
+            : isLow
+              ? 'bg-amber-50 border-amber-300 text-amber-700'
+              : 'bg-store-green-light border-store-green text-store-green'
+
+          const countClass = isOut
+            ? 'bg-red-200 text-red-800'
+            : isLow
+              ? 'bg-amber-200 text-amber-800'
+              : 'bg-store-green text-white'
 
           return (
-            <div key={flavor.id} className={`rounded-xl border-2 p-4 ${cardBg}`}>
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-store-brown text-lg">{flavor.name}</span>
-                <div className="text-right">
-                  <p className={`text-4xl font-bold tabular-nums leading-none ${countColor}`}>
-                    {fullTrays}
-                  </p>
-                  <p className="text-xs text-store-brown-light mt-1">
-                    full tray{fullTrays !== 1 ? 's' : ''}
-                  </p>
-                </div>
-              </div>
-              <p className="text-sm text-store-brown-light mt-2">
-                <span className="font-medium text-store-brown">{inProgress}</span> half trays drying
-              </p>
+            <div
+              key={flavor.id}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${pillClass}`}
+            >
+              <span>{flavor.name}</span>
+              <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${countClass}`}>
+                {fullTrays}
+              </span>
+              {inProgress > 0 && (
+                <span className="text-xs opacity-60">+{inProgress}½</span>
+              )}
             </div>
           )
         })}
@@ -138,8 +139,8 @@ export default function Dashboard() {
                   <div
                     key={ing.id}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${isOut
-                        ? 'bg-red-50 border-red-300 text-red-700'
-                        : 'bg-amber-50 border-amber-300 text-amber-700'
+                      ? 'bg-red-50 border-red-300 text-red-700'
+                      : 'bg-amber-50 border-amber-300 text-amber-700'
                       }`}
                   >
                     <span>{ing.name}</span>
