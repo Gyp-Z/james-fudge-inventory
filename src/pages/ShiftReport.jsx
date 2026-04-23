@@ -92,7 +92,7 @@ export default function ShiftReport() {
       flavor_id: f.id,
       full_trays: entries[f.id]?.full_trays ?? 0,
       in_progress_trays: entries[f.id]?.in_progress_trays ?? 0,
-      trays_made: entries[f.id]?.trays_made ?? 0,
+      trays_sold: entries[f.id]?.trays_sold ?? 0,
       trays_wasted: entries[f.id]?.trays_wasted ?? 0,
       waste_reason: entries[f.id]?.waste_reason?.trim() || null,
     }))

@@ -44,7 +44,7 @@ export default function Analytics() {
               flavor_id,
               full_trays,
               in_progress_trays,
-              trays_made,
+              trays_sold,
               trays_wasted,
               waste_reason,
               flavors(name)
@@ -78,52 +78,31 @@ export default function Analytics() {
     return [...dates].sort()
   }, [filteredReports])
 
-  const isClosingLike = (r) => r.report_type === 'closing' || r.report_type === 'snapshot'
+  // Chart B — Sales
+  // Now simply reading trays_sold directly from what the user inputted
+  const chartBData = useMemo(() => {
+    const dates = new Set(filteredReports.filter(isClosingLike).map((r) => r.report_date))
+    const unique = [...dates].sort()
 
-  // Chart A — Daily Production: stacked bars, trays_made from closing/snapshot per day
-  const chartAData = useMemo(() => {
     const closingByDate = {}
     filteredReports
       .filter(isClosingLike)
       .forEach((r) => { closingByDate[r.report_date] = r })
 
-    return uniqueDates
-      .map((date) => {
-        const report = closingByDate[date]
-        const row = { date: formatDate(date) }
-        flavors.forEach((f) => {
-          const entry = report?.shift_report_entries?.find((e) => e.flavor_id === f.id)
-          row[f.name] = entry?.trays_made ?? 0
-        })
-        return row
-      })
-      .filter((row) => flavors.some((f) => row[f.name] > 0))
-  }, [filteredReports, uniqueDates, flavors])
-
-  // Chart B — Sales: trays_sold between consecutive reports
-  // Formula: (prev full_trays + curr trays_made) - (curr full_trays + curr trays_wasted)
-  const chartBData = useMemo(() => {
-    const sorted = filteredReports.slice().sort((a, b) => a.report_date.localeCompare(b.report_date))
-    const result = []
-    for (let i = 1; i < sorted.length; i++) {
-      const prev = sorted[i - 1]
-      const curr = sorted[i]
-      const row = { date: formatDate(curr.report_date) }
+    return unique.map((date) => {
+      const report = closingByDate[date]
+      const row = { date: formatDate(report.report_date) }
       let hasData = false
       flavors.forEach((f) => {
-        const pe = prev.shift_report_entries?.find((e) => e.flavor_id === f.id)
-        const ce = curr.shift_report_entries?.find((e) => e.flavor_id === f.id)
-        const prevFull = pe?.full_trays ?? 0
-        const traysMade = ce?.trays_made ?? 0
-        const currFull = ce?.full_trays ?? 0
-        const traysWasted = ce?.trays_wasted ?? 0
-        const sold = Math.max(0, prevFull + traysMade - currFull - traysWasted)
+        const ce = report.shift_report_entries?.find((e) => e.flavor_id === f.id)
+        const sold = ce?.trays_sold ?? 0
         row[f.name] = sold
         if (sold > 0) hasData = true
       })
-      if (hasData) result.push(row)
-    }
-    return result
+      // If there's 0 sales but we want the graph point to exist structurally, we keep it, but user requested an empty graph if no sales.
+      // We will push the row even if hasData is false so that dates show up, but only >0 values create bars.
+      return row
+    }).filter(row => flavors.some(f => row[f.name] > 0)) // Only show dates that actually had sales
   }, [filteredReports, flavors])
 
   // Chart C — Waste: total per flavor + detail table
@@ -235,41 +214,11 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* Chart A — Daily Production */}
-      <div>
-        <h3 className="font-semibold text-store-brown mb-1">Daily Production</h3>
-        <p className="text-xs text-store-brown-light mb-3">
-          Trays made per day (stacked by flavor)
-        </p>
-        {chartAData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chartAData} margin={{ left: 0, right: 16 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-              <XAxis dataKey="date" {...xProps} />
-              <YAxis {...yProps} />
-              <Tooltip contentStyle={tooltipStyle} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              {flavors.map((f, i) => (
-                <Bar
-                  key={f.id}
-                  dataKey={f.name}
-                  stackId="prod"
-                  fill={FLAVOR_COLORS[i % FLAVOR_COLORS.length]}
-                  radius={i === flavors.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
-                />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
-        ) : (
-          emptyMsg('No production data in this range.')
-        )}
-      </div>
-
       {/* Chart B — Sales */}
       <div>
         <h3 className="font-semibold text-store-brown mb-1">Sales</h3>
         <p className="text-xs text-store-brown-light mb-3">
-          Trays sold per day, grouped by flavor (calculated between consecutive reports)
+          Trays sold per day, grouped by flavor
         </p>
         {chartBData.length > 0 ? (
           <ResponsiveContainer width="100%" height={300}>
