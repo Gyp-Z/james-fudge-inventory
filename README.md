@@ -8,35 +8,6 @@ The store runs daily shifts where staff need to know what's in stock, what sold 
 
 ---
 
-## For Jarvis (AI Assistant)
-
-This section describes the full data model and app behavior so an AI assistant can accurately answer questions, help with inventory decisions, and assist staff.
-
-### What Jarvis should know
-
-- Every time a staff member submits a **Report**, it creates a `shift_report` row and one `shift_report_entry` row per active flavor.
-- Each entry records: `full_trays` (what's physically on the shelf), `in_progress_trays` (being made/drying), `trays_sold` (sold since last report), `trays_wasted` (thrown out), and `waste_reason`.
-- Reports are submitted multiple times per day — every time something changes. There is no single "closing report"; each submission is a snapshot.
-- The **most recent report per flavor** (by `created_at`) is the source of truth for current stock.
-- **In Stock** (on the Analytics page) = sum of `full_trays` from each flavor's most recent report entry.
-- Each tray of fudge weighs approximately **7.25 lbs** of product (8.40 lbs total minus ~1.15 lbs for the tray and paper).
-- Flavors are managed in the Admin (Products) tab. Active flavors appear across the app; inactive ones are archived but not deleted.
-- Ingredients are tracked separately with quantities and low-stock thresholds.
-- The season runs approximately **May–September**. Data before May 9 is pre-season testing.
-
-### Key tables (Supabase / PostgreSQL)
-
-| Table | Purpose |
-|---|---|
-| `flavors` | Flavor catalog — name, `is_active`, `low_tray_threshold` |
-| `shift_reports` | One row per report submission — `report_date`, `created_at`, `report_type`, `logged_by` |
-| `shift_report_entries` | One row per flavor per report — `full_trays`, `in_progress_trays`, `trays_sold`, `trays_wasted`, `waste_reason` |
-| `ingredients` | Ingredient inventory — `name`, `quantity`, `unit`, `low_stock_threshold`, `is_active` |
-| `current_inventory` | Denormalized tray counts updated on each report submit (used as fallback) |
-| `batch_logs` | Production log — `flavor_id`, `batch_date`, `weight_lbs` |
-
----
-
 ## App Tabs
 
 ### Dashboard (`/`)
