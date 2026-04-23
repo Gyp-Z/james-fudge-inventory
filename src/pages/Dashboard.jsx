@@ -77,7 +77,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
-        Fudge Status
+        Make Soon
       </h2>
       <div className="flex flex-wrap gap-2">
         {flavors.map((flavor) => {
