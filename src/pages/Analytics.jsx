@@ -96,12 +96,9 @@ export default function Analytics() {
     return unique.map((date) => {
       const report = closingByDate[date]
       const row = { date: formatDate(report.report_date) }
-      let hasData = false
       flavors.forEach((f) => {
         const ce = report.shift_report_entries?.find((e) => e.flavor_id === f.id)
-        const sold = ce?.trays_sold ?? 0
-        row[f.name] = sold
-        if (sold > 0) hasData = true
+        row[f.name] = ce?.trays_sold ?? 0
       })
       // If there's 0 sales but we want the graph point to exist structurally, we keep it, but user requested an empty graph if no sales.
       // We will push the row even if hasData is false so that dates show up, but only >0 values create bars.
@@ -284,7 +281,7 @@ export default function Analytics() {
         <p className="text-xs text-store-brown-light mb-3">
           Full tray count at close of day, one line per flavor
         </p>
-        {chartDData.length > 1 ? (
+        {chartDData.length > 0 ? (
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={chartDData} margin={{ left: 0, right: 16 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
@@ -306,7 +303,7 @@ export default function Analytics() {
             </LineChart>
           </ResponsiveContainer>
         ) : (
-          emptyMsg('Need at least 2 closing reports for a trend line.')
+          emptyMsg('No stock data in this range yet.')
         )}
       </div>
     </div>
