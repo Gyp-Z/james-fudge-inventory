@@ -8,6 +8,7 @@ export default function Dashboard() {
   const [reportFound, setReportFound] = useState(null) // null=loading, true=found, false=none
   const [ingredients, setIngredients] = useState([])
   const [ingredientsLoading, setIngredientsLoading] = useState(true)
+  const [yesterdayEntries, setYesterdayEntries] = useState({}) // flavor_id -> { full_trays, trays_sold }
 
   useEffect(() => {
     async function loadIngredients() {
@@ -20,6 +21,33 @@ export default function Dashboard() {
       setIngredientsLoading(false)
     }
     loadIngredients()
+  }, [])
+
+  useEffect(() => {
+    async function loadYesterday() {
+      const d = new Date()
+      d.setDate(d.getDate() - 1)
+      const yesterdayStr = d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+
+      const { data: reports } = await supabase
+        .from('shift_reports')
+        .select('id')
+        .eq('report_date', yesterdayStr)
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      if (!reports || reports.length === 0) return
+
+      const { data: ents } = await supabase
+        .from('shift_report_entries')
+        .select('flavor_id, full_trays, trays_sold')
+        .eq('report_id', reports[0].id)
+
+      const map = {}
+      ;(ents || []).forEach((e) => { map[e.flavor_id] = e })
+      setYesterdayEntries(map)
+    }
+    loadYesterday()
   }, [])
 
   useEffect(() => {
@@ -183,6 +211,30 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {Object.keys(yesterdayEntries).length > 0 && (
+        <div>
+          <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">
+            Yesterday's Shelf
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {flavors.map((f) => {
+              const y = yesterdayEntries[f.id]
+              if (!y) return null
+              return (
+                <div
+                  key={f.id}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border bg-store-cream border-store-tan text-store-brown"
+                >
+                  <span>{f.name}</span>
+                  <span className="text-xs bg-store-tan px-1.5 py-0.5 rounded-full font-bold">{y.full_trays}</span>
+                  {y.trays_sold > 0 && <span className="text-xs opacity-60">{y.trays_sold} sold</span>}
+                </div>
+              )
+            }).filter(Boolean)}
+          </div>
+        </div>
+      )}
 
       <hr className="border-store-tan" />
 

@@ -14,6 +14,7 @@ export default function ShiftReport() {
 
   const [flavors, setFlavors] = useState([])
   const [entries, setEntries] = useState({}) // flavor_id -> { full_trays, in_progress_trays, trays_made, trays_wasted, waste_reason }
+  const [todayTotals, setTodayTotals] = useState({}) // flavor_id -> { sold, wasted, stock } from today's existing reports
 
   useEffect(() => {
     async function load() {
@@ -26,6 +27,8 @@ export default function ShiftReport() {
 
       const activeFlavors = flavorsData || []
       setFlavors(activeFlavors)
+
+      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
       // Pre-fill from most recent report (any type)
       const { data: latestReport } = await supabase
@@ -41,6 +44,30 @@ export default function ShiftReport() {
           .select('flavor_id, full_trays, in_progress_trays')
           .eq('report_id', latestReport[0].id)
           ; (prevEntries || []).forEach((e) => { prefill[e.flavor_id] = e })
+      }
+
+      // Load today's existing reports to show running totals per flavor
+      const { data: todayReports } = await supabase
+        .from('shift_reports')
+        .select('id')
+        .eq('report_date', todayStr)
+
+      if (todayReports && todayReports.length > 0) {
+        const ids = todayReports.map((r) => r.id)
+        const { data: todayEntries } = await supabase
+          .from('shift_report_entries')
+          .select('flavor_id, full_trays, trays_sold, trays_wasted')
+          .in('report_id', ids)
+
+        const totalsMap = {}
+        ;(todayEntries || []).forEach((e) => {
+          const t = totalsMap[e.flavor_id] || { sold: 0, wasted: 0, stock: 0 }
+          t.sold += e.trays_sold ?? 0
+          t.wasted += e.trays_wasted ?? 0
+          t.stock = Math.max(t.stock, e.full_trays ?? 0)
+          totalsMap[e.flavor_id] = t
+        })
+        setTodayTotals(totalsMap)
       }
 
       const initial = {}
@@ -155,7 +182,18 @@ export default function ShiftReport() {
           const e = entries[f.id] || { full_trays: 0, in_progress_trays: 0, trays_made: 0, trays_wasted: 0, waste_reason: '' }
           return (
             <div key={f.id} className="bg-white rounded-xl border border-store-tan p-4 shadow-sm space-y-4">
-              <p className="font-semibold text-store-brown text-lg">{f.name}</p>
+              <div className="flex items-center justify-between">
+                <p className="font-semibold text-store-brown text-lg">{f.name}</p>
+                {todayTotals[f.id] && (
+                  <div className="flex gap-2 text-xs text-store-brown-light">
+                    <span>{todayTotals[f.id].stock} in stock</span>
+                    <span>·</span>
+                    <span>{todayTotals[f.id].sold} sold</span>
+                    <span>·</span>
+                    <span>{todayTotals[f.id].wasted} wasted</span>
+                  </div>
+                )}
+              </div>
 
               <div className="flex items-center justify-between">
                 <span className="text-sm text-store-brown-light">Full trays</span>
