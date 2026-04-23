@@ -6,6 +6,7 @@ import ShiftReport from './pages/ShiftReport'
 import Analytics from './pages/Analytics'
 import Admin from './pages/Admin'
 import Ingredients from './pages/Ingredients'
+import Batch from './pages/Batch'
 import NavBar from './components/NavBar'
 
 function AdminRoute({ children }) {
@@ -30,6 +31,7 @@ export default function App() {
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/dashboard" element={<Navigate to="/" replace />} />
                   <Route path="/report" element={<ShiftReport />} />
+                  <Route path="/batch" element={<Batch />} />
                   <Route path="/ingredients" element={<Ingredients />} />
                   <Route path="/analytics" element={<AdminRoute><Analytics /></AdminRoute>} />
                   <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
