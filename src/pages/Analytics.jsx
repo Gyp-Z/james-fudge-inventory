@@ -106,9 +106,10 @@ export default function Analytics() {
     }).filter(row => flavors.some(f => row[f.name] > 0)) // Only show dates that actually had sales
   }, [filteredReports, flavors])
 
-  // Chart C — Waste: total per flavor
-  const { chartCData } = useMemo(() => {
+  // Chart C — Waste: total per flavor + detail table
+  const { chartCData, wasteTable } = useMemo(() => {
     const totals = {}
+    const table = []
     flavors.forEach((f) => { totals[f.name] = 0 })
 
     filteredReports
@@ -118,6 +119,12 @@ export default function Analytics() {
           if ((e.trays_wasted ?? 0) > 0) {
             const name = e.flavors?.name || e.flavor_id
             totals[name] = (totals[name] ?? 0) + e.trays_wasted
+            table.push({
+              date: formatDate(r.report_date),
+              flavor: name,
+              amount: e.trays_wasted,
+              reason: e.waste_reason || '—',
+            })
           }
         })
       })
@@ -127,7 +134,7 @@ export default function Analytics() {
       .map(([name, trays]) => ({ name, trays }))
       .sort((a, b) => b.trays - a.trays)
 
-    return { chartCData: chartData }
+    return { chartCData: chartData, wasteTable: table }
   }, [filteredReports, flavors])
 
   // Chart D — Stock Trend: full_trays at close/snapshot per day per flavor
@@ -238,6 +245,30 @@ export default function Analytics() {
               </BarChart>
             </ResponsiveContainer>
 
+            {wasteTable.length > 0 && (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-store-tan">
+                      <th className="text-left py-2 pr-4 text-store-brown-light font-medium">Date</th>
+                      <th className="text-left py-2 pr-4 text-store-brown-light font-medium">Flavor</th>
+                      <th className="text-left py-2 pr-4 text-store-brown-light font-medium">Trays</th>
+                      <th className="text-left py-2 text-store-brown-light font-medium">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {wasteTable.map((row, i) => (
+                      <tr key={i} className="border-b border-store-tan last:border-0">
+                        <td className="py-2 pr-4 text-store-brown-light">{row.date}</td>
+                        <td className="py-2 pr-4 text-store-brown font-medium">{row.flavor}</td>
+                        <td className="py-2 pr-4 text-store-brown">{row.amount}</td>
+                        <td className="py-2 text-store-brown-light">{row.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
         ) : (
           emptyMsg('No waste logged in this range.')
