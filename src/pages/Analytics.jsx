@@ -167,8 +167,10 @@ export default function Analytics() {
         wasted += e.trays_wasted ?? 0
       })
     })
-    // Current stock = latest report's full_trays sum
-    const sorted = [...filteredReports].sort((a, b) => (a.report_date > b.report_date ? -1 : 1))
+    // Current stock = most recent report that actually has entries
+    const sorted = [...filteredReports]
+      .filter((r) => r.shift_report_entries?.length > 0)
+      .sort((a, b) => (a.report_date > b.report_date ? -1 : 1))
     const latest = sorted[0]
     latest?.shift_report_entries?.forEach((e) => { stock += e.full_trays ?? 0 })
     return { sold, wasted, stock }
