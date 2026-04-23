@@ -6,14 +6,12 @@ import { useAuth } from '../hooks/useAuth'
 const staffTabs = [
   { to: '/', label: '📋', title: 'Dashboard', end: true },
   { to: '/report', label: '📝', title: 'Report' },
-  { to: '/batch', label: '🍫', title: 'Batch' },
   { to: '/ingredients', label: '🧂', title: 'Ingredients' },
 ]
 
 const adminMainTabs = [
   { to: '/', label: '📋', title: 'Dashboard', end: true },
   { to: '/report', label: '📝', title: 'Report' },
-  { to: '/batch', label: '🍫', title: 'Batch' },
   { to: '/analytics', label: '📊', title: 'Analytics' },
   { to: '/ingredients', label: '🧂', title: 'Ingredients' },
 ]
