@@ -189,8 +189,6 @@ export default function ShiftReport() {
                     <span>{todayTotals[f.id].stock} in stock</span>
                     <span>·</span>
                     <span>{todayTotals[f.id].sold} sold</span>
-                    <span>·</span>
-                    <span>{todayTotals[f.id].wasted} wasted</span>
                   </div>
                 )}
               </div>
