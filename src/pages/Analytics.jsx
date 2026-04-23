@@ -157,6 +157,23 @@ export default function Analytics() {
       })
   }, [filteredReports, uniqueDates, flavors])
 
+  // Summary totals across filtered range
+  const totals = useMemo(() => {
+    let sold = 0, wasted = 0, stock = 0
+    // Sum sold + wasted from all entries in range
+    filteredReports.forEach((r) => {
+      r.shift_report_entries?.forEach((e) => {
+        sold += e.trays_sold ?? 0
+        wasted += e.trays_wasted ?? 0
+      })
+    })
+    // Current stock = latest report's full_trays sum
+    const sorted = [...filteredReports].sort((a, b) => (a.report_date > b.report_date ? -1 : 1))
+    const latest = sorted[0]
+    latest?.shift_report_entries?.forEach((e) => { stock += e.full_trays ?? 0 })
+    return { sold, wasted, stock }
+  }, [filteredReports])
+
   if (loading) {
     return <p className="text-store-brown-light text-center py-12">Loading analytics...</p>
   }
@@ -192,6 +209,20 @@ export default function Analytics() {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Summary stat cards */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: 'Sold', value: totals.sold, color: 'text-store-green' },
+          { label: 'Wasted', value: totals.wasted, color: 'text-amber-600' },
+          { label: 'In Stock', value: totals.stock, color: 'text-store-brown' },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="bg-white border border-store-tan rounded-xl p-3 shadow-sm text-center">
+            <p className={`text-2xl font-bold ${color}`}>{value}</p>
+            <p className="text-xs text-store-brown-light mt-0.5">{label}</p>
+          </div>
+        ))}
       </div>
 
       {/* Chart B — Sales */}
