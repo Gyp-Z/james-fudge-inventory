@@ -30,15 +30,15 @@ export default function ShiftReport() {
 
       const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
-      // Pre-fill from most recent report (any type)
+      // Pre-fill from most recent report today only — resets to 0 each new day
       const { data: latestReport } = await supabase
         .from('shift_reports')
-        .select('id')
+        .select('id, report_date')
         .order('created_at', { ascending: false })
         .limit(1)
 
       let prefill = {}
-      if (latestReport && latestReport.length > 0) {
+      if (latestReport && latestReport.length > 0 && latestReport[0].report_date === todayStr) {
         const { data: prevEntries } = await supabase
           .from('shift_report_entries')
           .select('flavor_id, full_trays, in_progress_trays')
