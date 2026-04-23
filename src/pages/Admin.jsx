@@ -21,14 +21,14 @@ export default function Admin() {
     e.preventDefault()
     if (!newName.trim()) return
     setAdding(true)
-    await supabase.from('flavors').insert({ name: newName.trim(), is_active: true })
+    await supabase.from('flavors').insert({ name: newName.trim(), active: true })
     setNewName('')
     await loadFlavors()
     setAdding(false)
   }
 
   async function toggleActive(flavor) {
-    await supabase.from('flavors').update({ is_active: !flavor.is_active }).eq('id', flavor.id)
+    await supabase.from('flavors').update({ active: !flavor.active }).eq('id', flavor.id)
     await loadFlavors()
   }
 
@@ -43,8 +43,8 @@ export default function Admin() {
 
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
 
-  const active = flavors.filter((f) => f.is_active)
-  const archived = flavors.filter((f) => !f.is_active)
+  const active = flavors.filter((f) => f.active)
+  const archived = flavors.filter((f) => !f.active)
 
   return (
     <div className="space-y-6">

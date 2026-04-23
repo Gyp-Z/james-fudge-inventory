@@ -10,7 +10,7 @@ export function useFlavors() {
       const { data } = await supabase
         .from('flavors')
         .select('*')
-        .eq('is_active', true)
+        .eq('active', true)
         .order('name')
       setFlavors(data || [])
       setLoading(false)
