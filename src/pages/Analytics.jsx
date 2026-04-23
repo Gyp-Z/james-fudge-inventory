@@ -169,12 +169,17 @@ export default function Analytics() {
         wasted += e.trays_wasted ?? 0
       })
     })
-    // Current stock = most recent report that actually has entries
-    const sorted = [...filteredReports]
+    // Current stock = per flavor, use the most recent report that has an entry for it
+    const stockByFlavor = {}
+    ;[...filteredReports]
       .filter((r) => r.shift_report_entries?.length > 0)
       .sort((a, b) => (a.report_date > b.report_date ? -1 : 1))
-    const latest = sorted[0]
-    latest?.shift_report_entries?.forEach((e) => { stock += e.full_trays ?? 0 })
+      .forEach((r) => {
+        r.shift_report_entries?.forEach((e) => {
+          if (!(e.flavor_id in stockByFlavor)) stockByFlavor[e.flavor_id] = e.full_trays ?? 0
+        })
+      })
+    stock = Object.values(stockByFlavor).reduce((sum, v) => sum + v, 0)
     return { sold, wasted, stock }
   }, [filteredReports])
 
