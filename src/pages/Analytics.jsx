@@ -44,7 +44,6 @@ export default function Analytics() {
               flavor_id,
               full_trays,
               in_progress_trays,
-              trays_made,
               trays_wasted,
               waste_reason,
               flavors(name)
@@ -80,25 +79,7 @@ export default function Analytics() {
 
   const isClosingLike = (r) => r.report_type === 'closing' || r.report_type === 'snapshot'
 
-  // Chart A — Daily Production: stacked bars, trays_made from closing/snapshot per day
-  const chartAData = useMemo(() => {
-    const closingByDate = {}
-    filteredReports
-      .filter(isClosingLike)
-      .forEach((r) => { closingByDate[r.report_date] = r })
-
-    return uniqueDates
-      .map((date) => {
-        const report = closingByDate[date]
-        const row = { date: formatDate(date) }
-        flavors.forEach((f) => {
-          const entry = report?.shift_report_entries?.find((e) => e.flavor_id === f.id)
-          row[f.name] = entry?.trays_made ?? 0
-        })
-        return row
-      })
-      .filter((row) => flavors.some((f) => row[f.name] > 0))
-  }, [filteredReports, uniqueDates, flavors])
+  // Chart A was Daily Production, but we dropped trays_made so we skip it.
 
   // Chart B — Sales: trays_sold between consecutive reports
   // Formula: (prev full_trays + curr trays_made) - (curr full_trays + curr trays_wasted)
@@ -114,10 +95,9 @@ export default function Analytics() {
         const pe = prev.shift_report_entries?.find((e) => e.flavor_id === f.id)
         const ce = curr.shift_report_entries?.find((e) => e.flavor_id === f.id)
         const prevFull = pe?.full_trays ?? 0
-        const traysMade = ce?.trays_made ?? 0
         const currFull = ce?.full_trays ?? 0
         const traysWasted = ce?.trays_wasted ?? 0
-        const sold = Math.max(0, prevFull + traysMade - currFull - traysWasted)
+        const sold = Math.max(0, prevFull - currFull - traysWasted)
         row[f.name] = sold
         if (sold > 0) hasData = true
       })
@@ -224,11 +204,10 @@ export default function Analytics() {
             <button
               key={opt.label}
               onClick={() => setRange(opt.days)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors touch-manipulation ${
-                range === opt.days
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors touch-manipulation ${range === opt.days
                   ? 'bg-store-brown text-white'
                   : 'bg-store-tan text-store-brown hover:bg-store-brown hover:text-white'
-              }`}
+                }`}
             >
               {opt.label}
             </button>
@@ -236,35 +215,7 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* Chart A — Daily Production */}
-      <div>
-        <h3 className="font-semibold text-store-brown mb-1">Daily Production</h3>
-        <p className="text-xs text-store-brown-light mb-3">
-          Trays made per day (stacked by flavor)
-        </p>
-        {chartAData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chartAData} margin={{ left: 0, right: 16 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-              <XAxis dataKey="date" {...xProps} />
-              <YAxis {...yProps} />
-              <Tooltip contentStyle={tooltipStyle} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              {flavors.map((f, i) => (
-                <Bar
-                  key={f.id}
-                  dataKey={f.name}
-                  stackId="prod"
-                  fill={FLAVOR_COLORS[i % FLAVOR_COLORS.length]}
-                  radius={i === flavors.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
-                />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
-        ) : (
-          emptyMsg('No production data in this range.')
-        )}
-      </div>
+      {/* Daily Production chart removed */}
 
       {/* Chart B — Sales */}
       <div>
