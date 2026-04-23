@@ -21,37 +21,27 @@ function StatusBadge({ quantity, threshold }) {
   )
 }
 
-function formatDate(iso) {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
 export default function Ingredients() {
   const { session } = useAuth()
   const isAdmin = !!session
 
   const [ingredients, setIngredients] = useState([])
-  const [restocks, setRestocks] = useState({}) // { ingredient_id: [restock, ...] }
   const [loading, setLoading] = useState(true)
 
-  // Edit state
+  // Edit quantity state
   const [editingId, setEditingId] = useState(null)
   const [editQty, setEditQty] = useState('')
   const [saving, setSaving] = useState(false)
 
-  // Restock state
-  const [restockingId, setRestockingId] = useState(null)
-  const [restockQty, setRestockQty] = useState('')
-  const [restockNotes, setRestockNotes] = useState('')
-  const [restockSaving, setRestockSaving] = useState(false)
+  // Edit threshold state
+  const [editingThresholdId, setEditingThresholdId] = useState(null)
+  const [editThreshold, setEditThreshold] = useState('')
 
   // Add form state
   const [newName, setNewName] = useState('')
   const [newUnit, setNewUnit] = useState('')
   const [newThreshold, setNewThreshold] = useState('')
   const [adding, setAdding] = useState(false)
-
-  // History toggle
-  const [showHistoryId, setShowHistoryId] = useState(null)
 
   // Archive toggle
   const [showArchived, setShowArchived] = useState(false)
@@ -64,41 +54,7 @@ export default function Ingredients() {
     setLoading(false)
   }
 
-  async function handleArchive(ingredient) {
-    await supabase
-      .from('ingredients')
-      .update({ is_active: false })
-      .eq('id', ingredient.id)
-    await loadIngredients()
-  }
-
-  async function handleUnarchive(ingredient) {
-    await supabase
-      .from('ingredients')
-      .update({ is_active: true })
-      .eq('id', ingredient.id)
-    await loadIngredients()
-  }
-
-  async function loadRestocks() {
-    const { data } = await supabase
-      .from('ingredient_restocks')
-      .select('*')
-      .order('restocked_at', { ascending: false })
-    if (data) {
-      const grouped = {}
-      data.forEach((r) => {
-        if (!grouped[r.ingredient_id]) grouped[r.ingredient_id] = []
-        if (grouped[r.ingredient_id].length < 3) grouped[r.ingredient_id].push(r)
-      })
-      setRestocks(grouped)
-    }
-  }
-
-  useEffect(() => {
-    loadIngredients()
-    loadRestocks()
-  }, [showArchived])
+  useEffect(() => { loadIngredients() }, [showArchived])
 
   async function saveQuantity(ingredient) {
     const qty = parseFloat(editQty)
@@ -114,25 +70,23 @@ export default function Ingredients() {
     await loadIngredients()
   }
 
-  async function logRestock(ingredient) {
-    const qty = parseFloat(restockQty)
-    if (isNaN(qty) || qty <= 0) return
-    setRestockSaving(true)
-    await supabase.from('ingredient_restocks').insert({
-      ingredient_id: ingredient.id,
-      quantity_added: qty,
-      notes: restockNotes.trim() || null,
-    })
-    await supabase
-      .from('ingredients')
-      .update({ quantity: ingredient.quantity + qty, last_checked: new Date().toISOString() })
-      .eq('id', ingredient.id)
-    setRestockingId(null)
-    setRestockQty('')
-    setRestockNotes('')
-    setRestockSaving(false)
+  async function saveThreshold(ingredient) {
+    const val = parseFloat(editThreshold)
+    if (isNaN(val) || val < 0) return
+    await supabase.from('ingredients').update({ low_stock_threshold: val }).eq('id', ingredient.id)
+    setEditingThresholdId(null)
+    setEditThreshold('')
     await loadIngredients()
-    await loadRestocks()
+  }
+
+  async function handleArchive(ingredient) {
+    await supabase.from('ingredients').update({ is_active: false }).eq('id', ingredient.id)
+    await loadIngredients()
+  }
+
+  async function handleUnarchive(ingredient) {
+    await supabase.from('ingredients').update({ is_active: true }).eq('id', ingredient.id)
+    await loadIngredients()
   }
 
   async function handleAdd(e) {
@@ -159,22 +113,6 @@ export default function Ingredients() {
   const needsOrder = activeIngredients.filter(i => getStatus(i.quantity, i.low_stock_threshold) !== 'ok')
   const inStock = activeIngredients.filter(i => getStatus(i.quantity, i.low_stock_threshold) === 'ok')
 
-  const rowProps = { isAdmin, editingId, editQty, saving, restockingId, restockQty, restockNotes, restockSaving, showHistoryId, restocks, showArchived }
-  const rowHandlers = {
-    onEditStart: (ing) => { setEditingId(ing.id); setEditQty(String(ing.quantity)) },
-    onEditChange: setEditQty,
-    onSave: saveQuantity,
-    onEditCancel: () => { setEditingId(null); setEditQty('') },
-    onRestockStart: (ing) => { setRestockingId(ing.id); setRestockQty('') },
-    onRestockQtyChange: setRestockQty,
-    onRestockNotesChange: setRestockNotes,
-    onRestockSave: logRestock,
-    onRestockCancel: () => { setRestockingId(null); setRestockQty(''); setRestockNotes('') },
-    onToggleHistory: (id) => setShowHistoryId(showHistoryId === id ? null : id),
-    onArchive: handleArchive,
-    onUnarchive: handleUnarchive,
-  }
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -189,24 +127,42 @@ export default function Ingredients() {
         </button>
       </div>
 
-      {/* Order Report */}
       {needsOrder.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4">
           <h3 className="font-semibold text-red-700 mb-3">Needs to Order ({needsOrder.length})</h3>
           <div className="space-y-2">
             {needsOrder.map(ing => (
-              <IngredientRow key={ing.id} ing={ing} {...rowProps} {...rowHandlers} />
+              <IngredientRow key={ing.id} ing={ing} isAdmin={isAdmin}
+                editingId={editingId} editQty={editQty} saving={saving}
+                onEditStart={(i) => { setEditingId(i.id); setEditQty(String(i.quantity)) }}
+                onEditChange={setEditQty} onSave={saveQuantity}
+                onEditCancel={() => { setEditingId(null); setEditQty('') }}
+                editingThresholdId={editingThresholdId} editThreshold={editThreshold}
+                onThresholdStart={(i) => { setEditingThresholdId(i.id); setEditThreshold(String(i.low_stock_threshold ?? 0)) }}
+                onThresholdChange={setEditThreshold} onThresholdSave={saveThreshold}
+                onThresholdCancel={() => { setEditingThresholdId(null); setEditThreshold('') }}
+                onArchive={handleArchive} onUnarchive={handleUnarchive}
+              />
             ))}
           </div>
         </div>
       )}
 
-      {/* In Stock */}
       <div>
         <h3 className="font-semibold text-store-brown mb-3">In Stock ({inStock.length})</h3>
         <div className="space-y-2">
           {inStock.map(ing => (
-            <IngredientRow key={ing.id} ing={ing} {...rowProps} {...rowHandlers} />
+            <IngredientRow key={ing.id} ing={ing} isAdmin={isAdmin}
+              editingId={editingId} editQty={editQty} saving={saving}
+              onEditStart={(i) => { setEditingId(i.id); setEditQty(String(i.quantity)) }}
+              onEditChange={setEditQty} onSave={saveQuantity}
+              onEditCancel={() => { setEditingId(null); setEditQty('') }}
+              editingThresholdId={editingThresholdId} editThreshold={editThreshold}
+              onThresholdStart={(i) => { setEditingThresholdId(i.id); setEditThreshold(String(i.low_stock_threshold ?? 0)) }}
+              onThresholdChange={setEditThreshold} onThresholdSave={saveThreshold}
+              onThresholdCancel={() => { setEditingThresholdId(null); setEditThreshold('') }}
+              onArchive={handleArchive} onUnarchive={handleUnarchive}
+            />
           ))}
           {inStock.length === 0 && (
             <p className="text-store-brown-light text-sm text-center py-4">All ingredients need reordering</p>
@@ -214,13 +170,22 @@ export default function Ingredients() {
         </div>
       </div>
 
-      {/* Archived */}
       {showArchived && archivedIngredients.length > 0 && (
         <div>
           <h3 className="font-semibold text-store-brown-light mb-3">Archived ({archivedIngredients.length})</h3>
           <div className="space-y-2 opacity-60">
             {archivedIngredients.map(ing => (
-              <IngredientRow key={ing.id} ing={ing} {...rowProps} {...rowHandlers} />
+              <IngredientRow key={ing.id} ing={ing} isAdmin={isAdmin}
+                editingId={editingId} editQty={editQty} saving={saving}
+                onEditStart={(i) => { setEditingId(i.id); setEditQty(String(i.quantity)) }}
+                onEditChange={setEditQty} onSave={saveQuantity}
+                onEditCancel={() => { setEditingId(null); setEditQty('') }}
+                editingThresholdId={editingThresholdId} editThreshold={editThreshold}
+                onThresholdStart={(i) => { setEditingThresholdId(i.id); setEditThreshold(String(i.low_stock_threshold ?? 0)) }}
+                onThresholdChange={setEditThreshold} onThresholdSave={saveThreshold}
+                onThresholdCancel={() => { setEditingThresholdId(null); setEditThreshold('') }}
+                onArchive={handleArchive} onUnarchive={handleUnarchive}
+              />
             ))}
           </div>
         </div>
@@ -229,7 +194,6 @@ export default function Ingredients() {
         <p className="text-store-brown-light text-sm text-center py-2">No archived ingredients</p>
       )}
 
-      {/* Add Ingredient — admin only */}
       {isAdmin && (
         <div className="bg-white rounded-xl border border-store-tan p-4 shadow-sm">
           <h3 className="font-semibold text-store-brown mb-3">Add Ingredient</h3>
@@ -246,8 +210,8 @@ export default function Ingredients() {
                 type="text"
                 value={newUnit}
                 onChange={e => setNewUnit(e.target.value)}
-                placeholder="Unit (bags, cans…)"
-                className="w-36 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+                placeholder="Unit"
+                className="w-28 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
               />
               <input
                 type="number"
@@ -276,73 +240,59 @@ export default function Ingredients() {
 function IngredientRow({
   ing, isAdmin,
   editingId, editQty, saving, onEditStart, onEditChange, onSave, onEditCancel,
-  restockingId, restockQty, restockNotes, restockSaving, onRestockStart, onRestockQtyChange, onRestockNotesChange, onRestockSave, onRestockCancel,
-  showHistoryId, restocks, onToggleHistory, showArchived, onArchive, onUnarchive,
+  editingThresholdId, editThreshold, onThresholdStart, onThresholdChange, onThresholdSave, onThresholdCancel,
+  onArchive, onUnarchive,
 }) {
   const isEditing = editingId === ing.id
-  const isRestocking = restockingId === ing.id
-  const isShowingHistory = showHistoryId === ing.id
-  const history = restocks[ing.id] || []
+  const isEditingThreshold = editingThresholdId === ing.id
 
   return (
     <div className="bg-white rounded-xl border border-store-tan shadow-sm overflow-hidden">
-      {/* Main row */}
-      <div className="flex items-start sm:items-center justify-between px-4 py-3 gap-4 flex-col sm:flex-row">
-        <div className="flex items-start sm:items-center gap-3 flex-1">
-          <span className="text-sm font-medium text-store-brown leading-tight">{ing.name}</span>
+      <div className="flex items-start sm:items-center justify-between px-4 py-3 gap-3 flex-col sm:flex-row">
+        <div className="flex items-center gap-3 flex-1">
+          <span className="text-sm font-medium text-store-brown">{ing.name}</span>
           <StatusBadge quantity={ing.quantity} threshold={ing.low_stock_threshold} />
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap">
           <span className="text-sm text-store-brown-light font-mono">{ing.quantity} {ing.unit}</span>
-          {!isEditing && !isRestocking && (
+
+          {!isEditing && !isEditingThreshold && isAdmin && ing.is_active && (
             <>
-              {!ing.is_active ? (
+              {isEditingThreshold ? null : (
                 <button
-                  onClick={() => onUnarchive(ing)}
+                  onClick={() => onThresholdStart(ing)}
                   className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
                 >
-                  Unarchive
+                  Alert at {ing.low_stock_threshold ?? 0} {ing.unit}
                 </button>
-              ) : (
-                <>
-                  {isAdmin && (
-                    <>
-                      <button
-                        onClick={() => onEditStart(ing)}
-                        className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => onRestockStart(ing)}
-                        className="text-xs bg-store-green text-white px-2 py-1 rounded-lg hover:bg-store-green-dark transition-colors"
-                      >
-                        + Restock
-                      </button>
-                    </>
-                  )}
-                  <button
-                    onClick={() => onArchive(ing)}
-                    className="text-xs text-store-brown-light hover:text-red-600 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
-                  >
-                    Archive
-                  </button>
-                </>
               )}
+              <button
+                onClick={() => onEditStart(ing)}
+                className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => onArchive(ing)}
+                className="text-xs text-store-brown-light hover:text-red-600 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
+              >
+                Archive
+              </button>
             </>
           )}
-          {history.length > 0 && !isEditing && !isRestocking && (
+
+          {!isEditing && !isEditingThreshold && !ing.is_active && (
             <button
-              onClick={() => onToggleHistory(ing.id)}
-              className="text-xs text-store-brown-light hover:text-store-brown px-2 py-1 rounded-lg hover:bg-store-cream transition-colors"
+              onClick={() => onUnarchive(ing)}
+              className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
             >
-              {isShowingHistory ? '▲' : `${history.length} restock${history.length !== 1 ? 's' : ''} ▼`}
+              Unarchive
             </button>
           )}
         </div>
       </div>
 
-      {/* Edit panel */}
+      {/* Edit quantity panel */}
       {isEditing && (
         <div className="border-t border-store-tan px-4 py-3 bg-store-cream flex items-center gap-2">
           <input
@@ -371,57 +321,32 @@ function IngredientRow({
         </div>
       )}
 
-      {/* Restock panel */}
-      {isRestocking && (
-        <div className="border-t border-store-tan px-4 py-3 bg-store-green-light space-y-2">
-          <p className="text-xs font-semibold text-store-green uppercase tracking-wide">Log Restock</p>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              value={restockQty}
-              onChange={e => onRestockQtyChange(e.target.value)}
-              placeholder="Qty received"
-              min="0.5"
-              step="0.5"
-              autoFocus
-              className="w-28 border border-store-tan rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-white"
-            />
-            <span className="text-sm text-store-brown-light">{ing.unit}</span>
-          </div>
+      {/* Edit threshold panel */}
+      {isEditingThreshold && (
+        <div className="border-t border-store-tan px-4 py-3 bg-store-cream flex items-center gap-2">
+          <span className="text-xs text-store-brown-light">Alert when below</span>
           <input
-            type="text"
-            value={restockNotes}
-            onChange={e => onRestockNotesChange(e.target.value)}
-            placeholder="Notes (optional)"
-            className="w-full border border-store-tan rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-white"
+            type="number"
+            value={editThreshold}
+            onChange={e => onThresholdChange(e.target.value)}
+            min="0"
+            step="0.5"
+            autoFocus
+            className="w-20 border border-store-tan rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-white"
           />
-          <div className="flex gap-2">
-            <button
-              onClick={() => onRestockSave(ing)}
-              disabled={restockSaving || !restockQty}
-              className="bg-store-green text-white text-xs font-semibold px-4 py-1.5 rounded-lg hover:bg-store-green-dark transition-colors disabled:opacity-50"
-            >
-              {restockSaving ? 'Saving…' : 'Save Restock'}
-            </button>
-            <button
-              onClick={onRestockCancel}
-              className="text-xs text-store-brown-light hover:text-store-brown px-3 py-1.5 rounded-lg hover:bg-white transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Restock history */}
-      {isShowingHistory && history.length > 0 && (
-        <div className="border-t border-store-tan px-4 py-2 bg-store-cream space-y-1">
-          {history.map((r) => (
-            <div key={r.id} className="flex items-center justify-between text-xs text-store-brown-light">
-              <span>{formatDate(r.restocked_at)}{r.notes ? ` — ${r.notes}` : ''}</span>
-              <span className="font-medium text-store-green">+{r.quantity_added} {ing.unit}</span>
-            </div>
-          ))}
+          <span className="text-sm text-store-brown-light">{ing.unit}</span>
+          <button
+            onClick={() => onThresholdSave(ing)}
+            className="bg-store-green text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-store-green-dark transition-colors"
+          >
+            Save
+          </button>
+          <button
+            onClick={onThresholdCancel}
+            className="text-xs text-store-brown-light hover:text-store-brown px-3 py-1.5 rounded-lg hover:bg-white transition-colors"
+          >
+            Cancel
+          </button>
         </div>
       )}
     </div>

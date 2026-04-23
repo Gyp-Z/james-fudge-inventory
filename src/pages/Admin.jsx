@@ -182,21 +182,23 @@ export default function Admin() {
 
 function FlavorRow({ f, trays, editingThresholdId, editThreshold, setEditingThresholdId, setEditThreshold, saveThreshold, toggleActive }) {
   const isOut = trays === 0
-  const isLow = !isOut && trays < (f.low_tray_threshold ?? 2)
+  const isLow = !isOut && trays <= (f.low_tray_threshold ?? 2)
 
   return (
     <div className="bg-white rounded-xl border border-store-tan shadow-sm overflow-hidden">
       <div className="p-3 flex items-start sm:items-center justify-between gap-4 flex-col sm:flex-row">
         <div className="flex items-start sm:items-center gap-2 flex-1">
           <span className="text-sm font-medium text-store-brown leading-tight">{f.name}</span>
-          {isOut && (
+          {isOut ? (
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Out</span>
-          )}
-          {isLow && (
+          ) : isLow ? (
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Low</span>
+          ) : (
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-store-green-light text-store-green">OK</span>
           )}
         </div>
         <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-sm text-store-brown-light font-mono">{trays} tray{trays !== 1 ? 's' : ''}</span>
           {editingThresholdId === f.id ? (
             <div className="flex items-center gap-1.5">
               <input
