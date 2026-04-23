@@ -6,6 +6,28 @@ export default function Dashboard() {
   const { flavors, loading: flavorsLoading } = useFlavors()
   const [entries, setEntries] = useState({}) // flavor_id -> { full_trays, in_progress_trays }
   const [reportFound, setReportFound] = useState(null) // null=loading, true=found, false=none
+  const [ingredients, setIngredients] = useState([])
+  const [ingredientsLoading, setIngredientsLoading] = useState(true)
+
+  useEffect(() => {
+    async function loadIngredients() {
+      // Try with archived filter first; fall back to all ingredients if column doesn't exist yet
+      let result = await supabase
+        .from('ingredients')
+        .select('id, name, quantity, unit, low_stock_threshold')
+        .eq('archived', false)
+        .order('name')
+      if (result.error && (result.error.code === 'PGRST204' || result.error.message?.toLowerCase().includes('archived'))) {
+        result = await supabase
+          .from('ingredients')
+          .select('id, name, quantity, unit, low_stock_threshold')
+          .order('name')
+      }
+      setIngredients(result.data || [])
+      setIngredientsLoading(false)
+    }
+    loadIngredients()
+  }, [])
 
   useEffect(() => {
     async function load() {
@@ -55,21 +77,9 @@ export default function Dashboard() {
     return <p className="text-store-brown-light text-center py-12">Loading...</p>
   }
 
-  if (!reportFound) {
-    return (
-      <div className="space-y-6">
-        <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
-          Fudge Status
-        </h2>
-        <div className="bg-store-tan rounded-xl p-8 text-center space-y-2">
-          <p className="text-store-brown text-lg font-semibold">No reports yet</p>
-          <p className="text-store-brown-light text-sm">
-            Submit a report to get started.
-          </p>
-        </div>
-      </div>
-    )
-  }
+  const lowIngredients = ingredients.filter(
+    (i) => i.low_stock_threshold != null && i.quantity <= i.low_stock_threshold
+  )
 
   return (
     <div className="space-y-6">
@@ -112,6 +122,51 @@ export default function Dashboard() {
             </div>
           )
         })}
+      </div>
+
+      {/* Ingredients section */}
+      <div className="space-y-2">
+        <h3 className="text-lg font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
+          Ingredients
+        </h3>
+        {ingredientsLoading ? (
+          <p className="text-store-brown-light text-sm">Loading ingredients...</p>
+        ) : lowIngredients.length === 0 ? (
+          <p className="text-sm text-store-green font-medium">All ingredients stocked ✓</p>
+        ) : (
+          <div>
+            <p className="text-xs font-semibold text-store-brown-light uppercase tracking-wide mb-2">
+              Needs Ordering
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {lowIngredients.map((ing) => {
+                const isOut = ing.quantity === 0
+                return (
+                  <div
+                    key={ing.id}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${
+                      isOut
+                        ? 'bg-red-50 border-red-300 text-red-700'
+                        : 'bg-amber-50 border-amber-300 text-amber-700'
+                    }`}
+                  >
+                    <span>{ing.name}</span>
+                    <span className="opacity-70">
+                      {ing.quantity} {ing.unit}
+                    </span>
+                    <span
+                      className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                        isOut ? 'bg-red-200 text-red-800' : 'bg-amber-200 text-amber-800'
+                      }`}
+                    >
+                      {isOut ? 'Out' : 'Low'}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
