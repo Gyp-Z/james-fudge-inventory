@@ -1,5 +1,5 @@
 export default function TrayCounter({ count, onChange, min = 0 }) {
-  const lbs = (count * 6.5).toFixed(1)
+  const lbs = (count * 7.25).toFixed(1)
 
   return (
     <div className="flex items-center gap-3">
