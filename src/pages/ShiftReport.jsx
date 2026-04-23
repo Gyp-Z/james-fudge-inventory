@@ -48,6 +48,7 @@ export default function ShiftReport() {
         initial[f.id] = {
           full_trays: prefill[f.id]?.full_trays ?? 0,
           in_progress_trays: prefill[f.id]?.in_progress_trays ?? 0,
+          trays_sold: 0,
           trays_wasted: 0,
           waste_reason: '',
         }
@@ -169,6 +170,14 @@ export default function ShiftReport() {
                 <Stepper
                   value={e.in_progress_trays}
                   onChange={(v) => setField(f.id, 'in_progress_trays', v)}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-store-brown-light">Trays sold</span>
+                <Stepper
+                  value={e.trays_sold}
+                  onChange={(v) => setField(f.id, 'trays_sold', v)}
                 />
               </div>
 

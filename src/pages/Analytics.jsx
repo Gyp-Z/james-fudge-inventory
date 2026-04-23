@@ -25,6 +25,10 @@ function formatDate(dateStr) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+function isClosingLike() {
+  return true
+}
+
 export default function Analytics() {
   const [reports, setReports] = useState([])
   const [flavors, setFlavors] = useState([])
@@ -164,7 +168,7 @@ export default function Analytics() {
     return <p className="text-store-brown-light text-center py-12">Loading analytics...</p>
   }
 
-  if (closingDays < 2) {
+  if (closingDays < 1) {
     return (
       <div className="text-center py-20">
         <div className="text-5xl mb-4">📊</div>
@@ -239,7 +243,7 @@ export default function Analytics() {
             </BarChart>
           </ResponsiveContainer>
         ) : (
-          emptyMsg('No days with both morning and closing reports in this range.')
+          emptyMsg('No sales logged in this range yet.')
         )}
       </div>
 
