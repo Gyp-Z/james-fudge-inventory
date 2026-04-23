@@ -43,6 +43,7 @@ export default function Analytics() {
           .select(`
             id,
             report_date,
+            created_at,
             report_type,
             shift_report_entries(
               flavor_id,
@@ -54,7 +55,7 @@ export default function Analytics() {
               flavors(name)
             )
           `)
-          .order('report_date'),
+          .order('created_at'),
         supabase
           .from('flavors')
           .select('id, name')
@@ -173,7 +174,7 @@ export default function Analytics() {
     const stockByFlavor = {}
     ;[...filteredReports]
       .filter((r) => r.shift_report_entries?.length > 0)
-      .sort((a, b) => (a.report_date > b.report_date ? -1 : 1))
+      .sort((a, b) => (a.created_at > b.created_at ? -1 : 1))
       .forEach((r) => {
         r.shift_report_entries?.forEach((e) => {
           if (!(e.flavor_id in stockByFlavor)) stockByFlavor[e.flavor_id] = e.full_trays ?? 0
