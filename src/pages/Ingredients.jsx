@@ -248,29 +248,58 @@ function IngredientRow({
 
   return (
     <div className="bg-white rounded-xl border border-store-tan shadow-sm overflow-hidden">
-      <div className="flex items-start sm:items-center justify-between px-4 py-3 gap-3 flex-col sm:flex-row">
-        <div className="flex items-center gap-3 flex-1">
-          <span className="text-sm font-medium text-store-brown">{ing.name}</span>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-4 py-3 gap-2">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="text-sm font-medium text-store-brown truncate">{ing.name}</span>
           <StatusBadge quantity={ing.quantity} threshold={ing.low_stock_threshold} />
         </div>
-        <div className="flex items-center gap-2 shrink-0 flex-wrap">
-          <span className="text-sm text-store-brown-light font-mono">{ing.quantity} {ing.unit}</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          {isEditing ? (
+            <>
+              <input
+                type="number"
+                value={editQty}
+                onChange={e => onEditChange(e.target.value)}
+                min="0"
+                step="0.5"
+                autoFocus
+                className="w-24 border border-store-tan rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+              />
+              <span className="text-sm text-store-brown-light">{ing.unit}</span>
+              <button
+                onClick={() => onSave(ing)}
+                disabled={saving}
+                className="bg-store-green text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-store-green-dark transition-colors disabled:opacity-50"
+              >
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                onClick={onEditCancel}
+                className="text-xs text-store-brown-light hover:text-store-brown px-3 py-1.5 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            isAdmin && ing.is_active ? (
+              <button
+                onClick={() => onEditStart(ing)}
+                className="text-sm text-store-brown-light font-mono hover:text-store-green transition-colors"
+              >
+                {ing.quantity} {ing.unit}
+              </button>
+            ) : (
+              <span className="text-sm text-store-brown-light font-mono">{ing.quantity} {ing.unit}</span>
+            )
+          )}
 
           {!isEditing && !isEditingThreshold && isAdmin && ing.is_active && (
             <>
-              {isEditingThreshold ? null : (
-                <button
-                  onClick={() => onThresholdStart(ing)}
-                  className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
-                >
-                  Alert at {ing.low_stock_threshold ?? 0} {ing.unit}
-                </button>
-              )}
               <button
-                onClick={() => onEditStart(ing)}
+                onClick={() => onThresholdStart(ing)}
                 className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
               >
-                Edit
+                Alert at {ing.low_stock_threshold ?? 0} {ing.unit}
               </button>
               <button
                 onClick={() => onArchive(ing)}
@@ -292,38 +321,9 @@ function IngredientRow({
         </div>
       </div>
 
-      {/* Edit quantity panel */}
-      {isEditing && (
-        <div className="border-t border-store-tan px-4 py-3 bg-store-cream flex items-center gap-2">
-          <input
-            type="number"
-            value={editQty}
-            onChange={e => onEditChange(e.target.value)}
-            min="0"
-            step="0.5"
-            autoFocus
-            className="w-24 border border-store-tan rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-white"
-          />
-          <span className="text-sm text-store-brown-light">{ing.unit}</span>
-          <button
-            onClick={() => onSave(ing)}
-            disabled={saving}
-            className="bg-store-green text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-store-green-dark transition-colors disabled:opacity-50"
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          <button
-            onClick={onEditCancel}
-            className="text-xs text-store-brown-light hover:text-store-brown px-3 py-1.5 rounded-lg hover:bg-white transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-
       {/* Edit threshold panel */}
       {isEditingThreshold && (
-        <div className="border-t border-store-tan px-4 py-3 bg-store-cream flex items-center gap-2">
+        <div className="border-t border-store-tan px-4 py-3 bg-store-cream flex items-center gap-2 flex-wrap">
           <span className="text-xs text-store-brown-light">Alert when below</span>
           <input
             type="number"

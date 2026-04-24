@@ -147,22 +147,24 @@ export default function ShiftReport() {
         <p className="text-store-brown-light text-sm mt-1">{todayLabel}</p>
       </div>
 
-      {/* Tab switcher */}
-      <div className="flex gap-2">
-        {['products', 'ingredients'].map((tab) => (
-          <button
-            key={tab}
-            onClick={() => { setActiveTab(tab); setSubmitted(false); setIngSubmitted(false) }}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors touch-manipulation capitalize ${
-              activeTab === tab
-                ? 'bg-store-brown text-white'
-                : 'bg-store-tan text-store-brown hover:bg-store-brown hover:text-white'
-            }`}
-          >
-            {tab === 'products' ? 'Products' : 'Ingredients'}
-          </button>
-        ))}
-      </div>
+      {/* Tab switcher — ingredients only visible to admins */}
+      {session && (
+        <div className="flex gap-2">
+          {['products', 'ingredients'].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => { setActiveTab(tab); setSubmitted(false); setIngSubmitted(false) }}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors touch-manipulation capitalize ${
+                activeTab === tab
+                  ? 'bg-store-brown text-white'
+                  : 'bg-store-tan text-store-brown hover:bg-store-brown hover:text-white'
+              }`}
+            >
+              {tab === 'products' ? 'Products' : 'Ingredients'}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Products tab */}
       {activeTab === 'products' && (
@@ -243,12 +245,12 @@ export default function ShiftReport() {
               <p className="text-store-brown-light text-xs -mt-3">How much of each ingredient was used?</p>
               <div className="space-y-2">
                 {ingList.map((ing) => (
-                  <div key={ing.id} className="bg-white rounded-xl border border-store-tan px-4 py-3 shadow-sm flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium text-store-brown">{ing.name}</p>
-                      <p className="text-xs text-store-brown-light mt-0.5">{ing.quantity} {ing.unit} in stock</p>
+                  <div key={ing.id} className="bg-white rounded-xl border border-store-tan px-4 py-3 shadow-sm overflow-hidden flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-store-brown truncate">{ing.name}</p>
+                      <p className="text-xs text-store-brown-light mt-0.5 truncate">{ing.quantity} {ing.unit} in stock</p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2">
                       <input
                         type="number"
                         inputMode="decimal"
@@ -259,7 +261,7 @@ export default function ShiftReport() {
                         placeholder="0"
                         className="w-20 border border-store-tan rounded-xl px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
                       />
-                      <span className="text-xs text-store-brown-light w-8">{ing.unit}</span>
+                      <span className="text-xs text-store-brown-light">{ing.unit}</span>
                     </div>
                   </div>
                 ))}

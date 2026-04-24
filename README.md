@@ -8,6 +8,17 @@ The store runs daily shifts where staff need to know what's in stock, what sold 
 
 ---
 
+## Access Levels
+
+| View | Who | How |
+|---|---|---|
+| Staff (chef) | Not logged in | Dashboard + Report only |
+| Admin (owner) | Logged in | All tabs |
+
+Staff see fudge stock and can submit product reports. Ingredient tracking, analytics, and product management are admin-only.
+
+---
+
 ## App Tabs
 
 ### Dashboard (`/`)
@@ -15,18 +26,19 @@ Real-time stock status for all active flavors, split into:
 - **Make Soon** — flavors at or below their `low_tray_threshold` (shown in red/amber pills)
 - **In Stock** — flavors above threshold (shown in green pills)
 - **Yesterday's Shelf** — what was on the shelf at end of yesterday, so morning shift knows what dried overnight
-- **Ingredients Alert** — ingredients at or below their low-stock threshold
+- **Ingredients Alert** — ingredients at or below their low-stock threshold *(admin only)*
 - Flavor pills also show in-progress tray count if nonzero
 
 ### Report (`/report`)
 Staff submit this any time stock changes — after making a batch, after a busy selling period, at end of shift. Each submission is a full snapshot of current counts plus what sold and wasted since the last report.
 
-Each flavor card shows:
-- Full trays (on the shelf, complete)
-- In-progress trays (drying, not ready yet)
-- Trays sold (since last report)
-- Trays wasted (with reason if >0)
-- A running today's total of already-logged sold/stock figures, so the next person knows what's been counted
+**Products tab** (all users):
+- Full trays on shelf, in-progress trays, trays sold, trays wasted (with reason)
+- Running today's total of already-logged figures shown per flavor, so the next person knows what's been counted
+
+**Ingredients tab** (admin only):
+- Log how much of each ingredient was used (depleted) this session
+- Each submission inserts a row into `ingredient_depletions` and subtracts from current stock
 
 ### Analytics (`/analytics`) — Admin only
 Charts and summary stats built from all shift report data:
@@ -36,12 +48,17 @@ Charts and summary stats built from all shift report data:
 - **Stock Trend** — `full_trays` over time, one line per flavor (line chart)
 - Date range filter: 7 Days / 30 Days / All Time
 
-### Ingredients (`/ingredients`)
-Track raw ingredient inventory. Each ingredient has a quantity, unit, and low-stock threshold. Staff can update quantities directly. Low-stock items surface on the Dashboard automatically.
+### Ingredients (`/ingredients`) — Admin only
+Track raw ingredient inventory. Each ingredient has a quantity, unit, and low-stock threshold.
+- Tap the quantity to edit it inline
+- Set a low-stock alert threshold per ingredient
+- Archive/restore ingredients
+- Low/out ingredients surface on the Dashboard automatically
 
 ### Products / Admin (`/admin`) — Admin only
 Manage the flavor catalog:
 - Add new flavors with name and low-tray threshold
+- Each flavor shows current tray count + Out/Low/OK status badge
 - Toggle flavors active/inactive (inactive flavors disappear from reports and dashboard)
 - Restore archived flavors
 
@@ -108,4 +125,4 @@ This app was built to give the owners real visibility into their kitchen for the
 
 ## Status
 
-Active development — pre-season testing phase (season opens ~May 9). Core features working: shift reports, dashboard with yesterday's shelf, analytics with sales/waste/stock trend charts, ingredient tracking, admin panel.
+Active development — pre-season testing phase (season opens ~May 9). Core features working: shift reports, dashboard with yesterday's shelf, analytics with sales/waste/stock trend charts, ingredient depletion tracking, admin panel.

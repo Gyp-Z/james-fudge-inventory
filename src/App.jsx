@@ -32,7 +32,7 @@ export default function App() {
                   <Route path="/dashboard" element={<Navigate to="/" replace />} />
                   <Route path="/report" element={<ShiftReport />} />
                   <Route path="/batch" element={<Batch />} />
-                  <Route path="/ingredients" element={<Ingredients />} />
+                  <Route path="/ingredients" element={<AdminRoute><Ingredients /></AdminRoute>} />
                   <Route path="/analytics" element={<AdminRoute><Analytics /></AdminRoute>} />
                   <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
                 </Routes>
