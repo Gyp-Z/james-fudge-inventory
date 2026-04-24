@@ -15,7 +15,7 @@ The store runs daily shifts where staff need to know what's in stock, what sold 
 | Staff (chef) | Not logged in | Dashboard + Report only |
 | Admin (owner) | Logged in | All tabs |
 
-Staff see fudge stock and can submit product reports. Ingredient tracking, analytics, and product management are admin-only.
+Staff can view all stock levels (fudge + ingredients) and submit both product and ingredient reports. Analytics and product/ingredient management are admin-only.
 
 ---
 
@@ -26,19 +26,19 @@ Real-time stock status for all active flavors, split into:
 - **Make Soon** — flavors at or below their `low_tray_threshold` (shown in red/amber pills)
 - **In Stock** — flavors above threshold (shown in green pills)
 - **Yesterday's Shelf** — what was on the shelf at end of yesterday, so morning shift knows what dried overnight
-- **Ingredients Alert** — ingredients at or below their low-stock threshold *(admin only)*
+- **Ingredients Alert** — ingredients at or below their low-stock threshold (all users)
 - Flavor pills also show in-progress tray count if nonzero
 
 ### Report (`/report`)
-Staff submit this any time stock changes — after making a batch, after a busy selling period, at end of shift. Each submission is a full snapshot of current counts plus what sold and wasted since the last report.
+Staff submit this any time stock changes — after making a batch, after a busy selling period, at end of shift. Each submission is a delta transaction: trays made are added, trays sold/wasted are subtracted. Untouched flavors are never zeroed out.
 
 **Products tab** (all users):
-- Full trays on shelf, in-progress trays, trays sold, trays wasted (with reason)
-- Running today's total of already-logged figures shown per flavor, so the next person knows what's been counted
+- Trays made this session, in-progress trays, trays sold, trays wasted (with reason)
+- Current inventory count + today's made/sold totals shown per flavor as reference
 
-**Ingredients tab** (admin only):
-- Log how much of each ingredient was used (depleted) this session
-- Each submission inserts a row into `ingredient_depletions` and subtracts from current stock
+**Ingredients tab** (all users):
+- **Used This Session** — log how much of each ingredient was used; subtracts from current stock and inserts a row into `ingredient_depletions`
+- **Order Received** — log incoming supply orders; adds to current stock
 
 ### Analytics (`/analytics`) — Admin only
 Charts and summary stats built from all shift report data:

@@ -17,6 +17,7 @@ export default function ShiftReport() {
   const [flavors, setFlavors] = useState([])
   const [entries, setEntries] = useState({})
   const [todayTotals, setTodayTotals] = useState({})
+  const [currentInventory, setCurrentInventory] = useState({}) // flavor_id -> tray_count
 
   // Ingredients tab — usage state
   const [ingList, setIngList] = useState([])
@@ -33,9 +34,10 @@ export default function ShiftReport() {
     async function load() {
       const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
-      const [{ data: flavorsData }, { data: ingredientsData }] = await Promise.all([
+      const [{ data: flavorsData }, { data: ingredientsData }, { data: invData }] = await Promise.all([
         supabase.from('flavors').select('id, name, low_tray_threshold').eq('is_active', true).order('name'),
         supabase.from('ingredients').select('id, name, quantity, unit').eq('is_active', true).order('name'),
+        supabase.from('current_inventory').select('flavor_id, tray_count'),
       ])
 
       const activeFlavors = flavorsData || []
@@ -55,6 +57,10 @@ export default function ShiftReport() {
       setIngUsage(ingInit)
       setIngReceived(recInit)
 
+      const invMap = {}
+      ;(invData || []).forEach((row) => { invMap[row.flavor_id] = row.tray_count ?? 0 })
+      setCurrentInventory(invMap)
+
       // Load today's totals for products tab
       const { data: todayReports } = await supabase
         .from('shift_reports').select('id').eq('report_date', todayStr)
@@ -64,10 +70,10 @@ export default function ShiftReport() {
           .from('shift_report_entries').select('flavor_id, full_trays, trays_sold, trays_wasted').in('report_id', ids)
         const totalsMap = {}
         ;(todayEntries || []).forEach((e) => {
-          const t = totalsMap[e.flavor_id] || { sold: 0, wasted: 0, stock: 0 }
+          const t = totalsMap[e.flavor_id] || { sold: 0, wasted: 0, made: 0 }
           t.sold += e.trays_sold ?? 0
           t.wasted += e.trays_wasted ?? 0
-          t.stock = Math.max(t.stock, e.full_trays ?? 0)
+          t.made += e.full_trays ?? 0
           totalsMap[e.flavor_id] = t
         })
         setTodayTotals(totalsMap)
@@ -108,12 +114,31 @@ export default function ShiftReport() {
     }))
     await supabase.from('shift_report_entries').insert(entryRows)
 
-    const inventoryRows = flavors.map((f) => ({
-      flavor_id: f.id,
-      tray_count: entries[f.id]?.full_trays ?? 0,
-      updated_at: new Date().toISOString(),
-    }))
-    await supabase.from('current_inventory').upsert(inventoryRows, { onConflict: 'flavor_id' })
+    // Fetch fresh inventory then apply delta — only touch flavors with non-zero activity
+    const { data: freshInv } = await supabase.from('current_inventory').select('flavor_id, tray_count')
+    const freshMap = {}
+    ;(freshInv || []).forEach((row) => { freshMap[row.flavor_id] = row.tray_count ?? 0 })
+
+    const activeRows = flavors
+      .filter((f) => {
+        const e = entries[f.id]
+        return (e?.full_trays ?? 0) !== 0 || (e?.trays_sold ?? 0) !== 0 || (e?.trays_wasted ?? 0) !== 0
+      })
+      .map((f) => {
+        const e = entries[f.id]
+        const made = e?.full_trays ?? 0
+        const sold = e?.trays_sold ?? 0
+        const wasted = e?.trays_wasted ?? 0
+        return {
+          flavor_id: f.id,
+          tray_count: Math.max(0, (freshMap[f.id] ?? 0) + made - sold - wasted),
+          updated_at: new Date().toISOString(),
+        }
+      })
+
+    if (activeRows.length > 0) {
+      await supabase.from('current_inventory').upsert(activeRows, { onConflict: 'flavor_id' })
+    }
 
     setSubmitted(true)
     setSubmitting(false)
@@ -207,7 +232,7 @@ export default function ShiftReport() {
             </div>
           ) : (
             <>
-              <p className="text-store-brown-light text-xs -mt-3">What's on the shelf right now?</p>
+              <p className="text-store-brown-light text-xs -mt-3">Log what you made, sold, or wasted this session.</p>
               <div className="space-y-3">
                 {flavors.map((f) => {
                   const e = entries[f.id] || { full_trays: 0, in_progress_trays: 0, trays_sold: 0, trays_wasted: 0, waste_reason: '' }
@@ -215,16 +240,20 @@ export default function ShiftReport() {
                     <div key={f.id} className="bg-white rounded-xl border border-store-tan p-4 shadow-sm space-y-4">
                       <div className="flex items-center justify-between">
                         <p className="font-semibold text-store-brown text-lg">{f.name}</p>
-                        {todayTotals[f.id] && (
-                          <div className="flex gap-2 text-xs text-store-brown-light">
-                            <span>{todayTotals[f.id].stock} in stock</span>
-                            <span>·</span>
-                            <span>{todayTotals[f.id].sold} sold</span>
-                          </div>
-                        )}
+                        <div className="flex gap-2 text-xs text-store-brown-light flex-wrap">
+                          {currentInventory[f.id] !== undefined && (
+                            <span>{currentInventory[f.id]} in stock</span>
+                          )}
+                          {todayTotals[f.id]?.made > 0 && (
+                            <><span>·</span><span>{todayTotals[f.id].made} made today</span></>
+                          )}
+                          {todayTotals[f.id]?.sold > 0 && (
+                            <><span>·</span><span>{todayTotals[f.id].sold} sold today</span></>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-store-brown-light">Full trays</span>
+                        <span className="text-sm text-store-brown-light">Trays made</span>
                         <Stepper value={e.full_trays} onChange={(v) => setField(f.id, 'full_trays', v)} />
                       </div>
                       <div className="flex items-center justify-between">
