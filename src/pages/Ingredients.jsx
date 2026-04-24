@@ -8,6 +8,15 @@ function getStatus(quantity, threshold) {
   return 'ok'
 }
 
+// Returns e.g. "1.98 bags", "0.45 barrels", null if no container info
+function formatContainers(quantity, containerSize, containerUnit) {
+  if (!containerSize || !containerUnit || containerSize <= 0) return null
+  const count = quantity / containerSize
+  const display = count >= 10 ? count.toFixed(1) : count.toFixed(2)
+  const label = parseFloat(display) === 1 ? containerUnit : `${containerUnit}s`
+  return `${display} ${label}`
+}
+
 function StatusBadge({ quantity, threshold }) {
   const status = getStatus(quantity, threshold)
   if (status === 'out') return (
@@ -41,6 +50,8 @@ export default function Ingredients() {
   const [newName, setNewName] = useState('')
   const [newUnit, setNewUnit] = useState('')
   const [newThreshold, setNewThreshold] = useState('')
+  const [newContainerUnit, setNewContainerUnit] = useState('')
+  const [newContainerSize, setNewContainerSize] = useState('')
   const [adding, setAdding] = useState(false)
 
   // Archive toggle
@@ -98,10 +109,14 @@ export default function Ingredients() {
       unit: newUnit.trim(),
       quantity: 0,
       low_stock_threshold: parseFloat(newThreshold) || 0,
+      container_unit: newContainerUnit.trim() || null,
+      container_size: parseFloat(newContainerSize) || null,
     })
     setNewName('')
     setNewUnit('')
     setNewThreshold('')
+    setNewContainerUnit('')
+    setNewContainerSize('')
     setAdding(false)
     await loadIngredients()
   }
@@ -223,6 +238,24 @@ export default function Ingredients() {
                 className="w-24 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
               />
             </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newContainerUnit}
+                onChange={e => setNewContainerUnit(e.target.value)}
+                placeholder="Container type (e.g. bag, barrel)"
+                className="flex-1 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+              />
+              <input
+                type="number"
+                value={newContainerSize}
+                onChange={e => setNewContainerSize(e.target.value)}
+                placeholder="Size per container"
+                min="0"
+                step="any"
+                className="w-40 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+              />
+            </div>
             <button
               type="submit"
               disabled={adding || !newName.trim() || !newUnit.trim()}
@@ -245,6 +278,7 @@ function IngredientRow({
 }) {
   const isEditing = editingId === ing.id
   const isEditingThreshold = editingThresholdId === ing.id
+  const containerStr = formatContainers(ing.quantity, ing.container_size, ing.container_unit)
 
   return (
     <div className="bg-white rounded-xl border border-store-tan shadow-sm overflow-hidden">
@@ -281,16 +315,21 @@ function IngredientRow({
               </button>
             </>
           ) : (
-            isAdmin && ing.is_active ? (
-              <button
-                onClick={() => onEditStart(ing)}
-                className="text-sm text-store-brown-light font-mono hover:text-store-green transition-colors"
-              >
-                {ing.quantity} {ing.unit}
-              </button>
-            ) : (
-              <span className="text-sm text-store-brown-light font-mono">{ing.quantity} {ing.unit}</span>
-            )
+            <>
+              {isAdmin && ing.is_active ? (
+                <button
+                  onClick={() => onEditStart(ing)}
+                  className="text-sm text-store-brown-light font-mono hover:text-store-green transition-colors"
+                >
+                  {ing.quantity} {ing.unit}
+                </button>
+              ) : (
+                <span className="text-sm text-store-brown-light font-mono">{ing.quantity} {ing.unit}</span>
+              )}
+              {containerStr && (
+                <span className="text-xs text-store-brown-light opacity-60">· {containerStr}</span>
+              )}
+            </>
           )}
 
           {!isEditing && !isEditingThreshold && isAdmin && ing.is_active && (
