@@ -45,7 +45,7 @@ Charts and summary stats built from all shift report data:
 - **Sold / Wasted / In Stock** summary cards (7-day, 30-day, or all-time)
 - **Sales chart** — trays sold per day, grouped by flavor (bar chart)
 - **Waste chart** — total trays wasted per flavor + detail table with dates and reasons
-- **Stock Trend** — `full_trays` over time, one line per flavor (line chart)
+- **Stock Trend** — actual inventory level per flavor over time, one line per flavor (line chart). Carries forward the last known value on non-reporting days so the chart always has a point for today.
 - Date range filter: 7 Days / 30 Days / All Time
 
 ### Ingredients (`/ingredients`) — Admin only
@@ -123,6 +123,14 @@ This app was built to give the owners real visibility into their kitchen for the
 
 ---
 
+## Database Notes
+
+- `current_inventory` is the source of truth for tray counts — the dashboard reads from here directly
+- `shift_report_entries` stores deltas (trays made/sold/wasted per session), not snapshots
+- `ingredient_depletions` is an append-only audit log — quantities are updated on `ingredients` separately
+- `recipe_items` stores per-batch ingredient amounts (Jarvis reference only — not used by the app)
+- Stock trend chart uses delta math from `shift_report_entries` from season start (Apr 22, 2026) forward — pre-season test data is excluded
+
 ## Status
 
-Active development — pre-season testing phase (season opens ~May 9). Core features working: shift reports, dashboard with yesterday's shelf, analytics with sales/waste/stock trend charts, ingredient depletion tracking, admin panel.
+Active development — season opens ~May 9. Core features working: shift reports, dashboard with yesterday's shelf, analytics with sales/waste/stock trend charts, ingredient depletion tracking, admin panel.
