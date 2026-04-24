@@ -139,15 +139,18 @@ export default function Analytics() {
     return { chartCData: chartData, wasteTable: table }
   }, [filteredReports, flavors])
 
-  // Chart D — Stock Trend: actual running inventory at end of each reporting day
+  // Chart D — Stock Trend: running inventory per day with carry-forward
   const chartDData = useMemo(() => {
     if (reports.length === 0) return []
 
-    // Use ALL reports (not just filtered) so carry-in from before the range is accurate
+    // Pre-season reports used overwrite model — only trust data from season start
+    const SEASON_START = '2026-04-22'
+
+    // Build running inventory snapshots from delta-model reports only
     const invSnapshots = {}
     const running = {}
-
     ;[...reports]
+      .filter((r) => r.report_date >= SEASON_START)
       .sort((a, b) => a.report_date.localeCompare(b.report_date))
       .forEach((r) => {
         r.shift_report_entries?.forEach((e) => {
@@ -157,17 +160,38 @@ export default function Analytics() {
         invSnapshots[r.report_date] = { ...running }
       })
 
-    return uniqueDates
-      .filter((date) => invSnapshots[date])
-      .map((date) => {
-        const snap = invSnapshots[date]
-        const row = { date: formatDate(date) }
-        flavors.forEach((f) => {
-          row[f.name] = snap[f.id] ?? null
-        })
-        return row
-      })
-  }, [reports, uniqueDates, flavors])
+    if (Object.keys(invSnapshots).length === 0) return []
+
+    // Date range to display
+    const todayStr = getDateStr(new Date())
+    const cutoff = new Date()
+    if (range) cutoff.setDate(cutoff.getDate() - range)
+    const startStr = range ? getDateStr(cutoff) : SEASON_START
+    const displayStart = startStr > SEASON_START ? startStr : SEASON_START
+
+    // Seed carry-forward with last snapshot at or before displayStart
+    let lastSnap = {}
+    for (const d of Object.keys(invSnapshots).sort()) {
+      if (d <= displayStart) lastSnap = invSnapshots[d]
+      else break
+    }
+
+    // Walk every calendar day in range, carry forward on non-reporting days
+    const rows = []
+    const cursor = new Date(displayStart + 'T12:00:00')
+    const end = new Date(todayStr + 'T12:00:00')
+    while (cursor <= end) {
+      const dateStr = getDateStr(cursor)
+      if (invSnapshots[dateStr]) lastSnap = invSnapshots[dateStr]
+      if (Object.keys(lastSnap).length > 0) {
+        const row = { date: formatDate(dateStr) }
+        flavors.forEach((f) => { row[f.name] = lastSnap[f.id] ?? null })
+        rows.push(row)
+      }
+      cursor.setDate(cursor.getDate() + 1)
+    }
+    return rows
+  }, [reports, flavors, range])
 
   // Summary totals across filtered range
   const totals = useMemo(() => {
