@@ -18,11 +18,16 @@ export default function ShiftReport() {
   const [entries, setEntries] = useState({})
   const [todayTotals, setTodayTotals] = useState({})
 
-  // Ingredients tab state
+  // Ingredients tab — usage state
   const [ingList, setIngList] = useState([])
   const [ingUsage, setIngUsage] = useState({})
   const [ingSubmitting, setIngSubmitting] = useState(false)
   const [ingSubmitted, setIngSubmitted] = useState(false)
+
+  // Ingredients tab — received/restock state
+  const [ingReceived, setIngReceived] = useState({})
+  const [recSubmitting, setRecSubmitting] = useState(false)
+  const [recSubmitted, setRecSubmitted] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -34,8 +39,9 @@ export default function ShiftReport() {
       ])
 
       const activeFlavors = flavorsData || []
+      const ings = ingredientsData || []
       setFlavors(activeFlavors)
-      setIngList(ingredientsData || [])
+      setIngList(ings)
 
       const initial = {}
       activeFlavors.forEach((f) => {
@@ -44,8 +50,10 @@ export default function ShiftReport() {
       setEntries(initial)
 
       const ingInit = {}
-      ;(ingredientsData || []).forEach((i) => { ingInit[i.id] = 0 })
+      const recInit = {}
+      ings.forEach((i) => { ingInit[i.id] = 0; recInit[i.id] = 0 })
       setIngUsage(ingInit)
+      setIngReceived(recInit)
 
       // Load today's totals for products tab
       const { data: todayReports } = await supabase
@@ -69,6 +77,12 @@ export default function ShiftReport() {
     }
     load()
   }, [])
+
+  // Reload fresh quantities after any ingredient submit
+  async function reloadIngList() {
+    const { data } = await supabase.from('ingredients').select('id, name, quantity, unit').eq('is_active', true).order('name')
+    setIngList(data || [])
+  }
 
   function setField(flavorId, field, value) {
     setEntries((prev) => ({ ...prev, [flavorId]: { ...prev[flavorId], [field]: value } }))
@@ -122,13 +136,32 @@ export default function ShiftReport() {
       await supabase.from('ingredients').update({ quantity: newQty }).eq('id', ing.id)
     }))
 
+    await reloadIngList()
     setIngSubmitted(true)
     setIngSubmitting(false)
     setTimeout(() => {
       setIngSubmitted(false)
-      const reset = {}
-      ingList.forEach((i) => { reset[i.id] = 0 })
-      setIngUsage(reset)
+      setIngUsage((prev) => Object.fromEntries(Object.keys(prev).map((k) => [k, 0])))
+    }, 1500)
+  }
+
+  async function handleIngredientReceive() {
+    const incoming = ingList.filter((i) => (ingReceived[i.id] ?? 0) > 0)
+    if (incoming.length === 0) return
+    setRecSubmitting(true)
+
+    await Promise.all(incoming.map(async (ing) => {
+      const amount = ingReceived[ing.id]
+      const newQty = (ing.quantity ?? 0) + amount
+      await supabase.from('ingredients').update({ quantity: newQty }).eq('id', ing.id)
+    }))
+
+    await reloadIngList()
+    setRecSubmitted(true)
+    setRecSubmitting(false)
+    setTimeout(() => {
+      setRecSubmitted(false)
+      setIngReceived((prev) => Object.fromEntries(Object.keys(prev).map((k) => [k, 0])))
     }, 1500)
   }
 
@@ -147,24 +180,22 @@ export default function ShiftReport() {
         <p className="text-store-brown-light text-sm mt-1">{todayLabel}</p>
       </div>
 
-      {/* Tab switcher — ingredients only visible to admins */}
-      {session && (
-        <div className="flex gap-2">
-          {['products', 'ingredients'].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => { setActiveTab(tab); setSubmitted(false); setIngSubmitted(false) }}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors touch-manipulation capitalize ${
-                activeTab === tab
-                  ? 'bg-store-brown text-white'
-                  : 'bg-store-tan text-store-brown hover:bg-store-brown hover:text-white'
-              }`}
-            >
-              {tab === 'products' ? 'Products' : 'Ingredients'}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Tab switcher — visible to everyone */}
+      <div className="flex gap-2">
+        {['products', 'ingredients'].map((tab) => (
+          <button
+            key={tab}
+            onClick={() => { setActiveTab(tab); setSubmitted(false); setIngSubmitted(false); setRecSubmitted(false) }}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors touch-manipulation capitalize ${
+              activeTab === tab
+                ? 'bg-store-brown text-white'
+                : 'bg-store-tan text-store-brown hover:bg-store-brown hover:text-white'
+            }`}
+          >
+            {tab === 'products' ? 'Products' : 'Ingredients'}
+          </button>
+        ))}
+      </div>
 
       {/* Products tab */}
       {activeTab === 'products' && (
@@ -235,48 +266,102 @@ export default function ShiftReport() {
 
       {/* Ingredients tab */}
       {activeTab === 'ingredients' && (
-        <>
-          {ingSubmitted ? (
-            <div className="bg-store-green-light border border-store-green rounded-xl px-4 py-4 text-center">
-              <p className="text-store-green font-semibold text-lg">Usage logged ✓</p>
+        <div className="space-y-6">
+
+          {/* Used this session */}
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm font-semibold text-store-brown">Used This Session</p>
+              <p className="text-xs text-store-brown-light mt-0.5">How much of each ingredient was used?</p>
             </div>
-          ) : (
-            <>
-              <p className="text-store-brown-light text-xs -mt-3">How much of each ingredient was used?</p>
-              <div className="space-y-2">
-                {ingList.map((ing) => (
-                  <div key={ing.id} className="bg-white rounded-xl border border-store-tan px-4 py-3 shadow-sm overflow-hidden flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-store-brown truncate">{ing.name}</p>
-                      <p className="text-xs text-store-brown-light mt-0.5 truncate">{ing.quantity} {ing.unit} in stock</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        min="0"
-                        step="0.5"
-                        value={ingUsage[ing.id] || ''}
-                        onChange={(e) => setIngUsage((prev) => ({ ...prev, [ing.id]: parseFloat(e.target.value) || 0 }))}
-                        placeholder="0"
-                        className="w-20 border border-store-tan rounded-xl px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
-                      />
-                      <span className="text-xs text-store-brown-light">{ing.unit}</span>
-                    </div>
-                  </div>
-                ))}
+            {ingSubmitted ? (
+              <div className="bg-store-green-light border border-store-green rounded-xl px-4 py-3 text-center">
+                <p className="text-store-green font-semibold">Usage logged ✓</p>
               </div>
-              <button
-                onClick={handleIngredientSubmit}
-                disabled={ingSubmitting || !ingList.some((i) => (ingUsage[i.id] ?? 0) > 0)}
-                className="w-full bg-store-green hover:bg-store-green-dark text-white py-4 rounded-xl text-lg font-semibold transition-colors disabled:opacity-50 touch-manipulation"
-              >
-                {ingSubmitting ? 'Logging…' : 'Log Ingredient Usage'}
-              </button>
-            </>
-          )}
-        </>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  {ingList.map((ing) => (
+                    <IngRow
+                      key={ing.id}
+                      ing={ing}
+                      value={ingUsage[ing.id] || ''}
+                      onChange={(v) => setIngUsage((prev) => ({ ...prev, [ing.id]: parseFloat(v) || 0 }))}
+                    />
+                  ))}
+                </div>
+                <button
+                  onClick={handleIngredientSubmit}
+                  disabled={ingSubmitting || !ingList.some((i) => (ingUsage[i.id] ?? 0) > 0)}
+                  className="w-full bg-store-green hover:bg-store-green-dark text-white py-3 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 touch-manipulation"
+                >
+                  {ingSubmitting ? 'Logging…' : 'Log Usage'}
+                </button>
+              </>
+            )}
+          </div>
+
+          <hr className="border-store-tan" />
+
+          {/* Order received */}
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm font-semibold text-store-brown">Order Received</p>
+              <p className="text-xs text-store-brown-light mt-0.5">Did an order come in? Enter what was received.</p>
+            </div>
+            {recSubmitted ? (
+              <div className="bg-store-green-light border border-store-green rounded-xl px-4 py-3 text-center">
+                <p className="text-store-green font-semibold">Order logged ✓</p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  {ingList.map((ing) => (
+                    <IngRow
+                      key={ing.id}
+                      ing={ing}
+                      value={ingReceived[ing.id] || ''}
+                      onChange={(v) => setIngReceived((prev) => ({ ...prev, [ing.id]: parseFloat(v) || 0 }))}
+                    />
+                  ))}
+                </div>
+                <button
+                  onClick={handleIngredientReceive}
+                  disabled={recSubmitting || !ingList.some((i) => (ingReceived[i.id] ?? 0) > 0)}
+                  className="w-full bg-store-brown text-white py-3 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 touch-manipulation hover:opacity-90"
+                >
+                  {recSubmitting ? 'Logging…' : 'Log Received Order'}
+                </button>
+              </>
+            )}
+          </div>
+
+        </div>
       )}
+    </div>
+  )
+}
+
+function IngRow({ ing, value, onChange }) {
+  return (
+    <div className="bg-white rounded-xl border border-store-tan px-4 py-3 shadow-sm overflow-hidden flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-store-brown truncate">{ing.name}</p>
+        <p className="text-xs text-store-brown-light mt-0.5 truncate">{ing.quantity} {ing.unit} in stock</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          inputMode="decimal"
+          min="0"
+          step="0.5"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="0"
+          className="w-20 border border-store-tan rounded-xl px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+        />
+        <span className="text-xs text-store-brown-light">{ing.unit}</span>
+      </div>
     </div>
   )
 }

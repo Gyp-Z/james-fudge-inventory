@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useFlavors } from '../hooks/useFlavors'
-import { useAuth } from '../hooks/useAuth'
 
 export default function Dashboard() {
-  const { session } = useAuth()
   const { flavors, loading: flavorsLoading } = useFlavors()
   const [entries, setEntries] = useState({}) // flavor_id -> { full_trays, in_progress_trays }
   const [reportFound, setReportFound] = useState(null) // null=loading, true=found, false=none
@@ -238,40 +236,36 @@ export default function Dashboard() {
         </div>
       )}
 
-      {session && (
-        <>
-          <hr className="border-store-tan" />
+      <hr className="border-store-tan" />
 
-          {/* Ingredients Section */}
-          <div className="space-y-4">
-            <div>
-              <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
-                Ingredients Alert
-              </h2>
-              {ingredientsLoading ? (
-                <p className="text-store-brown-light text-sm mt-2">Loading ingredients...</p>
-              ) : lowIngredients.length > 0 ? (
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {lowIngredients.map(renderIngredientPill)}
-                </div>
-              ) : (
-                <p className="text-sm text-store-green font-medium mt-2">All ingredients stocked ✓</p>
-              )}
+      {/* Ingredients Section */}
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
+            Ingredients Alert
+          </h2>
+          {ingredientsLoading ? (
+            <p className="text-store-brown-light text-sm mt-2">Loading ingredients...</p>
+          ) : lowIngredients.length > 0 ? (
+            <div className="flex flex-wrap gap-2 mt-2">
+              {lowIngredients.map(renderIngredientPill)}
             </div>
+          ) : (
+            <p className="text-sm text-store-green font-medium mt-2">All ingredients stocked ✓</p>
+          )}
+        </div>
 
-            {!ingredientsLoading && stockedIngredients.length > 0 && (
-              <div>
-                <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">
-                  In Stock
-                </h3>
-                <div className="flex flex-wrap gap-2">
-                  {stockedIngredients.map(renderIngredientPill)}
-                </div>
-              </div>
-            )}
+        {!ingredientsLoading && stockedIngredients.length > 0 && (
+          <div>
+            <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">
+              In Stock
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {stockedIngredients.map(renderIngredientPill)}
+            </div>
           </div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   )
 }
