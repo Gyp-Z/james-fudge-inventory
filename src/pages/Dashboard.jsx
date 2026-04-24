@@ -52,27 +52,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function load() {
-      // Primary: most recent shift report entries (any type, any date)
-      const { data: latestReports } = await supabase
-        .from('shift_reports')
-        .select('id')
-        .order('created_at', { ascending: false })
-        .limit(1)
-
-      if (latestReports && latestReports.length > 0) {
-        const { data: reportEntries } = await supabase
-          .from('shift_report_entries')
-          .select('flavor_id, full_trays, in_progress_trays')
-          .eq('report_id', latestReports[0].id)
-
-        const map = {}
-          ; (reportEntries || []).forEach((e) => { map[e.flavor_id] = e })
-        setEntries(map)
-        setReportFound(true)
-        return
-      }
-
-      // Fallback: current_inventory if no reports exist
       const { data: inventory } = await supabase
         .from('current_inventory')
         .select('flavor_id, tray_count')
