@@ -35,7 +35,7 @@ export default function ShiftReport() {
       const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
       const [{ data: flavorsData }, { data: ingredientsData }, { data: invData }] = await Promise.all([
-        supabase.from('flavors').select('id, name, low_tray_threshold, trays_per_batch').eq('is_active', true).order('name'),
+        supabase.from('flavors').select('id, name, low_tray_threshold').eq('is_active', true).order('name'),
         supabase.from('ingredients').select('id, name, quantity, unit').eq('is_active', true).order('name'),
         supabase.from('current_inventory').select('flavor_id, tray_count'),
       ])
@@ -138,52 +138,6 @@ export default function ShiftReport() {
 
     if (activeRows.length > 0) {
       await supabase.from('current_inventory').upsert(activeRows, { onConflict: 'flavor_id' })
-    }
-
-    // Auto-deplete ingredients based on recipes when trays are made
-    const flavorsWithBatches = flavors
-      .filter((f) => (entries[f.id]?.full_trays ?? 0) > 0)
-      .map((f) => ({
-        id: f.id,
-        batches: (entries[f.id].full_trays) / (f.trays_per_batch ?? 3),
-      }))
-
-    if (flavorsWithBatches.length > 0) {
-      const flavorIds = flavorsWithBatches.map((f) => f.id)
-      const { data: recipeItems } = await supabase
-        .from('recipe_items')
-        .select('flavor_id, ingredient_id, amount_per_batch')
-        .in('flavor_id', flavorIds)
-
-      if (recipeItems && recipeItems.length > 0) {
-        // Accumulate total usage per ingredient across all flavors
-        const ingTotals = {}
-        flavorsWithBatches.forEach(({ id: flavorId, batches }) => {
-          recipeItems
-            .filter((r) => r.flavor_id === flavorId)
-            .forEach((r) => {
-              ingTotals[r.ingredient_id] = (ingTotals[r.ingredient_id] ?? 0) + r.amount_per_batch * batches
-            })
-        })
-
-        const ingIds = Object.keys(ingTotals)
-        const { data: ingData } = await supabase
-          .from('ingredients').select('id, quantity').in('id', ingIds)
-        const ingMap = {}
-        ;(ingData || []).forEach((i) => { ingMap[i.id] = i.quantity ?? 0 })
-
-        await Promise.all(ingIds.map(async (ingId) => {
-          const used = ingTotals[ingId]
-          await supabase.from('ingredient_depletions').insert({
-            ingredient_id: ingId,
-            amount_used: used,
-            notes: 'auto — batch recipe',
-            logged_by: session?.user?.id ?? null,
-          })
-          const newQty = Math.max(0, (ingMap[ingId] ?? 0) - used)
-          await supabase.from('ingredients').update({ quantity: newQty }).eq('id', ingId)
-        }))
-      }
     }
 
     setSubmitted(true)
