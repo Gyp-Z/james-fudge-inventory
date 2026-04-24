@@ -139,26 +139,35 @@ export default function Analytics() {
     return { chartCData: chartData, wasteTable: table }
   }, [filteredReports, flavors])
 
-  // Chart D — Stock Trend: full_trays at close/snapshot per day per flavor
+  // Chart D — Stock Trend: actual running inventory at end of each reporting day
   const chartDData = useMemo(() => {
-    const closingByDate = {}
-    filteredReports
-      .filter(isClosingLike)
-      .filter((r) => (r.shift_report_entries?.length ?? 0) > 0)
-      .forEach((r) => { closingByDate[r.report_date] = r })
+    if (reports.length === 0) return []
+
+    // Use ALL reports (not just filtered) so carry-in from before the range is accurate
+    const invSnapshots = {}
+    const running = {}
+
+    ;[...reports]
+      .sort((a, b) => a.report_date.localeCompare(b.report_date))
+      .forEach((r) => {
+        r.shift_report_entries?.forEach((e) => {
+          const delta = (e.full_trays ?? 0) - (e.trays_sold ?? 0) - (e.trays_wasted ?? 0)
+          running[e.flavor_id] = Math.max(0, (running[e.flavor_id] ?? 0) + delta)
+        })
+        invSnapshots[r.report_date] = { ...running }
+      })
 
     return uniqueDates
-      .filter((date) => closingByDate[date])
+      .filter((date) => invSnapshots[date])
       .map((date) => {
-        const report = closingByDate[date]
+        const snap = invSnapshots[date]
         const row = { date: formatDate(date) }
         flavors.forEach((f) => {
-          const entry = report?.shift_report_entries?.find((e) => e.flavor_id === f.id)
-          row[f.name] = entry?.full_trays ?? null
+          row[f.name] = snap[f.id] ?? null
         })
         return row
       })
-  }, [filteredReports, uniqueDates, flavors])
+  }, [reports, uniqueDates, flavors])
 
   // Summary totals across filtered range
   const totals = useMemo(() => {
@@ -320,7 +329,7 @@ export default function Analytics() {
       <div>
         <h3 className="font-semibold text-store-brown mb-1">Stock Trend</h3>
         <p className="text-xs text-store-brown-light mb-3">
-          Full tray count at close of day, one line per flavor
+          Inventory level at end of each reporting day, one line per flavor
         </p>
         {chartDData.length > 0 ? (
           <ResponsiveContainer width="100%" height={300}>
