@@ -203,19 +203,21 @@ export default function Analytics() {
         wasted += e.trays_wasted ?? 0
       })
     })
-    // Current stock = per flavor, use the most recent report that has an entry for it
-    const stockByFlavor = {}
-    ;[...filteredReports]
-      .filter((r) => r.shift_report_entries?.length > 0)
-      .sort((a, b) => (a.created_at > b.created_at ? -1 : 1))
+    // Current stock = running delta from season start across ALL reports (not filtered range)
+    const SEASON_START = '2026-04-22'
+    const running = {}
+    ;[...reports]
+      .filter((r) => r.report_date >= SEASON_START)
+      .sort((a, b) => a.report_date.localeCompare(b.report_date))
       .forEach((r) => {
         r.shift_report_entries?.forEach((e) => {
-          if (!(e.flavor_id in stockByFlavor)) stockByFlavor[e.flavor_id] = e.full_trays ?? 0
+          const delta = (e.full_trays ?? 0) - (e.trays_sold ?? 0) - (e.trays_wasted ?? 0)
+          running[e.flavor_id] = Math.max(0, (running[e.flavor_id] ?? 0) + delta)
         })
       })
-    stock = Object.values(stockByFlavor).reduce((sum, v) => sum + v, 0)
+    stock = Object.values(running).reduce((sum, v) => sum + v, 0)
     return { sold, wasted, stock }
-  }, [filteredReports])
+  }, [filteredReports, reports])
 
   if (loading) {
     return <p className="text-store-brown-light text-center py-12">Loading analytics...</p>
