@@ -103,16 +103,23 @@ export default function ShiftReport() {
       .select('id').single()
     if (error || !report) { setSubmitting(false); return }
 
-    const entryRows = flavors.map((f) => ({
-      report_id: report.id,
-      flavor_id: f.id,
-      full_trays: entries[f.id]?.full_trays ?? 0,
-      in_progress_trays: entries[f.id]?.in_progress_trays ?? 0,
-      trays_sold: entries[f.id]?.trays_sold ?? 0,
-      trays_wasted: entries[f.id]?.trays_wasted ?? 0,
-      waste_reason: entries[f.id]?.waste_reason?.trim() || null,
-    }))
-    await supabase.from('shift_report_entries').insert(entryRows)
+    const entryRows = flavors
+      .filter((f) => {
+        const e = entries[f.id]
+        return (e?.full_trays ?? 0) > 0 || (e?.in_progress_trays ?? 0) > 0 || (e?.trays_sold ?? 0) > 0 || (e?.trays_wasted ?? 0) > 0
+      })
+      .map((f) => ({
+        report_id: report.id,
+        flavor_id: f.id,
+        full_trays: entries[f.id]?.full_trays ?? 0,
+        in_progress_trays: entries[f.id]?.in_progress_trays ?? 0,
+        trays_sold: entries[f.id]?.trays_sold ?? 0,
+        trays_wasted: entries[f.id]?.trays_wasted ?? 0,
+        waste_reason: entries[f.id]?.waste_reason?.trim() || null,
+      }))
+    if (entryRows.length > 0) {
+      await supabase.from('shift_report_entries').insert(entryRows)
+    }
 
     // Fetch fresh inventory then apply delta — only touch flavors with non-zero activity
     const { data: freshInv } = await supabase.from('current_inventory').select('flavor_id, tray_count')
