@@ -33,18 +33,23 @@ export default function Dashboard() {
         .from('shift_reports')
         .select('id')
         .eq('report_date', yesterdayStr)
-        .order('created_at', { ascending: false })
-        .limit(1)
 
       if (!reports || reports.length === 0) return
 
+      const ids = reports.map((r) => r.id)
       const { data: ents } = await supabase
         .from('shift_report_entries')
         .select('flavor_id, full_trays, trays_sold')
-        .eq('report_id', reports[0].id)
+        .in('report_id', ids)
 
       const map = {}
-      ;(ents || []).forEach((e) => { map[e.flavor_id] = e })
+      ;(ents || []).forEach((e) => {
+        const prev = map[e.flavor_id] || { full_trays: 0, trays_sold: 0 }
+        map[e.flavor_id] = {
+          full_trays: prev.full_trays + (e.full_trays ?? 0),
+          trays_sold: prev.trays_sold + (e.trays_sold ?? 0),
+        }
+      })
       setYesterdayEntries(map)
     }
     loadYesterday()
