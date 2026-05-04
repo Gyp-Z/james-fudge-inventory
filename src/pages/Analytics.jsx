@@ -33,6 +33,7 @@ export default function Analytics() {
   const [reports, setReports] = useState([])
   const [flavors, setFlavors] = useState([])
   const [range, setRange] = useState(7)
+  const [selectedFlavors, setSelectedFlavors] = useState(null) // null = all
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -83,6 +84,24 @@ export default function Analytics() {
     return [...dates].sort()
   }, [filteredReports])
 
+  const visibleFlavors = useMemo(
+    () => selectedFlavors === null ? flavors : flavors.filter((f) => selectedFlavors.has(f.id)),
+    [flavors, selectedFlavors]
+  )
+
+  function toggleFlavor(id) {
+    setSelectedFlavors((prev) => {
+      if (prev === null) return new Set([id])
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+        return next.size === 0 ? null : next
+      }
+      next.add(id)
+      return next.size === flavors.length ? null : next
+    })
+  }
+
   // Chart B — Sales
   // Now simply reading trays_sold directly from what the user inputted
   const chartBData = useMemo(() => {
@@ -98,21 +117,20 @@ export default function Analytics() {
     return unique.map((date) => {
       const report = closingByDate[date]
       const row = { date: formatDate(report.report_date) }
-      flavors.forEach((f) => {
+      visibleFlavors.forEach((f) => {
         const ce = report.shift_report_entries?.find((e) => e.flavor_id === f.id)
         row[f.name] = ce?.trays_sold ?? 0
       })
-      // If there's 0 sales but we want the graph point to exist structurally, we keep it, but user requested an empty graph if no sales.
-      // We will push the row even if hasData is false so that dates show up, but only >0 values create bars.
       return row
-    }).filter(row => flavors.some(f => row[f.name] > 0)) // Only show dates that actually had sales
-  }, [filteredReports, flavors])
+    }).filter(row => visibleFlavors.some(f => row[f.name] > 0))
+  }, [filteredReports, visibleFlavors])
 
   // Chart C — Waste: total per flavor + detail table
   const { chartCData, wasteTable } = useMemo(() => {
     const totals = {}
     const table = []
-    flavors.forEach((f) => { totals[f.name] = 0 })
+    const visibleNames = new Set(visibleFlavors.map((f) => f.name))
+    visibleFlavors.forEach((f) => { totals[f.name] = 0 })
 
     filteredReports
       .filter(isClosingLike)
@@ -120,6 +138,7 @@ export default function Analytics() {
         r.shift_report_entries?.forEach((e) => {
           if ((e.trays_wasted ?? 0) > 0) {
             const name = e.flavors?.name || e.flavor_id
+            if (!visibleNames.has(name)) return
             totals[name] = (totals[name] ?? 0) + e.trays_wasted
             table.push({
               date: formatDate(r.report_date),
@@ -137,7 +156,7 @@ export default function Analytics() {
       .sort((a, b) => b.trays - a.trays)
 
     return { chartCData: chartData, wasteTable: table }
-  }, [filteredReports, flavors])
+  }, [filteredReports, visibleFlavors])
 
   // Chart D — Stock Trend: running inventory per day with carry-forward
   const chartDData = useMemo(() => {
@@ -185,13 +204,13 @@ export default function Analytics() {
       if (invSnapshots[dateStr]) lastSnap = invSnapshots[dateStr]
       if (Object.keys(lastSnap).length > 0) {
         const row = { date: formatDate(dateStr) }
-        flavors.forEach((f) => { row[f.name] = lastSnap[f.id] ?? null })
+        visibleFlavors.forEach((f) => { row[f.name] = lastSnap[f.id] ?? null })
         rows.push(row)
       }
       cursor.setDate(cursor.getDate() + 1)
     }
     return rows
-  }, [reports, flavors, range])
+  }, [reports, visibleFlavors, range])
 
   // Summary totals across filtered range
   const totals = useMemo(() => {
@@ -224,6 +243,7 @@ export default function Analytics() {
   }
 
   const tooltipStyle = { borderRadius: 8, borderColor: '#F5EDD8', fontSize: 12 }
+  const tooltipWrapperStyle = { zIndex: 50 }
   const xProps = { tick: { fontSize: 11, fill: '#8B5E3C' } }
   const yProps = { tick: { fontSize: 11, fill: '#8B5E3C' } }
   const emptyMsg = (msg) => (
@@ -256,6 +276,39 @@ export default function Analytics() {
         </div>
       </div>
 
+      {/* Flavor filter pills */}
+      {flavors.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setSelectedFlavors(null)}
+            className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors touch-manipulation border ${
+              selectedFlavors === null
+                ? 'bg-store-brown text-white border-store-brown'
+                : 'bg-white text-store-brown border-store-tan hover:border-store-brown'
+            }`}
+          >
+            All
+          </button>
+          {flavors.map((f, i) => {
+            const active = selectedFlavors !== null && selectedFlavors.has(f.id)
+            const color = FLAVOR_COLORS[i % FLAVOR_COLORS.length]
+            return (
+              <button
+                key={f.id}
+                onClick={() => toggleFlavor(f.id)}
+                className="px-3 py-1.5 rounded-full text-sm font-medium transition-colors touch-manipulation border"
+                style={active
+                  ? { backgroundColor: color, color: 'white', borderColor: color }
+                  : { backgroundColor: 'white', color: '#4A2C17', borderColor: '#E8D5B0' }
+                }
+              >
+                {f.name}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* Summary stat cards */}
       <div className="grid grid-cols-3 gap-3">
         {[
@@ -282,13 +335,13 @@ export default function Analytics() {
               <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
               <XAxis dataKey="date" {...xProps} />
               <YAxis {...yProps} />
-              <Tooltip contentStyle={tooltipStyle} />
+              <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              {flavors.map((f, i) => (
+              {visibleFlavors.map((f, i) => (
                 <Bar
                   key={f.id}
                   dataKey={f.name}
-                  fill={FLAVOR_COLORS[i % FLAVOR_COLORS.length]}
+                  fill={FLAVOR_COLORS[flavors.indexOf(f) % FLAVOR_COLORS.length]}
                   radius={[4, 4, 0, 0]}
                 />
               ))}
@@ -316,7 +369,7 @@ export default function Analytics() {
                   width={100}
                   tick={{ fontSize: 12, fill: '#4A2C17' }}
                 />
-                <Tooltip contentStyle={tooltipStyle} />
+                <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle} />
                 <Bar dataKey="trays" fill="#C4843A" radius={[0, 4, 4, 0]} name="Trays wasted" />
               </BarChart>
             </ResponsiveContainer>
@@ -363,14 +416,14 @@ export default function Analytics() {
               <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
               <XAxis dataKey="date" {...xProps} />
               <YAxis {...yProps} />
-              <Tooltip contentStyle={tooltipStyle} />
+              <Tooltip contentStyle={tooltipStyle} wrapperStyle={tooltipWrapperStyle} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              {flavors.map((f, i) => (
+              {visibleFlavors.map((f) => (
                 <Line
                   key={f.id}
                   type="monotone"
                   dataKey={f.name}
-                  stroke={FLAVOR_COLORS[i % FLAVOR_COLORS.length]}
+                  stroke={FLAVOR_COLORS[flavors.indexOf(f) % FLAVOR_COLORS.length]}
                   strokeWidth={2}
                   dot={{ r: 3 }}
                   connectNulls
