@@ -255,6 +255,7 @@ export default function ShiftReport() {
                 {flavors.map((f) => {
                   const e = entries[f.id] || { full_trays: 0, in_progress_trays: 0, trays_sold: 0, trays_wasted: 0, waste_reason: '' }
                   const inProgCount = currentInProgress[f.id] ?? 0
+                  const liveInProg = Math.max(0, inProgCount - (e.full_trays ?? 0))
                   return (
                     <div key={f.id} className="bg-white rounded-xl border border-store-tan p-4 shadow-sm space-y-4">
                       <div className="flex items-center justify-between">
@@ -262,6 +263,9 @@ export default function ShiftReport() {
                         <div className="flex gap-2 text-xs text-store-brown-light flex-wrap items-center">
                           {currentInventory[f.id] !== undefined && (
                             <span>{currentInventory[f.id]} in stock</span>
+                          )}
+                          {inProgCount > 0 && (
+                            <><span>·</span><span className="text-amber-600 font-medium">{liveInProg} in progress</span></>
                           )}
                           {todayTotals[f.id]?.made > 0 && (
                             <><span>·</span><span>{todayTotals[f.id].made} made today</span></>
@@ -271,10 +275,10 @@ export default function ShiftReport() {
                           )}
                         </div>
                       </div>
-                      {inProgCount > 0 && (
+                      {liveInProg > 0 && (
                         <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                          <span className="text-amber-700 font-semibold text-sm">{inProgCount} in progress</span>
-                          <span className="text-amber-600 text-xs">— marking trays made will top {inProgCount === 1 ? 'it' : 'them'}</span>
+                          <span className="text-amber-700 font-semibold text-sm">{liveInProg} in progress</span>
+                          <span className="text-amber-600 text-xs">— marking trays made will top {liveInProg === 1 ? 'it' : 'them'}</span>
                         </div>
                       )}
                       <div className="flex items-center justify-between">
