@@ -39,15 +39,16 @@ export default function Dashboard() {
       const ids = reports.map((r) => r.id)
       const { data: ents } = await supabase
         .from('shift_report_entries')
-        .select('flavor_id, full_trays, trays_sold')
+        .select('flavor_id, full_trays, trays_sold, in_progress_trays')
         .in('report_id', ids)
 
       const map = {}
       ;(ents || []).forEach((e) => {
-        const prev = map[e.flavor_id] || { full_trays: 0, trays_sold: 0 }
+        const prev = map[e.flavor_id] || { full_trays: 0, trays_sold: 0, in_progress_trays: 0 }
         map[e.flavor_id] = {
           full_trays: prev.full_trays + (e.full_trays ?? 0),
           trays_sold: prev.trays_sold + (e.trays_sold ?? 0),
+          in_progress_trays: prev.in_progress_trays + (e.in_progress_trays ?? 0),
         }
       })
       setYesterdayEntries(map)
@@ -204,14 +205,15 @@ export default function Dashboard() {
           <div className="flex flex-wrap gap-2">
             {flavors.map((f) => {
               const y = yesterdayEntries[f.id]
-              if (!y || (y.full_trays === 0 && y.trays_sold === 0)) return null
+              if (!y || (y.full_trays === 0 && y.trays_sold === 0 && y.in_progress_trays === 0)) return null
               return (
                 <div
                   key={f.id}
                   className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border bg-store-cream border-store-tan text-store-brown"
                 >
                   <span>{f.name}</span>
-                  <span className="text-xs bg-store-tan px-1.5 py-0.5 rounded-full font-bold">{y.full_trays}</span>
+                  {y.full_trays > 0 && <span className="text-xs bg-store-tan px-1.5 py-0.5 rounded-full font-bold">{y.full_trays}</span>}
+                  {y.in_progress_trays > 0 && <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">{y.in_progress_trays} in progress</span>}
                   {y.trays_sold > 0 && <span className="text-xs opacity-60">{y.trays_sold} sold</span>}
                 </div>
               )
