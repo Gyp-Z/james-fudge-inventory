@@ -179,6 +179,14 @@ alter table ingredients add column if not exists archived boolean not null defau
 
 -- ============================================================
 
+-- ============================================================
+-- MIGRATION v8 -- Track in-progress tray count in current_inventory
+-- Run in Supabase SQL Editor
+-- ============================================================
+alter table current_inventory add column if not exists in_progress_count integer not null default 0;
+
+-- ============================================================
+
 -- Seed some example flavors to get started
 insert into flavors (name) values
   ('Vanilla'),

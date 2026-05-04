@@ -18,6 +18,7 @@ export default function ShiftReport() {
   const [entries, setEntries] = useState({})
   const [todayTotals, setTodayTotals] = useState({})
   const [currentInventory, setCurrentInventory] = useState({}) // flavor_id -> tray_count
+  const [currentInProgress, setCurrentInProgress] = useState({}) // flavor_id -> in_progress_count
 
   // Ingredients tab — usage state
   const [ingList, setIngList] = useState([])
@@ -37,7 +38,7 @@ export default function ShiftReport() {
       const [{ data: flavorsData }, { data: ingredientsData }, { data: invData }] = await Promise.all([
         supabase.from('flavors').select('id, name, low_tray_threshold').eq('is_active', true).order('name'),
         supabase.from('ingredients').select('id, name, quantity, unit').eq('is_active', true).order('name'),
-        supabase.from('current_inventory').select('flavor_id, tray_count'),
+        supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count'),
       ])
 
       const activeFlavors = flavorsData || []
@@ -58,8 +59,13 @@ export default function ShiftReport() {
       setIngReceived(recInit)
 
       const invMap = {}
-      ;(invData || []).forEach((row) => { invMap[row.flavor_id] = row.tray_count ?? 0 })
+      const inProgMap = {}
+      ;(invData || []).forEach((row) => {
+        invMap[row.flavor_id] = row.tray_count ?? 0
+        inProgMap[row.flavor_id] = row.in_progress_count ?? 0
+      })
       setCurrentInventory(invMap)
+      setCurrentInProgress(inProgMap)
 
       // Load today's totals for products tab
       const { data: todayReports } = await supabase
@@ -129,16 +135,21 @@ export default function ShiftReport() {
     const activeRows = flavors
       .filter((f) => {
         const e = entries[f.id]
-        return (e?.full_trays ?? 0) !== 0 || (e?.trays_sold ?? 0) !== 0 || (e?.trays_wasted ?? 0) !== 0
+        return (e?.full_trays ?? 0) !== 0 || (e?.in_progress_trays ?? 0) !== 0 || (e?.trays_sold ?? 0) !== 0 || (e?.trays_wasted ?? 0) !== 0
       })
       .map((f) => {
         const e = entries[f.id]
         const made = e?.full_trays ?? 0
+        const newInProg = e?.in_progress_trays ?? 0
         const sold = e?.trays_sold ?? 0
         const wasted = e?.trays_wasted ?? 0
+        const existingInProg = currentInProgress[f.id] ?? 0
+        // topped = how many in-progress trays were completed this session
+        const topped = Math.min(made, existingInProg)
         return {
           flavor_id: f.id,
           tray_count: Math.max(0, (freshMap[f.id] ?? 0) + made - sold - wasted),
+          in_progress_count: Math.max(0, existingInProg + newInProg - topped),
           updated_at: new Date().toISOString(),
         }
       })
@@ -243,11 +254,12 @@ export default function ShiftReport() {
               <div className="space-y-3">
                 {flavors.map((f) => {
                   const e = entries[f.id] || { full_trays: 0, in_progress_trays: 0, trays_sold: 0, trays_wasted: 0, waste_reason: '' }
+                  const inProgCount = currentInProgress[f.id] ?? 0
                   return (
                     <div key={f.id} className="bg-white rounded-xl border border-store-tan p-4 shadow-sm space-y-4">
                       <div className="flex items-center justify-between">
                         <p className="font-semibold text-store-brown text-lg">{f.name}</p>
-                        <div className="flex gap-2 text-xs text-store-brown-light flex-wrap">
+                        <div className="flex gap-2 text-xs text-store-brown-light flex-wrap items-center">
                           {currentInventory[f.id] !== undefined && (
                             <span>{currentInventory[f.id]} in stock</span>
                           )}
@@ -259,6 +271,12 @@ export default function ShiftReport() {
                           )}
                         </div>
                       </div>
+                      {inProgCount > 0 && (
+                        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                          <span className="text-amber-700 font-semibold text-sm">{inProgCount} in progress</span>
+                          <span className="text-amber-600 text-xs">— marking trays made will top {inProgCount === 1 ? 'it' : 'them'}</span>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-store-brown-light">Trays made</span>
                         <Stepper value={e.full_trays} onChange={(v) => setField(f.id, 'full_trays', v)} />

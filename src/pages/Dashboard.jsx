@@ -59,12 +59,12 @@ export default function Dashboard() {
     async function load() {
       const { data: inventory } = await supabase
         .from('current_inventory')
-        .select('flavor_id, tray_count')
+        .select('flavor_id, tray_count, in_progress_count')
 
       if (inventory && inventory.length > 0) {
         const map = {}
         inventory.forEach((row) => {
-          map[row.flavor_id] = { full_trays: row.tray_count, in_progress_trays: 0 }
+          map[row.flavor_id] = { full_trays: row.tray_count, in_progress_trays: row.in_progress_count ?? 0 }
         })
         setEntries(map)
         setReportFound(true)
