@@ -204,7 +204,7 @@ export default function Dashboard() {
           <div className="flex flex-wrap gap-2">
             {flavors.map((f) => {
               const y = yesterdayEntries[f.id]
-              if (!y) return null
+              if (!y || (y.full_trays === 0 && y.trays_sold === 0)) return null
               return (
                 <div
                   key={f.id}
