@@ -57,7 +57,7 @@ export default function Analytics() {
           .select('id, name, product_type, tracks_shelf_buckets, is_component, default_yield')
           .eq('is_active', true)
           .order('name'),
-        supabase.from('batch_logs').select('*').order('batch_date'),
+        supabase.from('batch_logs').select('*, flavors(name, is_component, default_yield)').order('batch_date'),
         supabase
           .from('shelf_bucket_logs')
           .select('flavor_id, barrels_used, small_buckets_made, large_buckets_made, small_buckets_sold, large_buckets_sold, logged_at')
@@ -316,24 +316,21 @@ export default function Analytics() {
     const SEASON_START = '2026-04-22'
     const caramelFlavor = componentFlavors[0]
 
-    const sscIdToYield = new Map(
-      flavors.filter(f => f.name.toLowerCase().includes('sea salt')).map(f => [f.id, f.default_yield ?? 3])
-    )
-
-    const relevantBatches = batchLogs.filter(b =>
-      !b.is_wasted && b.batch_date >= SEASON_START &&
-      (b.flavor_id === caramelFlavor.id || sscIdToYield.has(b.flavor_id))
-    )
+    // Use joined flavor name so inactive SSC flavors are still detected
+    const relevantBatches = batchLogs.filter(b => {
+      if (b.is_wasted || b.batch_date < SEASON_START) return false
+      if (b.flavor_id === caramelFlavor.id) return true
+      return (b.flavors?.name ?? '').toLowerCase().includes('sea salt')
+    })
     if (!relevantBatches.length) return []
 
-    // Forward-compute from 0: caramel batch = +1 tray, SSC batch = -yield/18
     const dailyDelta = {}
     relevantBatches.forEach(b => {
       if (!dailyDelta[b.batch_date]) dailyDelta[b.batch_date] = 0
       if (b.flavor_id === caramelFlavor.id) {
         dailyDelta[b.batch_date] += 1
       } else {
-        dailyDelta[b.batch_date] -= sscIdToYield.get(b.flavor_id) / 18
+        dailyDelta[b.batch_date] -= (b.flavors?.default_yield ?? 3) / 18
       }
     })
 
@@ -354,20 +351,21 @@ export default function Analytics() {
       cursor.setDate(cursor.getDate() + 1)
     }
     return rows
-  }, [batchLogs, componentFlavors, flavors, cutoffStr])
+  }, [batchLogs, componentFlavors, cutoffStr])
 
   const caramelComputedTotal = useMemo(() => {
     if (!componentFlavors.length) return 0
     const caramelFlavor = componentFlavors[0]
-    const sscNames = new Set(['Vanilla Sea Salt Caramel', 'Chocolate Sea Salt Caramel'])
-    const sscIdToYield = new Map(flavors.filter(f => sscNames.has(f.name)).map(f => [f.id, f.default_yield ?? 3]))
     let count = 0
     batchLogs.filter(b => !b.is_wasted).forEach(b => {
-      if (b.flavor_id === caramelFlavor.id) count += 1
-      else if (sscIdToYield.has(b.flavor_id)) count -= sscIdToYield.get(b.flavor_id) / 18
+      if (b.flavor_id === caramelFlavor.id) {
+        count += 1
+      } else if ((b.flavors?.name ?? '').toLowerCase().includes('sea salt')) {
+        count -= (b.flavors?.default_yield ?? 3) / 18
+      }
     })
     return Math.max(0, Math.round(count * 1000) / 1000)
-  }, [batchLogs, componentFlavors, flavors])
+  }, [batchLogs, componentFlavors])
 
   const popcornWasteTotals = useMemo(() => {
     const totals = {}

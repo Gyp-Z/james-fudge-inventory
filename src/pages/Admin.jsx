@@ -72,6 +72,13 @@ export default function Admin() {
     await loadFlavors()
   }
 
+  async function saveCount(flavor, newCount) {
+    await supabase
+      .from('current_inventory')
+      .upsert({ flavor_id: flavor.id, tray_count: newCount }, { onConflict: 'flavor_id' })
+    await loadInventory()
+  }
+
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
 
   const active = flavors.filter(f => f.is_active)
@@ -96,6 +103,7 @@ export default function Admin() {
     setEditThreshold,
     saveThreshold,
     toggleActive,
+    onSaveCount: saveCount,
   })
 
   return (
@@ -171,11 +179,22 @@ export default function Admin() {
   )
 }
 
-function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEditingThresholdId, setEditThreshold, saveThreshold, toggleActive }) {
+function parseCaramelInput(s) {
+  const m1 = s.trim().match(/^(\d+)\s+(\d+)\/18$/)
+  if (m1) return parseInt(m1[1]) + parseInt(m1[2]) / 18
+  const m2 = s.trim().match(/^(\d+)\/18$/)
+  if (m2) return parseInt(m2[1]) / 18
+  const n = parseFloat(s)
+  return isNaN(n) ? null : n
+}
+
+function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEditingThresholdId, setEditThreshold, saveThreshold, toggleActive, onSaveCount }) {
   const [showRecipe, setShowRecipe] = useState(false)
   const [smallBucket, setSmallBucket] = useState(f.low_small_bucket_threshold ?? 0)
   const [largeBucket, setLargeBucket] = useState(f.low_large_bucket_threshold ?? 0)
   const [editingBucket, setEditingBucket] = useState(false)
+  const [editingCount, setEditingCount] = useState(false)
+  const [countInput, setCountInput] = useState('')
 
   async function saveBucketThresholds() {
     await supabase.from('flavors').update({
@@ -205,15 +224,50 @@ function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEdi
           )}
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-sm text-store-brown-light font-mono">
-            {f.is_component ? (() => {
-              const whole = Math.floor(count)
-              const numer = Math.round((count - whole) * 18)
-              if (numer === 0) return `${whole} ${units}`
-              if (whole === 0) return `${numer}/18 ${units}`
-              return `${whole} ${numer}/18 ${units}`
-            })() : `${count} ${count === 1 ? unit : units}`}
-          </span>
+          {f.is_component ? (
+            editingCount ? (
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={countInput}
+                  onChange={e => setCountInput(e.target.value)}
+                  placeholder="e.g. 1 6/18"
+                  autoFocus
+                  className="w-24 border border-store-tan rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+                />
+                <button
+                  onClick={async () => {
+                    const v = parseCaramelInput(countInput)
+                    if (v !== null && v >= 0) { await onSaveCount(f, v); setEditingCount(false) }
+                  }}
+                  className="text-xs bg-store-green text-white px-2 py-1 rounded-lg hover:bg-store-green-dark transition-colors"
+                >Save</button>
+                <button onClick={() => setEditingCount(false)} className="text-xs text-store-brown-light hover:text-store-brown px-2 py-1 rounded-lg transition-colors">Cancel</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => {
+                  const whole = Math.floor(count)
+                  const numer = Math.round((count - whole) * 18)
+                  setCountInput(numer === 0 ? `${whole}` : whole === 0 ? `${numer}/18` : `${whole} ${numer}/18`)
+                  setEditingCount(true)
+                }}
+                className="text-sm text-store-brown-light font-mono hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
+              >
+                {(() => {
+                  const whole = Math.floor(count)
+                  const numer = Math.round((count - whole) * 18)
+                  if (numer === 0) return `${whole} ${units}`
+                  if (whole === 0) return `${numer}/18 ${units}`
+                  return `${whole} ${numer}/18 ${units}`
+                })()}
+              </button>
+            )
+          ) : (
+            <span className="text-sm text-store-brown-light font-mono">
+              {`${count} ${count === 1 ? unit : units}`}
+            </span>
+          )}
           {editingThresholdId === f.id ? (
             <div className="flex items-center gap-1.5">
               <input

@@ -103,19 +103,19 @@ export default function Dashboard() {
     async function computeCaramel() {
       const compFlavors = flavors.filter(f => f.is_component)
       if (!compFlavors.length) return
-      const sscFlavors = flavors.filter(f => f.name.toLowerCase().includes('sea salt'))
       const caramelIds = new Set(compFlavors.map(f => f.id))
-      const sscIdToYield = new Map(sscFlavors.map(f => [f.id, f.default_yield ?? 3]))
-      const allIds = [...caramelIds, ...sscIdToYield.keys()]
-      const { data } = await supabase.from('batch_logs').select('flavor_id, is_wasted').in('flavor_id', allIds)
+      // Join with flavors so inactive SSC flavors are still detected by name
+      const { data } = await supabase
+        .from('batch_logs')
+        .select('flavor_id, is_wasted, flavors(name, default_yield)')
       const counts = {}
       compFlavors.forEach(f => { counts[f.id] = 0 })
       ;(data || []).filter(b => !b.is_wasted).forEach(b => {
         if (caramelIds.has(b.flavor_id)) {
           counts[b.flavor_id] = (counts[b.flavor_id] ?? 0) + 1
-        } else if (sscIdToYield.has(b.flavor_id)) {
+        } else if ((b.flavors?.name ?? '').toLowerCase().includes('sea salt')) {
           compFlavors.forEach(f => {
-            counts[f.id] = Math.max(0, (counts[f.id] ?? 0) - sscIdToYield.get(b.flavor_id) / 18)
+            counts[f.id] = Math.max(0, (counts[f.id] ?? 0) - (b.flavors?.default_yield ?? 3) / 18)
           })
         }
       })
