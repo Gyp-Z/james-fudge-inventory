@@ -312,36 +312,51 @@ export default function Analytics() {
   )
 
   const caramelStockData = useMemo(() => {
-    if (!reports.length || !componentFlavors.length) return []
+    if (!componentFlavors.length) return []
     const SEASON_START = '2026-04-22'
-    const snapshots = {}
-    const running = {}
-    ;[...reports].filter(r => r.report_date >= SEASON_START).sort((a, b) => a.report_date.localeCompare(b.report_date)).forEach(r => {
-      r.shift_report_entries?.forEach(e => {
-        const d = (e.full_trays ?? 0) - (e.trays_sold ?? 0) - (e.trays_wasted ?? 0)
-        running[e.flavor_id] = Math.max(0, (running[e.flavor_id] ?? 0) + d)
-      })
-      snapshots[r.report_date] = { ...running }
+    const caramelFlavor = componentFlavors[0]
+    const caramelYield = caramelFlavor.default_yield ?? 3
+
+    // SSC flavors deplete caramel at batchYield/18 per batch
+    const sscNames = new Set(['Vanilla Sea Salt Caramel', 'Chocolate Sea Salt Caramel'])
+    const sscIdToYield = new Map(
+      flavors.filter(f => sscNames.has(f.name)).map(f => [f.id, f.default_yield ?? 3])
+    )
+
+    const relevantBatches = batchLogs.filter(b =>
+      !b.is_wasted && b.batch_date >= SEASON_START &&
+      (b.flavor_id === caramelFlavor.id || sscIdToYield.has(b.flavor_id))
+    )
+    if (!relevantBatches.length) return []
+
+    const dailyDelta = {}
+    relevantBatches.forEach(b => {
+      if (!dailyDelta[b.batch_date]) dailyDelta[b.batch_date] = 0
+      if (b.flavor_id === caramelFlavor.id) {
+        dailyDelta[b.batch_date] += caramelYield
+      } else {
+        dailyDelta[b.batch_date] -= sscIdToYield.get(b.flavor_id) / 18
+      }
     })
-    if (!Object.keys(snapshots).length) return []
+
     const todayStr = getDateStr(new Date())
     const startStr = cutoffStr && cutoffStr > SEASON_START ? cutoffStr : SEASON_START
-    let last = {}
-    for (const d of Object.keys(snapshots).sort()) { if (d <= startStr) last = snapshots[d]; else break }
+
+    let running = 0
+    for (const d of Object.keys(dailyDelta).sort()) {
+      if (d < startStr) running += dailyDelta[d]
+    }
+
     const rows = []
     const cursor = new Date(startStr + 'T12:00:00')
     while (cursor <= new Date(todayStr + 'T12:00:00')) {
       const ds = getDateStr(cursor)
-      if (snapshots[ds]) last = snapshots[ds]
-      if (Object.keys(last).length) {
-        const row = { date: formatDate(ds) }
-        componentFlavors.forEach(f => { row[f.name] = last[f.id] ?? null })
-        rows.push(row)
-      }
+      if (dailyDelta[ds]) running += dailyDelta[ds]
+      rows.push({ date: formatDate(ds), [caramelFlavor.name]: Math.max(0, Math.round(running * 1000) / 1000) })
       cursor.setDate(cursor.getDate() + 1)
     }
     return rows
-  }, [reports, componentFlavors, cutoffStr])
+  }, [batchLogs, componentFlavors, flavors, cutoffStr])
 
   const popcornWasteTotals = useMemo(() => {
     const totals = {}
@@ -400,7 +415,11 @@ export default function Analytics() {
           <p className="text-xs text-amber-800 mt-0.5">Popcorn barrels</p>
         </div>
         <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
-          <p className="text-2xl font-bold text-store-brown">{stockSnapshot.caramelTrays}</p>
+          <p className="text-2xl font-bold text-store-brown">{(() => {
+            const n = stockSnapshot.caramelTrays
+            const w = Math.floor(n), num = Math.round((n - w) * 18)
+            return num === 0 ? w : w === 0 ? `${num}/18` : `${w} ${num}/18`
+          })()}</p>
           <p className="text-xs text-store-brown-light mt-0.5">Caramel trays</p>
         </div>
       </div>
@@ -466,7 +485,11 @@ export default function Analytics() {
       {showCaramel && (
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
-            <p className="text-2xl font-bold text-store-brown">{inStockValue}</p>
+            <p className="text-2xl font-bold text-store-brown">{(() => {
+              const n = inStockValue
+              const w = Math.floor(n), num = Math.round((n - w) * 18)
+              return num === 0 ? w : w === 0 ? `${num}/18` : `${w} ${num}/18`
+            })()}</p>
             <p className="text-xs text-store-brown-light mt-0.5">In Stock (trays)</p>
           </div>
           <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
@@ -588,21 +611,34 @@ export default function Analytics() {
       {showCaramel && (
         <div>
           <h3 className="font-semibold text-store-brown mb-1">Stock Trend</h3>
-          <p className="text-xs text-store-brown-light mb-3">Caramel tray count over time</p>
+          <p className="text-xs text-store-brown-light mb-3">Caramel tray count over time (based on batches made vs. used in SSC)</p>
           {caramelStockData.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={caramelStockData} margin={{ left: 0, right: 16 }}>
+              <LineChart data={caramelStockData} margin={{ left: 16, right: 16 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
                 <XAxis dataKey="date" {...xProps} />
-                <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
-                <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                <YAxis {...yProps}
+                  domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]}
+                  tickFormatter={v => {
+                    const w = Math.floor(v), num = Math.round((v - w) * 18)
+                    return num === 0 ? `${w}` : w === 0 ? `${num}/18` : `${w} ${num}/18`
+                  }}
+                />
+                <Tooltip
+                  contentStyle={tooltipStyle}
+                  wrapperStyle={wrapperStyle}
+                  formatter={v => {
+                    const w = Math.floor(v), num = Math.round((v - w) * 18)
+                    return [num === 0 ? `${w}` : w === 0 ? `${num}/18` : `${w} ${num}/18`, 'trays']
+                  }}
+                />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 {componentFlavors.map((f, i) => (
                   <Line key={f.id} type="monotone" dataKey={f.name} stroke={FUDGE_COLORS[i % FUDGE_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
                 ))}
               </LineChart>
             </ResponsiveContainer>
-          ) : empty('No stock data in this range yet.')}
+          ) : empty('No caramel or SSC batches logged yet.')}
         </div>
       )}
 
