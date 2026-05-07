@@ -388,7 +388,9 @@ export default function Analytics() {
       rows.push({ date: formatDate(ds), [caramelFlavor.name]: Math.max(0, Math.round(running * 1000) / 1000) })
       cursor.setDate(cursor.getDate() + 1)
     }
-    return rows
+    // Drop leading zero rows — nothing to plot before the first caramel event
+    const firstNonZero = rows.findIndex(r => r[caramelFlavor.name] > 0)
+    return firstNonZero >= 0 ? rows.slice(firstNonZero) : []
   }, [batchLogs, allFlavorsList, componentFlavors, cutoffStr])
 
   const popcornWasteTotals = useMemo(() => {
