@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import Stepper from '../components/Stepper'
-import { autoDeductIngredients, incrementBarrelCount } from '../utils/autoDeduct'
+import { autoDeductIngredients, deductCaramelComponent } from '../utils/autoDeduct'
 
 export default function ShiftReport() {
   const { session } = useAuth()
@@ -27,7 +27,7 @@ export default function ShiftReport() {
   const [currentInProgress, setCurrentInProgress] = useState({})
 
   // Products tab state — popcorn
-  const [popcornEntries, setPopcornEntries] = useState({}) // flavor_id -> { barrels_sold, small_buckets, large_buckets }
+  const [popcornEntries, setPopcornEntries] = useState({}) // flavor_id -> { barrels_added, barrels_sold, small/large buckets made/sold }
   const [currentBarrels, setCurrentBarrels] = useState({}) // flavor_id -> barrel_count
 
   // Batches tab state
@@ -87,7 +87,7 @@ export default function ShiftReport() {
       popcornOnly.forEach(f => {
         popcornInit[f.id] = {
           barrels_added: 0,
-          barrels_to_display: 0,
+          barrels_sold: 0,
           small_buckets_made: 0,
           large_buckets_made: 0,
           small_buckets_sold: 0,
@@ -173,9 +173,7 @@ export default function ShiftReport() {
         allNegatives.push(...negatives)
         allSkipped.push(...skipped)
 
-        if (flavor.product_type === 'popcorn') {
-          await incrementBarrelCount(flavor.id, flavor.default_yield ?? 1)
-        }
+        await deductCaramelComponent(flavor.name, flavor.default_yield ?? 3)
       }
     }
 
@@ -263,29 +261,29 @@ export default function ShiftReport() {
       if (!pe) continue
 
       const barrelsAdded = pe.barrels_added || 0
-      const barrelsToDisplay = pe.barrels_to_display || 0
+      const barrelsSold = pe.barrels_sold || 0
       const madSmall = pe.small_buckets_made || 0
       const madLarge = pe.large_buckets_made || 0
       const soldSmall = pe.small_buckets_sold || 0
       const soldLarge = pe.large_buckets_sold || 0
 
-      // Update barrel_count: +added −moved_to_display
-      const netBarrelChange = barrelsAdded - barrelsToDisplay
+      // Update barrel_count: +added −sold
+      const netBarrelChange = barrelsAdded - barrelsSold
       if (netBarrelChange !== 0) {
         const newBarrels = Math.max(0, (currentBarrels[f.id] ?? 0) + netBarrelChange)
         await supabase.from('current_inventory')
           .upsert({ flavor_id: f.id, barrel_count: newBarrels }, { onConflict: 'flavor_id' })
       }
 
-      // Log bucket activity + barrels moved to display
-      if (madSmall > 0 || madLarge > 0 || soldSmall > 0 || soldLarge > 0 || barrelsToDisplay > 0) {
+      // Log bucket activity + barrels sold
+      if (madSmall > 0 || madLarge > 0 || soldSmall > 0 || soldLarge > 0 || barrelsSold > 0) {
         await supabase.from('shelf_bucket_logs').insert({
           flavor_id: f.id,
           small_buckets_made: madSmall,
           large_buckets_made: madLarge,
           small_buckets_sold: soldSmall,
           large_buckets_sold: soldLarge,
-          barrels_used: barrelsToDisplay > 0 ? barrelsToDisplay : null,
+          barrels_used: barrelsSold > 0 ? barrelsSold : null,
         })
       }
     }
@@ -545,7 +543,7 @@ export default function ShiftReport() {
                 <div className="space-y-3">
                   <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide">Popcorn</p>
                   {allFlavors.filter(f => f.product_type === 'popcorn').map(f => {
-                    const pe = popcornEntries[f.id] || { barrels_added: 0, barrels_to_display: 0, small_buckets_made: 0, large_buckets_made: 0, small_buckets_sold: 0, large_buckets_sold: 0 }
+                    const pe = popcornEntries[f.id] || { barrels_added: 0, barrels_sold: 0, small_buckets_made: 0, large_buckets_made: 0, small_buckets_sold: 0, large_buckets_sold: 0 }
                     return (
                       <div key={f.id} className="bg-amber-50 rounded-xl border border-amber-200 p-4 shadow-sm space-y-4">
                         <div className="flex items-center justify-between">
@@ -559,8 +557,8 @@ export default function ShiftReport() {
                         </div>
 
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-amber-800">Barrels moved up front</span>
-                          <Stepper value={pe.barrels_to_display} onChange={v => setPopcornField(f.id, 'barrels_to_display', v)} />
+                          <span className="text-sm text-amber-800">Barrels sold</span>
+                          <Stepper value={pe.barrels_sold} onChange={v => setPopcornField(f.id, 'barrels_sold', v)} />
                         </div>
 
                         {f.tracks_shelf_buckets && (

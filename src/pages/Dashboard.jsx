@@ -9,6 +9,7 @@ export default function Dashboard() {
   const [ingredients, setIngredients] = useState([])
   const [ingredientsLoading, setIngredientsLoading] = useState(true)
   const [yesterdayEntries, setYesterdayEntries] = useState({})
+  const [todayBuckets, setTodayBuckets] = useState({})
 
   useEffect(() => {
     async function loadIngredients() {
@@ -51,6 +52,27 @@ export default function Dashboard() {
       setYesterdayEntries(map)
     }
     loadYesterday()
+  }, [])
+
+  useEffect(() => {
+    async function loadBuckets() {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+      const { data, error } = await supabase
+        .from('shelf_bucket_logs')
+        .select('flavor_id, small_buckets_made, large_buckets_made, small_buckets_sold, large_buckets_sold')
+        .gte('logged_at', since)
+      if (error) return
+      const map = {}
+      ;(data || []).forEach(row => {
+        const prev = map[row.flavor_id] || { small: 0, large: 0 }
+        map[row.flavor_id] = {
+          small: prev.small + (row.small_buckets_made ?? 0) - (row.small_buckets_sold ?? 0),
+          large: prev.large + (row.large_buckets_made ?? 0) - (row.large_buckets_sold ?? 0),
+        }
+      })
+      setTodayBuckets(map)
+    }
+    loadBuckets()
   }, [])
 
   useEffect(() => {
@@ -128,6 +150,7 @@ export default function Dashboard() {
     const threshold = flavor.low_tray_threshold ?? 1
     const isOut = barrels === 0
     const isLow = !isOut && barrels <= threshold
+    const buckets = todayBuckets[flavor.id]
 
     const pillClass = isOut
       ? 'bg-red-50 border-red-300 text-red-700'
@@ -138,12 +161,19 @@ export default function Dashboard() {
       : isLow ? 'bg-amber-200 text-amber-800'
         : 'bg-store-green text-white'
 
+    const bucketParts = []
+    if (buckets?.small > 0) bucketParts.push(`${buckets.small}S`)
+    if (buckets?.large > 0) bucketParts.push(`${buckets.large}L`)
+
     return (
       <div key={flavor.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${pillClass}`}>
         <span>{flavor.name}</span>
         <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${countClass}`}>
           {barrels} {barrels === 1 ? 'barrel' : 'barrels'}
         </span>
+        {bucketParts.length > 0 && (
+          <span className="text-xs opacity-70">{bucketParts.join(' ')} on shelf</span>
+        )}
       </div>
     )
   }

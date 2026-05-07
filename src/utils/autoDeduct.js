@@ -114,6 +114,39 @@ export async function autoDeductIngredients(flavorId, batchLogId) {
   return { deductions, negatives, skipped }
 }
 
+// Sea Salt Caramel flavors use 1 Caramel tray per 18 trays produced.
+// Call this after logging a batch of any Sea Salt Caramel flavor.
+const SEA_SALT_CARAMEL_NAMES = ['Vanilla Sea Salt Caramel', 'Chocolate Sea Salt Caramel']
+const CARAMEL_TRAYS_PER_SSC_TRAY = 1 / 18
+
+export async function deductCaramelComponent(flavorName, batchYield) {
+  if (!SEA_SALT_CARAMEL_NAMES.includes(flavorName)) return
+
+  const caramelUsed = batchYield * CARAMEL_TRAYS_PER_SSC_TRAY
+
+  // Find the Caramel component flavor
+  const { data: caramelFlavor } = await supabase
+    .from('flavors')
+    .select('id')
+    .eq('name', 'Caramel')
+    .eq('is_component', true)
+    .single()
+
+  if (!caramelFlavor) return
+
+  const { data: inv } = await supabase
+    .from('current_inventory')
+    .select('tray_count')
+    .eq('flavor_id', caramelFlavor.id)
+    .single()
+
+  const newCount = Math.max(0, (inv?.tray_count ?? 0) - caramelUsed)
+
+  await supabase
+    .from('current_inventory')
+    .upsert({ flavor_id: caramelFlavor.id, tray_count: newCount }, { onConflict: 'flavor_id' })
+}
+
 /**
  * Increments barrel_count in current_inventory for a popcorn flavor.
  * Reads the current value then writes back current + amount.
