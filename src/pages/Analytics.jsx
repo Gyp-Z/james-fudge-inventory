@@ -583,7 +583,7 @@ export default function Analytics() {
                 <LineChart data={chartStockData} margin={{ left: 0, right: 16 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
                   <XAxis dataKey="date" {...xProps} />
-                  <YAxis {...yProps} />
+                  <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
                   <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   {visibleFudgeFlavors.map((f, i) => (
@@ -606,7 +606,7 @@ export default function Analytics() {
               <LineChart data={caramelStockData} margin={{ left: 0, right: 16 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
                 <XAxis dataKey="date" {...xProps} />
-                <YAxis {...yProps} />
+                <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
                 <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 {componentFlavors.map((f, i) => (
