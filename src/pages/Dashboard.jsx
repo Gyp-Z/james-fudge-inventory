@@ -135,22 +135,21 @@ export default function Dashboard() {
       : isLow ? 'bg-amber-200 text-amber-800'
         : 'bg-store-green text-white'
 
-    let countDisplay
-    if (flavor.is_component) {
-      const whole = Math.floor(fullTrays)
-      const numer = Math.round((fullTrays - whole) * 18)
-      if (numer === 0) countDisplay = `${whole}`
-      else if (whole === 0) countDisplay = `${numer}/18`
-      else countDisplay = `${whole} ${numer}/18`
-    } else {
-      countDisplay = fullTrays
-    }
+    const whole = Math.floor(fullTrays)
+    const numer = flavor.is_component ? Math.round((fullTrays - whole) * 18) : 0
 
     return (
       <div key={flavor.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${pillClass}`}>
         <span>{flavor.name}</span>
-        <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${countClass}`}>{countDisplay}</span>
-        {inProgress > 0 && <span className="text-xs opacity-60">+{inProgress}½</span>}
+        <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${countClass}`}>
+          {flavor.is_component ? whole : fullTrays}
+        </span>
+        {flavor.is_component && numer > 0 && (
+          <span className="text-xs opacity-60">+{numer}/18</span>
+        )}
+        {!flavor.is_component && inProgress > 0 && (
+          <span className="text-xs opacity-60">+{inProgress}½</span>
+        )}
       </div>
     )
   }

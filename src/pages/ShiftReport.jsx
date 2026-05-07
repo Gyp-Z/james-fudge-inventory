@@ -200,6 +200,15 @@ export default function ShiftReport() {
         allNegatives.push(...negatives)
         allSkipped.push(...skipped)
         await deductCaramelComponent(flavor.name, flavor.default_yield ?? 3)
+
+        // Component flavors (Caramel): 1 batch = 1 tray — increment inventory
+        if (flavor.is_component && !isWasted) {
+          const { data: inv } = await supabase.from('current_inventory').select('tray_count').eq('flavor_id', flavor.id).single()
+          await supabase.from('current_inventory').upsert(
+            { flavor_id: flavor.id, tray_count: (inv?.tray_count ?? 0) + 1 },
+            { onConflict: 'flavor_id' }
+          )
+        }
       }
     }
 
