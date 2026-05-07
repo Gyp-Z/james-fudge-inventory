@@ -321,8 +321,9 @@ export default function Analytics() {
     if (!componentFlavors.length) return []
     const SEASON_START = '2026-04-22'
     const caramelFlavor = componentFlavors[0]
+    // Anchor to the actual stored count — correct value admin-adjustable via Products page
+    const currentCount = invMap[caramelFlavor.id]?.tray_count ?? 0
 
-    // Use allFlavorsList (includes inactive) to find SSC flavor IDs + yields
     const sscIdToYield = new Map(
       allFlavorsList
         .filter(f => f.name.toLowerCase().includes('sea salt'))
@@ -335,9 +336,10 @@ export default function Analytics() {
       if (bDate < SEASON_START) return false
       return b.flavor_id === caramelFlavor.id || sscIdToYield.has(b.flavor_id)
     })
-    if (!relevantBatches.length) return []
 
-    // Key by date string (batch_date may be a timestamptz, slice to YYYY-MM-DD)
+    if (!relevantBatches.length && currentCount === 0) return []
+
+    // Key deltas by YYYY-MM-DD (batch_date is timestamptz, slice to date)
     const dailyDelta = {}
     relevantBatches.forEach(b => {
       const key = (b.batch_date ?? '').slice(0, 10)
@@ -352,13 +354,16 @@ export default function Analytics() {
     const todayStr = getDateStr(new Date())
     const startStr = cutoffStr && cutoffStr > SEASON_START ? cutoffStr : SEASON_START
 
-    let running = 0
-    for (const d of Object.keys(dailyDelta).sort()) {
-      if (d < startStr) running += dailyDelta[d]
+    // Anchor backward: compute what the value was at startStr using the known current value
+    let deltaOnOrAfterStart = 0
+    for (const [d, v] of Object.entries(dailyDelta)) {
+      if (d >= startStr) deltaOnOrAfterStart += v
     }
+    const valueAtStart = currentCount - deltaOnOrAfterStart
 
     const rows = []
     const cursor = new Date(startStr + 'T12:00:00')
+    let running = valueAtStart
     while (cursor <= new Date(todayStr + 'T12:00:00')) {
       const ds = getDateStr(cursor)
       if (dailyDelta[ds]) running += dailyDelta[ds]
@@ -366,23 +371,7 @@ export default function Analytics() {
       cursor.setDate(cursor.getDate() + 1)
     }
     return rows
-  }, [batchLogs, allFlavorsList, componentFlavors, cutoffStr])
-
-  const caramelComputedTotal = useMemo(() => {
-    if (!componentFlavors.length) return 0
-    const caramelFlavor = componentFlavors[0]
-    const sscIdToYield = new Map(
-      allFlavorsList
-        .filter(f => f.name.toLowerCase().includes('sea salt'))
-        .map(f => [f.id, f.default_yield ?? 3])
-    )
-    let count = 0
-    batchLogs.filter(b => !b.is_wasted).forEach(b => {
-      if (b.flavor_id === caramelFlavor.id) count += 1
-      else if (sscIdToYield.has(b.flavor_id)) count -= sscIdToYield.get(b.flavor_id) / 18
-    })
-    return Math.max(0, Math.round(count * 1000) / 1000)
-  }, [batchLogs, allFlavorsList, componentFlavors])
+  }, [batchLogs, allFlavorsList, componentFlavors, invMap, cutoffStr])
 
   const popcornWasteTotals = useMemo(() => {
     const totals = {}
@@ -442,7 +431,7 @@ export default function Analytics() {
         </div>
         <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-store-brown">{(() => {
-            const n = caramelComputedTotal
+            const n = stockSnapshot.caramelTrays
             const w = Math.floor(n), num = Math.round((n - w) * 18)
             return num === 0 ? w : w === 0 ? `${num}/18` : `${w} ${num}/18`
           })()}</p>
@@ -511,7 +500,7 @@ export default function Analytics() {
       {showCaramel && (
         <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-store-brown">{(() => {
-            const n = caramelComputedTotal
+            const n = stockSnapshot.caramelTrays
             const w = Math.floor(n), num = Math.round((n - w) * 18)
             return num === 0 ? w : w === 0 ? `${num}/18` : `${w} ${num}/18`
           })()}</p>
