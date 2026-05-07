@@ -116,11 +116,10 @@ export async function autoDeductIngredients(flavorId, batchLogId) {
 
 // Sea Salt Caramel flavors use 1 Caramel tray per 18 trays produced.
 // Call this after logging a batch of any Sea Salt Caramel flavor.
-const SEA_SALT_CARAMEL_NAMES = ['Vanilla Sea Salt Caramel', 'Chocolate Sea Salt Caramel']
 const CARAMEL_TRAYS_PER_SSC_TRAY = 1 / 18
 
 export async function deductCaramelComponent(flavorName, batchYield) {
-  if (!SEA_SALT_CARAMEL_NAMES.includes(flavorName)) return
+  if (!flavorName.toLowerCase().includes('sea salt')) return
 
   const caramelUsed = batchYield * CARAMEL_TRAYS_PER_SSC_TRAY
 

@@ -103,8 +103,7 @@ export default function Dashboard() {
     async function computeCaramel() {
       const compFlavors = flavors.filter(f => f.is_component)
       if (!compFlavors.length) return
-      const sscNames = ['Vanilla Sea Salt Caramel', 'Chocolate Sea Salt Caramel']
-      const sscFlavors = flavors.filter(f => sscNames.includes(f.name))
+      const sscFlavors = flavors.filter(f => f.name.toLowerCase().includes('sea salt'))
       const caramelIds = new Set(compFlavors.map(f => f.id))
       const sscIdToYield = new Map(sscFlavors.map(f => [f.id, f.default_yield ?? 3]))
       const allIds = [...caramelIds, ...sscIdToYield.keys()]

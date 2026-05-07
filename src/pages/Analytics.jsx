@@ -316,9 +316,8 @@ export default function Analytics() {
     const SEASON_START = '2026-04-22'
     const caramelFlavor = componentFlavors[0]
 
-    const sscNames = new Set(['Vanilla Sea Salt Caramel', 'Chocolate Sea Salt Caramel'])
     const sscIdToYield = new Map(
-      flavors.filter(f => sscNames.has(f.name)).map(f => [f.id, f.default_yield ?? 3])
+      flavors.filter(f => f.name.toLowerCase().includes('sea salt')).map(f => [f.id, f.default_yield ?? 3])
     )
 
     const relevantBatches = batchLogs.filter(b =>
