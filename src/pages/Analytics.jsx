@@ -25,6 +25,7 @@ function formatDate(str) {
 export default function Analytics() {
   const [reports, setReports] = useState([])
   const [flavors, setFlavors] = useState([])
+  const [allFlavorsList, setAllFlavorsList] = useState([])
   const [batchLogs, setBatchLogs] = useState([])
   const [bucketLogs, setBucketLogs] = useState([])
   const [currentInventory, setCurrentInventory] = useState([])
@@ -57,13 +58,18 @@ export default function Analytics() {
           .select('id, name, product_type, tracks_shelf_buckets, is_component, default_yield')
           .eq('is_active', true)
           .order('name'),
-        supabase.from('batch_logs').select('*, flavors(name, is_component, default_yield)').order('batch_date'),
+        supabase.from('batch_logs').select('*').order('batch_date'),
         supabase
           .from('shelf_bucket_logs')
           .select('flavor_id, barrels_used, small_buckets_made, large_buckets_made, small_buckets_sold, large_buckets_sold, logged_at')
           .order('logged_at'),
         supabase.from('current_inventory').select('flavor_id, tray_count, barrel_count'),
       ])
+      // Load ALL flavors (including inactive) so inactive SSC flavors are still detected
+      const { data: allFlavorsData } = await supabase
+        .from('flavors')
+        .select('id, name, default_yield, is_component')
+      setAllFlavorsList(allFlavorsData || [])
       setReports(reportData || [])
       setFlavors(flavorData || [])
       setBatchLogs(batchData || [])
@@ -316,21 +322,30 @@ export default function Analytics() {
     const SEASON_START = '2026-04-22'
     const caramelFlavor = componentFlavors[0]
 
-    // Use joined flavor name so inactive SSC flavors are still detected
+    // Use allFlavorsList (includes inactive) to find SSC flavor IDs + yields
+    const sscIdToYield = new Map(
+      allFlavorsList
+        .filter(f => f.name.toLowerCase().includes('sea salt'))
+        .map(f => [f.id, f.default_yield ?? 3])
+    )
+
     const relevantBatches = batchLogs.filter(b => {
-      if (b.is_wasted || b.batch_date < SEASON_START) return false
-      if (b.flavor_id === caramelFlavor.id) return true
-      return (b.flavors?.name ?? '').toLowerCase().includes('sea salt')
+      if (b.is_wasted) return false
+      const bDate = (b.batch_date ?? '').slice(0, 10)
+      if (bDate < SEASON_START) return false
+      return b.flavor_id === caramelFlavor.id || sscIdToYield.has(b.flavor_id)
     })
     if (!relevantBatches.length) return []
 
+    // Key by date string (batch_date may be a timestamptz, slice to YYYY-MM-DD)
     const dailyDelta = {}
     relevantBatches.forEach(b => {
-      if (!dailyDelta[b.batch_date]) dailyDelta[b.batch_date] = 0
+      const key = (b.batch_date ?? '').slice(0, 10)
+      if (!dailyDelta[key]) dailyDelta[key] = 0
       if (b.flavor_id === caramelFlavor.id) {
-        dailyDelta[b.batch_date] += 1
+        dailyDelta[key] += 1
       } else {
-        dailyDelta[b.batch_date] -= (b.flavors?.default_yield ?? 3) / 18
+        dailyDelta[key] -= sscIdToYield.get(b.flavor_id) / 18
       }
     })
 
@@ -351,21 +366,23 @@ export default function Analytics() {
       cursor.setDate(cursor.getDate() + 1)
     }
     return rows
-  }, [batchLogs, componentFlavors, cutoffStr])
+  }, [batchLogs, allFlavorsList, componentFlavors, cutoffStr])
 
   const caramelComputedTotal = useMemo(() => {
     if (!componentFlavors.length) return 0
     const caramelFlavor = componentFlavors[0]
+    const sscIdToYield = new Map(
+      allFlavorsList
+        .filter(f => f.name.toLowerCase().includes('sea salt'))
+        .map(f => [f.id, f.default_yield ?? 3])
+    )
     let count = 0
     batchLogs.filter(b => !b.is_wasted).forEach(b => {
-      if (b.flavor_id === caramelFlavor.id) {
-        count += 1
-      } else if ((b.flavors?.name ?? '').toLowerCase().includes('sea salt')) {
-        count -= (b.flavors?.default_yield ?? 3) / 18
-      }
+      if (b.flavor_id === caramelFlavor.id) count += 1
+      else if (sscIdToYield.has(b.flavor_id)) count -= sscIdToYield.get(b.flavor_id) / 18
     })
     return Math.max(0, Math.round(count * 1000) / 1000)
-  }, [batchLogs, componentFlavors])
+  }, [batchLogs, allFlavorsList, componentFlavors])
 
   const popcornWasteTotals = useMemo(() => {
     const totals = {}
