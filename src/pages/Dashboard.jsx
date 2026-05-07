@@ -135,10 +135,21 @@ export default function Dashboard() {
       : isLow ? 'bg-amber-200 text-amber-800'
         : 'bg-store-green text-white'
 
+    let countDisplay
+    if (flavor.is_component) {
+      const whole = Math.floor(fullTrays)
+      const numer = Math.round((fullTrays - whole) * 18)
+      if (numer === 0) countDisplay = `${whole}`
+      else if (whole === 0) countDisplay = `${numer}/18`
+      else countDisplay = `${whole} ${numer}/18`
+    } else {
+      countDisplay = fullTrays
+    }
+
     return (
       <div key={flavor.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${pillClass}`}>
         <span>{flavor.name}</span>
-        <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${countClass}`}>{fullTrays}</span>
+        <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${countClass}`}>{countDisplay}</span>
         {inProgress > 0 && <span className="text-xs opacity-60">+{inProgress}½</span>}
       </div>
     )
@@ -247,30 +258,47 @@ export default function Dashboard() {
       <hr className="border-store-tan" />
 
       {/* ── CARAMEL ───────────────────────────────────────────── */}
-      {componentFlavors.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
-            Caramel
-          </h2>
-          <div className="flex flex-wrap gap-2">
-            {componentFlavors.map(renderFlavorPill)}
+      {componentFlavors.length > 0 && (() => {
+        const lowCaramel = componentFlavors.filter(f => (entries[f.id]?.full_trays ?? 0) <= (f.low_tray_threshold ?? 2))
+        const stockedCaramel = componentFlavors.filter(f => (entries[f.id]?.full_trays ?? 0) > (f.low_tray_threshold ?? 2))
+        return (
+          <div className="space-y-4">
+            <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
+              Caramel
+            </h2>
+            <div>
+              <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">Make Soon</h3>
+              {lowCaramel.length > 0 ? (
+                <div className="flex flex-wrap gap-2">{lowCaramel.map(renderFlavorPill)}</div>
+              ) : (
+                <p className="text-sm text-store-green font-medium">Caramel stocked ✓</p>
+              )}
+            </div>
+            {stockedCaramel.length > 0 && (
+              <div>
+                <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">Caramel In Stock</h3>
+                <div className="flex flex-wrap gap-2">{stockedCaramel.map(renderFlavorPill)}</div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {componentFlavors.length > 0 && <hr className="border-store-tan" />}
 
       {/* ── POPCORN ───────────────────────────────────────────── */}
       {popcornFlavors.length > 0 && (
         <div className="space-y-4">
+          <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
+            Popcorn
+          </h2>
+
           <div>
-            <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
-              Popcorn
-            </h2>
+            <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">Make Soon</h3>
             {lowPopcorn.length > 0 ? (
-              <div className="flex flex-wrap gap-2 mt-2">{lowPopcorn.map(renderPopcornPill)}</div>
+              <div className="flex flex-wrap gap-2">{lowPopcorn.map(renderPopcornPill)}</div>
             ) : (
-              <p className="text-sm text-store-green font-medium mt-2">All popcorn stocked ✓</p>
+              <p className="text-sm text-store-green font-medium">All popcorn stocked ✓</p>
             )}
           </div>
 

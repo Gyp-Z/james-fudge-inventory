@@ -173,6 +173,8 @@ export default function Admin() {
 
 function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEditingThresholdId, setEditThreshold, saveThreshold, toggleActive }) {
   const [showRecipe, setShowRecipe] = useState(false)
+  const [smallBucket, setSmallBucket] = useState(f.low_small_bucket_threshold ?? 0)
+  const [largeBucket, setLargeBucket] = useState(f.low_large_bucket_threshold ?? 0)
   const isPopcorn = f.product_type === 'popcorn'
   const unit = isPopcorn ? 'barrel' : 'tray'
   const units = isPopcorn ? 'barrels' : 'trays'
@@ -194,7 +196,15 @@ function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEdi
           )}
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-sm text-store-brown-light font-mono">{count} {count === 1 ? unit : units}</span>
+          <span className="text-sm text-store-brown-light font-mono">
+            {f.is_component ? (() => {
+              const whole = Math.floor(count)
+              const numer = Math.round((count - whole) * 18)
+              if (numer === 0) return `${whole} ${units}`
+              if (whole === 0) return `${numer}/18 ${units}`
+              return `${whole} ${numer}/18 ${units}`
+            })() : `${count} ${count === 1 ? unit : units}`}
+          </span>
           {editingThresholdId === f.id ? (
             <div className="flex items-center gap-1.5">
               <input
@@ -217,6 +227,34 @@ function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEdi
             >
               Alert at {threshold} {units}
             </button>
+          )}
+          {f.tracks_shelf_buckets && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-store-brown-light">Bucket alert S</span>
+              <input
+                type="number" min="0" step="1"
+                value={smallBucket}
+                onChange={e => setSmallBucket(Number(e.target.value))}
+                onBlur={async e => {
+                  const val = Math.max(0, Number(e.target.value))
+                  setSmallBucket(val)
+                  await supabase.from('flavors').update({ low_small_bucket_threshold: val }).eq('id', f.id)
+                }}
+                className="w-12 border border-store-tan rounded-lg px-1.5 py-1 text-xs text-center focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+              />
+              <span className="text-xs text-store-brown-light">L</span>
+              <input
+                type="number" min="0" step="1"
+                value={largeBucket}
+                onChange={e => setLargeBucket(Number(e.target.value))}
+                onBlur={async e => {
+                  const val = Math.max(0, Number(e.target.value))
+                  setLargeBucket(val)
+                  await supabase.from('flavors').update({ low_large_bucket_threshold: val }).eq('id', f.id)
+                }}
+                className="w-12 border border-store-tan rounded-lg px-1.5 py-1 text-xs text-center focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+              />
+            </div>
           )}
           {recipe.length > 0 && (
             <button
