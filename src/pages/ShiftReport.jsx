@@ -30,6 +30,7 @@ export default function ShiftReport() {
   const [popcornEntries, setPopcornEntries] = useState({}) // flavor_id -> { barrels_added, barrels_sold, small/large buckets made/sold }
   const [currentBarrels, setCurrentBarrels] = useState({}) // flavor_id -> barrel_count
   const [currentShelfBuckets, setCurrentShelfBuckets] = useState({}) // flavor_id -> { small, large }
+  const [barrelThresholds, setBarrelThresholds] = useState({}) // flavor_id -> low_tray_threshold
 
   // Batches tab state
   const [batchCounts, setBatchCounts] = useState({})
@@ -100,6 +101,10 @@ export default function ShiftReport() {
         }
       })
       setPopcornEntries(popcornInit)
+
+      const thresholdInit = {}
+      popcornOnly.forEach(f => { thresholdInit[f.id] = f.low_tray_threshold ?? 1 })
+      setBarrelThresholds(thresholdInit)
 
       // Init ingredient forms
       const ingInit = {}
@@ -601,6 +606,25 @@ export default function ShiftReport() {
                         <div className="flex items-center justify-between">
                           <p className="font-semibold text-amber-900 text-lg">{f.name}</p>
                           <span className="text-sm font-bold text-amber-700">{currentBarrels[f.id] ?? 0} barrels on hand</span>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-amber-800">Alert threshold</span>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={barrelThresholds[f.id] ?? 1}
+                              onChange={e => setBarrelThresholds(prev => ({ ...prev, [f.id]: Number(e.target.value) }))}
+                              onBlur={async e => {
+                                const val = Math.max(0, Number(e.target.value))
+                                await supabase.from('flavors').update({ low_tray_threshold: val }).eq('id', f.id)
+                              }}
+                              className="w-16 text-center border border-amber-300 rounded-lg px-2 py-1 text-sm text-amber-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                            />
+                            <span className="text-xs text-amber-700">barrels</span>
+                          </div>
                         </div>
 
                         <div className="flex items-center justify-between">
