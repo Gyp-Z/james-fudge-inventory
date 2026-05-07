@@ -57,7 +57,7 @@ export default function Analytics() {
           .select('id, name, product_type, tracks_shelf_buckets, is_component, default_yield')
           .eq('is_active', true)
           .order('name'),
-        supabase.from('batch_logs').select('flavor_id, batch_date, is_wasted').order('batch_date'),
+        supabase.from('batch_logs').select('*').order('batch_date'),
         supabase
           .from('shelf_bucket_logs')
           .select('flavor_id, barrels_used, small_buckets_made, large_buckets_made, small_buckets_sold, large_buckets_sold, logged_at')
@@ -415,8 +415,8 @@ export default function Analytics() {
           </button>
         )}
 
-        {/* Individual flavor pills */}
-        {groupFlavors.map((f, i) => {
+        {/* Individual flavor pills — hidden for Caramel (group button is the only selector needed) */}
+        {groupFilter !== 'caramel' && groupFlavors.map((f, i) => {
           const isPopcorn = f.product_type === 'popcorn'
           const active = selectedFlavors !== null && selectedFlavors.has(f.id)
           const color = isPopcorn ? POPCORN_COLORS[i % POPCORN_COLORS.length] : FUDGE_COLORS[i % FUDGE_COLORS.length]
