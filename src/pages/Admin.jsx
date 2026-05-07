@@ -3,7 +3,8 @@ import { supabase } from '../lib/supabase'
 
 export default function Admin() {
   const [flavors, setFlavors] = useState([])
-  const [inventory, setInventory] = useState({}) // flavor_id -> tray_count
+  const [inventory, setInventory] = useState({}) // flavor_id -> { trays, barrels }
+  const [recipes, setRecipes] = useState({}) // flavor_id -> [{ name, qty, unit }]
   const [newName, setNewName] = useState('')
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
@@ -18,17 +19,33 @@ export default function Admin() {
   }
 
   async function loadInventory() {
-    const { data } = await supabase.from('current_inventory').select('flavor_id, tray_count')
+    const { data } = await supabase.from('current_inventory').select('flavor_id, tray_count, barrel_count')
     if (data) {
       const map = {}
-      data.forEach((r) => { map[r.flavor_id] = r.tray_count })
+      data.forEach(r => { map[r.flavor_id] = { trays: r.tray_count ?? 0, barrels: r.barrel_count ?? 0 } })
       setInventory(map)
+    }
+  }
+
+  async function loadRecipes() {
+    const { data } = await supabase
+      .from('recipes')
+      .select('flavor_id, quantity_per_batch, unit, ingredients(name)')
+      .order('flavor_id')
+    if (data) {
+      const map = {}
+      data.forEach(r => {
+        if (!map[r.flavor_id]) map[r.flavor_id] = []
+        map[r.flavor_id].push({ name: r.ingredients?.name ?? '?', qty: r.quantity_per_batch, unit: r.unit })
+      })
+      setRecipes(map)
     }
   }
 
   useEffect(() => {
     loadFlavors()
     loadInventory()
+    loadRecipes()
   }, [])
 
   async function handleAdd(e) {
@@ -57,19 +74,28 @@ export default function Admin() {
 
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
 
-  const active = flavors.filter((f) => f.is_active)
-  const archived = flavors.filter((f) => !f.is_active)
+  const active = flavors.filter(f => f.is_active)
+  const archived = flavors.filter(f => !f.is_active)
 
-  // Split active into "needs to make" (low/out) vs "stocked"
-  const needsMaking = active.filter((f) => {
-    const trays = inventory[f.id] ?? 0
-    const threshold = f.low_tray_threshold ?? 2
-    return trays <= threshold
+  const needsMaking = active.filter(f => {
+    const count = f.product_type === 'popcorn' ? (inventory[f.id]?.barrels ?? 0) : (inventory[f.id]?.trays ?? 0)
+    return count <= (f.low_tray_threshold ?? 2)
   })
-  const stocked = active.filter((f) => {
-    const trays = inventory[f.id] ?? 0
-    const threshold = f.low_tray_threshold ?? 2
-    return trays > threshold
+  const stocked = active.filter(f => {
+    const count = f.product_type === 'popcorn' ? (inventory[f.id]?.barrels ?? 0) : (inventory[f.id]?.trays ?? 0)
+    return count > (f.low_tray_threshold ?? 2)
+  })
+
+  const rowProps = (f) => ({
+    f,
+    count: f.product_type === 'popcorn' ? (inventory[f.id]?.barrels ?? 0) : (inventory[f.id]?.trays ?? 0),
+    recipe: recipes[f.id] ?? [],
+    editingThresholdId,
+    editThreshold,
+    setEditingThresholdId,
+    setEditThreshold,
+    saveThreshold,
+    toggleActive,
   })
 
   return (
@@ -79,72 +105,42 @@ export default function Admin() {
           Products
         </h2>
         <button
-          onClick={() => setShowArchived((v) => !v)}
+          onClick={() => setShowArchived(v => !v)}
           className="text-xs text-store-brown-light underline hover:text-store-brown"
         >
           {showArchived ? 'Hide Archived' : 'Show Archived'}
         </button>
       </div>
 
-      {/* Needs to Make */}
       {needsMaking.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4">
           <h3 className="font-semibold text-red-700 mb-3">Make Soon ({needsMaking.length})</h3>
           <div className="space-y-2">
-            {needsMaking.map((f) => (
-              <FlavorRow
-                key={f.id}
-                f={f}
-                trays={inventory[f.id] ?? 0}
-                editingThresholdId={editingThresholdId}
-                editThreshold={editThreshold}
-                setEditingThresholdId={setEditingThresholdId}
-                setEditThreshold={setEditThreshold}
-                saveThreshold={saveThreshold}
-                toggleActive={toggleActive}
-              />
-            ))}
+            {needsMaking.map(f => <FlavorRow key={f.id} {...rowProps(f)} />)}
           </div>
         </div>
       )}
 
-      {/* Stocked */}
       <div>
         <h3 className="font-semibold text-store-brown mb-3">
           {needsMaking.length > 0 ? `Stocked (${stocked.length})` : `Active (${active.length})`}
         </h3>
         <div className="space-y-2">
-          {(needsMaking.length > 0 ? stocked : active).map((f) => (
-            <FlavorRow
-              key={f.id}
-              f={f}
-              trays={inventory[f.id] ?? 0}
-              editingThresholdId={editingThresholdId}
-              editThreshold={editThreshold}
-              setEditingThresholdId={setEditingThresholdId}
-              setEditThreshold={setEditThreshold}
-              saveThreshold={saveThreshold}
-              toggleActive={toggleActive}
-            />
-          ))}
+          {(needsMaking.length > 0 ? stocked : active).map(f => <FlavorRow key={f.id} {...rowProps(f)} />)}
           {active.length === 0 && (
             <p className="text-store-brown-light text-sm text-center py-4">No active products</p>
           )}
         </div>
       </div>
 
-      {/* Archived */}
       {showArchived && archived.length > 0 && (
         <div>
           <h3 className="font-semibold text-store-brown-light mb-3">Archived ({archived.length})</h3>
           <div className="space-y-2 opacity-60">
-            {archived.map((f) => (
+            {archived.map(f => (
               <div key={f.id} className="bg-store-cream rounded-xl border border-store-tan p-3 flex items-center justify-between">
                 <span className="text-sm text-store-brown-light">{f.name}</span>
-                <button
-                  onClick={() => toggleActive(f)}
-                  className="text-xs text-store-green hover:text-store-green-dark px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
-                >
+                <button onClick={() => toggleActive(f)} className="text-xs text-store-green hover:text-store-green-dark px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors">
                   Restore
                 </button>
               </div>
@@ -156,22 +152,17 @@ export default function Admin() {
         <p className="text-store-brown-light text-sm text-center py-2">No archived products</p>
       )}
 
-      {/* Add Product — at bottom */}
       <div className="bg-white rounded-xl border border-store-tan p-4 shadow-sm">
         <h3 className="font-semibold text-store-brown mb-3">Add Product</h3>
         <form onSubmit={handleAdd} className="flex gap-2">
           <input
             type="text"
             value={newName}
-            onChange={(e) => setNewName(e.target.value)}
+            onChange={e => setNewName(e.target.value)}
             placeholder="e.g. Chocolate Peanut Butter"
             className="flex-1 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
           />
-          <button
-            type="submit"
-            disabled={adding}
-            className="bg-store-green hover:bg-store-green-dark text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
-          >
+          <button type="submit" disabled={adding} className="bg-store-green hover:bg-store-green-dark text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50">
             Add
           </button>
         </form>
@@ -180,9 +171,14 @@ export default function Admin() {
   )
 }
 
-function FlavorRow({ f, trays, editingThresholdId, editThreshold, setEditingThresholdId, setEditThreshold, saveThreshold, toggleActive }) {
-  const isOut = trays === 0
-  const isLow = !isOut && trays <= (f.low_tray_threshold ?? 2)
+function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEditingThresholdId, setEditThreshold, saveThreshold, toggleActive }) {
+  const [showRecipe, setShowRecipe] = useState(false)
+  const isPopcorn = f.product_type === 'popcorn'
+  const unit = isPopcorn ? 'barrel' : 'tray'
+  const units = isPopcorn ? 'barrels' : 'trays'
+  const threshold = f.low_tray_threshold ?? (isPopcorn ? 1 : 2)
+  const isOut = count === 0
+  const isLow = !isOut && count <= threshold
 
   return (
     <div className="bg-white rounded-xl border border-store-tan shadow-sm overflow-hidden">
@@ -198,48 +194,57 @@ function FlavorRow({ f, trays, editingThresholdId, editThreshold, setEditingThre
           )}
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-sm text-store-brown-light font-mono">{trays} tray{trays !== 1 ? 's' : ''}</span>
+          <span className="text-sm text-store-brown-light font-mono">{count} {count === 1 ? unit : units}</span>
           {editingThresholdId === f.id ? (
             <div className="flex items-center gap-1.5">
               <input
                 type="number"
                 value={editThreshold}
-                onChange={(e) => setEditThreshold(e.target.value)}
+                onChange={e => setEditThreshold(e.target.value)}
                 min="0"
                 max="20"
                 autoFocus
                 className="w-14 border border-store-tan rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
               />
-              <span className="text-xs text-store-brown-light">trays</span>
-              <button
-                onClick={() => saveThreshold(f)}
-                className="text-xs bg-store-green text-white px-2 py-1 rounded-lg hover:bg-store-green-dark transition-colors"
-              >
-                Save
-              </button>
-              <button
-                onClick={() => { setEditingThresholdId(null); setEditThreshold('') }}
-                className="text-xs text-store-brown-light hover:text-store-brown px-2 py-1 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
+              <span className="text-xs text-store-brown-light">{units}</span>
+              <button onClick={() => saveThreshold(f)} className="text-xs bg-store-green text-white px-2 py-1 rounded-lg hover:bg-store-green-dark transition-colors">Save</button>
+              <button onClick={() => { setEditingThresholdId(null); setEditThreshold('') }} className="text-xs text-store-brown-light hover:text-store-brown px-2 py-1 rounded-lg transition-colors">Cancel</button>
             </div>
           ) : (
             <button
-              onClick={() => { setEditingThresholdId(f.id); setEditThreshold(String(f.low_tray_threshold ?? 2)) }}
+              onClick={() => { setEditingThresholdId(f.id); setEditThreshold(String(threshold)) }}
               className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
             >
-              Alert at {f.low_tray_threshold ?? 2} trays
+              Alert at {threshold} {units}
             </button>
           )}
-          <button
-            onClick={() => toggleActive(f)}
-            className="text-xs text-store-brown-light hover:text-red-500 transition-colors px-2 py-1 rounded-lg hover:bg-red-50"
-          >
+          {recipe.length > 0 && (
+            <button
+              onClick={() => setShowRecipe(v => !v)}
+              className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
+            >
+              {showRecipe ? 'Hide recipe' : 'Recipe'}
+            </button>
+          )}
+          <button onClick={() => toggleActive(f)} className="text-xs text-store-brown-light hover:text-red-500 transition-colors px-2 py-1 rounded-lg hover:bg-red-50">
             Archive
           </button>
         </div>
       </div>
+
+      {showRecipe && recipe.length > 0 && (
+        <div className="border-t border-store-tan px-4 py-3 bg-store-cream">
+          <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide mb-2">Recipe — per batch</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1">
+            {recipe.sort((a, b) => a.name.localeCompare(b.name)).map((r, i) => (
+              <div key={i} className="flex justify-between text-xs text-store-brown gap-2">
+                <span className="truncate">{r.name}</span>
+                <span className="text-store-brown-light whitespace-nowrap font-mono">{r.qty} {r.unit}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
