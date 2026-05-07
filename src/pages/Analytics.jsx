@@ -357,6 +357,19 @@ export default function Analytics() {
     return rows
   }, [batchLogs, componentFlavors, flavors, cutoffStr])
 
+  const caramelComputedTotal = useMemo(() => {
+    if (!componentFlavors.length) return 0
+    const caramelFlavor = componentFlavors[0]
+    const sscNames = new Set(['Vanilla Sea Salt Caramel', 'Chocolate Sea Salt Caramel'])
+    const sscIdToYield = new Map(flavors.filter(f => sscNames.has(f.name)).map(f => [f.id, f.default_yield ?? 3]))
+    let count = 0
+    batchLogs.filter(b => !b.is_wasted).forEach(b => {
+      if (b.flavor_id === caramelFlavor.id) count += 1
+      else if (sscIdToYield.has(b.flavor_id)) count -= sscIdToYield.get(b.flavor_id) / 18
+    })
+    return Math.max(0, Math.round(count * 1000) / 1000)
+  }, [batchLogs, componentFlavors, flavors])
+
   const popcornWasteTotals = useMemo(() => {
     const totals = {}
     filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && b.is_wasted).forEach(b => {
@@ -415,7 +428,7 @@ export default function Analytics() {
         </div>
         <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-store-brown">{(() => {
-            const n = stockSnapshot.caramelTrays
+            const n = caramelComputedTotal
             const w = Math.floor(n), num = Math.round((n - w) * 18)
             return num === 0 ? w : w === 0 ? `${num}/18` : `${w} ${num}/18`
           })()}</p>
@@ -484,7 +497,7 @@ export default function Analytics() {
       {showCaramel && (
         <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-store-brown">{(() => {
-            const n = inStockValue
+            const n = caramelComputedTotal
             const w = Math.floor(n), num = Math.round((n - w) * 18)
             return num === 0 ? w : w === 0 ? `${num}/18` : `${w} ${num}/18`
           })()}</p>

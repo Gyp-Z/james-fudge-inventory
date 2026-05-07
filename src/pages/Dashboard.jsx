@@ -10,6 +10,7 @@ export default function Dashboard() {
   const [ingredientsLoading, setIngredientsLoading] = useState(true)
   const [yesterdayEntries, setYesterdayEntries] = useState({})
   const [todayBuckets, setTodayBuckets] = useState({})
+  const [caramelCounts, setCaramelCounts] = useState({})
 
   useEffect(() => {
     async function loadIngredients() {
@@ -97,6 +98,33 @@ export default function Dashboard() {
     load()
   }, [])
 
+  useEffect(() => {
+    if (flavorsLoading || !flavors.length) return
+    async function computeCaramel() {
+      const compFlavors = flavors.filter(f => f.is_component)
+      if (!compFlavors.length) return
+      const sscNames = ['Vanilla Sea Salt Caramel', 'Chocolate Sea Salt Caramel']
+      const sscFlavors = flavors.filter(f => sscNames.includes(f.name))
+      const caramelIds = new Set(compFlavors.map(f => f.id))
+      const sscIdToYield = new Map(sscFlavors.map(f => [f.id, f.default_yield ?? 3]))
+      const allIds = [...caramelIds, ...sscIdToYield.keys()]
+      const { data } = await supabase.from('batch_logs').select('flavor_id, is_wasted').in('flavor_id', allIds)
+      const counts = {}
+      compFlavors.forEach(f => { counts[f.id] = 0 })
+      ;(data || []).filter(b => !b.is_wasted).forEach(b => {
+        if (caramelIds.has(b.flavor_id)) {
+          counts[b.flavor_id] = (counts[b.flavor_id] ?? 0) + 1
+        } else if (sscIdToYield.has(b.flavor_id)) {
+          compFlavors.forEach(f => {
+            counts[f.id] = Math.max(0, (counts[f.id] ?? 0) - sscIdToYield.get(b.flavor_id) / 18)
+          })
+        }
+      })
+      setCaramelCounts(counts)
+    }
+    computeCaramel()
+  }, [flavors, flavorsLoading])
+
   const loading = flavorsLoading || reportFound === null
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
 
@@ -120,7 +148,9 @@ export default function Dashboard() {
 
   const renderFlavorPill = (flavor) => {
     const entry = entries[flavor.id]
-    const fullTrays = entry?.full_trays ?? 0
+    const fullTrays = flavor.is_component
+      ? (caramelCounts[flavor.id] ?? entry?.full_trays ?? 0)
+      : (entry?.full_trays ?? 0)
     const inProgress = entry?.in_progress_trays ?? 0
     const threshold = flavor.low_tray_threshold ?? 2
     const isOut = fullTrays === 0
