@@ -271,14 +271,32 @@ export default function Dashboard() {
               <div className="flex flex-wrap gap-2">
                 {popcornFlavors.filter(f => f.tracks_shelf_buckets).map(f => {
                   const b = todayBuckets[f.id] || { small: 0, large: 0 }
-                  const hasStock = b.small > 0 || b.large > 0
+                  const smallThreshold = f.low_small_bucket_threshold ?? 0
+                  const largeThreshold = f.low_large_bucket_threshold ?? 0
+                  const smallOut = b.small === 0
+                  const largeOut = b.large === 0
+                  const smallLow = !smallOut && smallThreshold > 0 && b.small <= smallThreshold
+                  const largeLow = !largeOut && largeThreshold > 0 && b.large <= largeThreshold
+                  const isOut = smallOut && largeOut
+                  const isLow = !isOut && (smallLow || largeLow || (smallThreshold === 0 && largeThreshold === 0 && !isOut ? false : smallOut || largeOut))
+                  const pillClass = isOut
+                    ? 'bg-red-50 border-red-300 text-red-700'
+                    : (smallLow || largeLow || (smallThreshold > 0 && smallOut) || (largeThreshold > 0 && largeOut))
+                      ? 'bg-amber-50 border-amber-300 text-amber-700'
+                      : 'bg-store-green-light border-store-green text-store-green'
+                  const smallClass = smallOut
+                    ? 'text-red-600 font-bold'
+                    : smallLow ? 'text-amber-600 font-bold' : ''
+                  const largeClass = largeOut
+                    ? 'text-red-600 font-bold'
+                    : largeLow ? 'text-amber-600 font-bold' : ''
                   return (
-                    <div key={f.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${
-                      hasStock ? 'bg-store-green-light border-store-green text-store-green' : 'bg-red-50 border-red-300 text-red-700'
-                    }`}>
+                    <div key={f.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${pillClass}`}>
                       <span>{f.name}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${hasStock ? 'bg-store-green text-white' : 'bg-red-200 text-red-800'}`}>
-                        {b.small}S / {b.large}L
+                      <span className="text-xs font-mono">
+                        <span className={smallClass}>{b.small}S</span>
+                        <span className="opacity-50"> / </span>
+                        <span className={largeClass}>{b.large}L</span>
                       </span>
                     </div>
                   )

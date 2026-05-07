@@ -31,6 +31,7 @@ export default function ShiftReport() {
   const [currentBarrels, setCurrentBarrels] = useState({}) // flavor_id -> barrel_count
   const [currentShelfBuckets, setCurrentShelfBuckets] = useState({}) // flavor_id -> { small, large }
   const [barrelThresholds, setBarrelThresholds] = useState({}) // flavor_id -> low_tray_threshold
+  const [bucketThresholds, setBucketThresholds] = useState({}) // flavor_id -> { small, large }
 
   // Batches tab state
   const [batchCounts, setBatchCounts] = useState({})
@@ -59,7 +60,7 @@ export default function ShiftReport() {
         { data: invData },
         { data: bucketLogsData },
       ] = await Promise.all([
-        supabase.from('flavors').select('id, name, product_type, default_yield, low_tray_threshold, tracks_shelf_buckets, is_component').eq('is_active', true).order('product_type').order('name'),
+        supabase.from('flavors').select('id, name, product_type, default_yield, low_tray_threshold, low_small_bucket_threshold, low_large_bucket_threshold, tracks_shelf_buckets, is_component').eq('is_active', true).order('product_type').order('name'),
         supabase.from('ingredients').select('id, name, quantity, unit').eq('is_active', true).order('name'),
         supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count, barrel_count'),
         supabase.from('shelf_bucket_logs').select('flavor_id, small_buckets_made, large_buckets_made, small_buckets_sold, large_buckets_sold'),
@@ -105,6 +106,10 @@ export default function ShiftReport() {
       const thresholdInit = {}
       popcornOnly.forEach(f => { thresholdInit[f.id] = f.low_tray_threshold ?? 1 })
       setBarrelThresholds(thresholdInit)
+
+      const bucketThresholdInit = {}
+      popcornOnly.forEach(f => { bucketThresholdInit[f.id] = { small: f.low_small_bucket_threshold ?? 0, large: f.low_large_bucket_threshold ?? 0 } })
+      setBucketThresholds(bucketThresholdInit)
 
       // Init ingredient forms
       const ingInit = {}
@@ -643,6 +648,33 @@ export default function ShiftReport() {
                               <span className="font-medium">On shelf now:</span>
                               <span>Small: {Math.max(0, currentShelfBuckets[f.id]?.small ?? 0)}</span>
                               <span>Large: {Math.max(0, currentShelfBuckets[f.id]?.large ?? 0)}</span>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <span className="text-sm text-amber-800 flex-1">Alert thresholds</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs text-amber-700">Small</span>
+                                <input
+                                  type="number" min="0" step="1"
+                                  value={bucketThresholds[f.id]?.small ?? 0}
+                                  onChange={e => setBucketThresholds(prev => ({ ...prev, [f.id]: { ...prev[f.id], small: Number(e.target.value) } }))}
+                                  onBlur={async e => {
+                                    const val = Math.max(0, Number(e.target.value))
+                                    await supabase.from('flavors').update({ low_small_bucket_threshold: val }).eq('id', f.id)
+                                  }}
+                                  className="w-14 text-center border border-amber-300 rounded-lg px-2 py-1 text-sm text-amber-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                                />
+                                <span className="text-xs text-amber-700">Large</span>
+                                <input
+                                  type="number" min="0" step="1"
+                                  value={bucketThresholds[f.id]?.large ?? 0}
+                                  onChange={e => setBucketThresholds(prev => ({ ...prev, [f.id]: { ...prev[f.id], large: Number(e.target.value) } }))}
+                                  onBlur={async e => {
+                                    const val = Math.max(0, Number(e.target.value))
+                                    await supabase.from('flavors').update({ low_large_bucket_threshold: val }).eq('id', f.id)
+                                  }}
+                                  className="w-14 text-center border border-amber-300 rounded-lg px-2 py-1 text-sm text-amber-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                                />
+                              </div>
                             </div>
                             <div className="h-px bg-amber-200 my-1" />
                             <div className="flex items-center justify-between">
