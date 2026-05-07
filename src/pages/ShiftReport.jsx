@@ -353,7 +353,7 @@ export default function ShiftReport() {
     timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric',
   })
 
-  const fudgeFlavors = allFlavors.filter(f => f.product_type !== 'popcorn')
+  const fudgeFlavors = allFlavors.filter(f => f.product_type !== 'popcorn' && !f.is_component)
   const popcornFlavors = allFlavors.filter(f => f.product_type === 'popcorn')
   const batchesReady = allFlavors.some(f => (batchCounts[f.id] ?? 0) > 0 || (batchWasted[f.id] ?? 0) > 0)
 
@@ -397,16 +397,9 @@ export default function ShiftReport() {
               <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide mb-2">Fudge</p>
               <div className="space-y-2">
                 {fudgeFlavors.map(f => (
-                  <div key={f.id} className="bg-white rounded-xl border border-store-tan px-4 py-3 shadow-sm space-y-3">
+                  <div key={f.id} className="bg-white rounded-xl border border-store-tan px-4 py-3 flex items-center justify-between shadow-sm">
                     <span className="text-sm font-medium text-store-brown">{f.name}</span>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-store-brown-light">Batches made</span>
-                      <Stepper value={batchCounts[f.id] ?? 0} onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))} />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-red-400">Batches wasted</span>
-                      <Stepper value={batchWasted[f.id] ?? 0} onChange={v => setBatchWasted(prev => ({ ...prev, [f.id]: v }))} />
-                    </div>
+                    <Stepper value={batchCounts[f.id] ?? 0} onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))} />
                   </div>
                 ))}
               </div>
