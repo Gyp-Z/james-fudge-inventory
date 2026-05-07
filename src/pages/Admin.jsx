@@ -175,6 +175,16 @@ function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEdi
   const [showRecipe, setShowRecipe] = useState(false)
   const [smallBucket, setSmallBucket] = useState(f.low_small_bucket_threshold ?? 0)
   const [largeBucket, setLargeBucket] = useState(f.low_large_bucket_threshold ?? 0)
+  const [bucketSaved, setBucketSaved] = useState(false)
+
+  async function saveBucketThresholds() {
+    await supabase.from('flavors').update({
+      low_small_bucket_threshold: Math.max(0, smallBucket),
+      low_large_bucket_threshold: Math.max(0, largeBucket),
+    }).eq('id', f.id)
+    setBucketSaved(true)
+    setTimeout(() => setBucketSaved(false), 2000)
+  }
   const isPopcorn = f.product_type === 'popcorn'
   const unit = isPopcorn ? 'barrel' : 'tray'
   const units = isPopcorn ? 'barrels' : 'trays'
@@ -229,17 +239,13 @@ function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEdi
             </button>
           )}
           {f.tracks_shelf_buckets && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-store-brown-light">Bucket alert S</span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs text-store-brown-light">Bucket alert</span>
+              <span className="text-xs text-store-brown-light">S</span>
               <input
                 type="number" min="0" step="1"
                 value={smallBucket}
                 onChange={e => setSmallBucket(Number(e.target.value))}
-                onBlur={async e => {
-                  const val = Math.max(0, Number(e.target.value))
-                  setSmallBucket(val)
-                  await supabase.from('flavors').update({ low_small_bucket_threshold: val }).eq('id', f.id)
-                }}
                 className="w-12 border border-store-tan rounded-lg px-1.5 py-1 text-xs text-center focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
               />
               <span className="text-xs text-store-brown-light">L</span>
@@ -247,13 +253,13 @@ function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEdi
                 type="number" min="0" step="1"
                 value={largeBucket}
                 onChange={e => setLargeBucket(Number(e.target.value))}
-                onBlur={async e => {
-                  const val = Math.max(0, Number(e.target.value))
-                  setLargeBucket(val)
-                  await supabase.from('flavors').update({ low_large_bucket_threshold: val }).eq('id', f.id)
-                }}
                 className="w-12 border border-store-tan rounded-lg px-1.5 py-1 text-xs text-center focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
               />
+              {bucketSaved ? (
+                <span className="text-xs text-store-green font-medium">Saved ✓</span>
+              ) : (
+                <button onClick={saveBucketThresholds} className="text-xs bg-store-green text-white px-2 py-1 rounded-lg hover:bg-store-green-dark transition-colors">Save</button>
+              )}
             </div>
           )}
           {recipe.length > 0 && (
