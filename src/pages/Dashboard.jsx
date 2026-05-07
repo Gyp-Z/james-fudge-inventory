@@ -75,9 +75,15 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function load() {
-      const { data: inventory } = await supabase
-        .from('current_inventory')
-        .select('flavor_id, tray_count, in_progress_count, barrel_count')
+      const [
+        { data: inventory },
+        { data: batchData },
+        { data: allFlavorsData },
+      ] = await Promise.all([
+        supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count, barrel_count'),
+        supabase.from('batch_logs').select('flavor_id, batch_date, is_wasted'),
+        supabase.from('flavors').select('id, name, default_yield, is_component'),
+      ])
 
       if (inventory && inventory.length > 0) {
         const map = {}
@@ -88,6 +94,32 @@ export default function Dashboard() {
             barrel_count: row.barrel_count ?? 0,
           }
         })
+
+        // Override component flavor counts using batch history (forward from season start)
+        if (batchData && allFlavorsData) {
+          const SEASON_START = '2026-04-22'
+          const componentIds = new Set(allFlavorsData.filter(f => f.is_component).map(f => f.id))
+          const sscIdToYield = new Map(
+            allFlavorsData
+              .filter(f => f.name.toLowerCase().includes('sea salt'))
+              .map(f => [f.id, f.default_yield ?? 6])
+          )
+          for (const flavorId of componentIds) {
+            let total = 0
+            batchData.forEach(b => {
+              if (b.is_wasted) return
+              const bDate = (b.batch_date ?? '').slice(0, 10)
+              if (bDate < SEASON_START) return
+              if (b.flavor_id === flavorId) total += 1
+              else if (sscIdToYield.has(b.flavor_id)) total -= sscIdToYield.get(b.flavor_id) / 18
+            })
+            map[flavorId] = {
+              ...(map[flavorId] ?? { in_progress_trays: 0, barrel_count: 0 }),
+              full_trays: Math.max(0, Math.round(total * 1000) / 1000),
+            }
+          }
+        }
+
         setEntries(map)
         setReportFound(true)
       } else {

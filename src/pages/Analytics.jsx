@@ -317,17 +317,36 @@ export default function Analytics() {
     [componentFlavors]
   )
 
+  // Compute caramel count from batch history (forward from season start, ?? 6 yield per SSC batch)
+  const caramelComputedTotal = useMemo(() => {
+    if (!componentFlavors.length) return 0
+    const SEASON_START = '2026-04-22'
+    const caramelFlavor = componentFlavors[0]
+    const sscIdToYield = new Map(
+      allFlavorsList
+        .filter(f => f.name.toLowerCase().includes('sea salt'))
+        .map(f => [f.id, f.default_yield ?? 6])
+    )
+    let total = 0
+    batchLogs.forEach(b => {
+      if (b.is_wasted) return
+      const bDate = (b.batch_date ?? '').slice(0, 10)
+      if (bDate < SEASON_START) return
+      if (b.flavor_id === caramelFlavor.id) total += 1
+      else if (sscIdToYield.has(b.flavor_id)) total -= sscIdToYield.get(b.flavor_id) / 18
+    })
+    return Math.max(0, Math.round(total * 1000) / 1000)
+  }, [batchLogs, allFlavorsList, componentFlavors])
+
   const caramelStockData = useMemo(() => {
     if (!componentFlavors.length) return []
     const SEASON_START = '2026-04-22'
     const caramelFlavor = componentFlavors[0]
-    // Anchor to the actual stored count — correct value admin-adjustable via Products page
-    const currentCount = invMap[caramelFlavor.id]?.tray_count ?? 0
 
     const sscIdToYield = new Map(
       allFlavorsList
         .filter(f => f.name.toLowerCase().includes('sea salt'))
-        .map(f => [f.id, f.default_yield ?? 3])
+        .map(f => [f.id, f.default_yield ?? 6])
     )
 
     const relevantBatches = batchLogs.filter(b => {
@@ -337,7 +356,7 @@ export default function Analytics() {
       return b.flavor_id === caramelFlavor.id || sscIdToYield.has(b.flavor_id)
     })
 
-    if (!relevantBatches.length && currentCount === 0) return []
+    if (!relevantBatches.length) return []
 
     // Key deltas by YYYY-MM-DD (batch_date is timestamptz, slice to date)
     const dailyDelta = {}
@@ -354,16 +373,15 @@ export default function Analytics() {
     const todayStr = getDateStr(new Date())
     const startStr = cutoffStr && cutoffStr > SEASON_START ? cutoffStr : SEASON_START
 
-    // Anchor backward: compute what the value was at startStr using the known current value
-    let deltaOnOrAfterStart = 0
+    // Forward from 0: sum all deltas before startStr to get the value at that point
+    let runningToStart = 0
     for (const [d, v] of Object.entries(dailyDelta)) {
-      if (d >= startStr) deltaOnOrAfterStart += v
+      if (d < startStr) runningToStart += v
     }
-    const valueAtStart = currentCount - deltaOnOrAfterStart
 
     const rows = []
     const cursor = new Date(startStr + 'T12:00:00')
-    let running = valueAtStart
+    let running = runningToStart
     while (cursor <= new Date(todayStr + 'T12:00:00')) {
       const ds = getDateStr(cursor)
       if (dailyDelta[ds]) running += dailyDelta[ds]
@@ -371,7 +389,7 @@ export default function Analytics() {
       cursor.setDate(cursor.getDate() + 1)
     }
     return rows
-  }, [batchLogs, allFlavorsList, componentFlavors, invMap, cutoffStr])
+  }, [batchLogs, allFlavorsList, componentFlavors, cutoffStr])
 
   const popcornWasteTotals = useMemo(() => {
     const totals = {}
@@ -431,7 +449,7 @@ export default function Analytics() {
         </div>
         <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-store-brown">{(() => {
-            const n = stockSnapshot.caramelTrays
+            const n = caramelComputedTotal
             const w = Math.floor(n), num = Math.round((n - w) * 18)
             return num === 0 ? w : w === 0 ? `${num}/18` : `${w} ${num}/18`
           })()}</p>
@@ -500,7 +518,7 @@ export default function Analytics() {
       {showCaramel && (
         <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-store-brown">{(() => {
-            const n = stockSnapshot.caramelTrays
+            const n = caramelComputedTotal
             const w = Math.floor(n), num = Math.round((n - w) * 18)
             return num === 0 ? w : w === 0 ? `${num}/18` : `${w} ${num}/18`
           })()}</p>
