@@ -449,7 +449,9 @@ export default function ShiftReport() {
           ) : (
             <>
               <p className="text-store-brown-light text-xs -mt-3">Log what's on the shelf — trays made, sold, or wasted this session.</p>
+
               <div className="space-y-3">
+                <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide">Fudge</p>
                 {flavors.map((f) => {
                   const e = entries[f.id] || { full_trays: 0, in_progress_trays: 0, trays_sold: 0, trays_wasted: 0, waste_reason: '' }
                   const inProgCount = currentInProgress[f.id] ?? 0
