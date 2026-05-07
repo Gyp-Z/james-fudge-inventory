@@ -315,8 +315,6 @@ export default function Analytics() {
     if (!componentFlavors.length) return []
     const SEASON_START = '2026-04-22'
     const caramelFlavor = componentFlavors[0]
-    // Anchor to the authoritative current inventory value
-    const currentCount = invMap[caramelFlavor.id]?.tray_count ?? 0
 
     const sscNames = new Set(['Vanilla Sea Salt Caramel', 'Chocolate Sea Salt Caramel'])
     const sscIdToYield = new Map(
@@ -329,7 +327,7 @@ export default function Analytics() {
     )
     if (!relevantBatches.length) return []
 
-    // 1 caramel batch = 1 tray; SSC batch depletes yield/18
+    // Forward-compute from 0: caramel batch = +1 tray, SSC batch = -yield/18
     const dailyDelta = {}
     relevantBatches.forEach(b => {
       if (!dailyDelta[b.batch_date]) dailyDelta[b.batch_date] = 0
@@ -340,14 +338,10 @@ export default function Analytics() {
       }
     })
 
-    // Back-calculate starting value so the chart ends at currentCount today
-    const netFromBatches = Object.values(dailyDelta).reduce((s, v) => s + v, 0)
-    const baseValue = currentCount - netFromBatches
-
     const todayStr = getDateStr(new Date())
     const startStr = cutoffStr && cutoffStr > SEASON_START ? cutoffStr : SEASON_START
 
-    let running = baseValue
+    let running = 0
     for (const d of Object.keys(dailyDelta).sort()) {
       if (d < startStr) running += dailyDelta[d]
     }
@@ -361,7 +355,7 @@ export default function Analytics() {
       cursor.setDate(cursor.getDate() + 1)
     }
     return rows
-  }, [batchLogs, componentFlavors, flavors, invMap, cutoffStr])
+  }, [batchLogs, componentFlavors, flavors, cutoffStr])
 
   const popcornWasteTotals = useMemo(() => {
     const totals = {}
@@ -488,21 +482,13 @@ export default function Analytics() {
 
       {/* Caramel summary cards */}
       {showCaramel && (
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
-            <p className="text-2xl font-bold text-store-brown">{(() => {
-              const n = inStockValue
-              const w = Math.floor(n), num = Math.round((n - w) * 18)
-              return num === 0 ? w : w === 0 ? `${num}/18` : `${w} ${num}/18`
-            })()}</p>
-            <p className="text-xs text-store-brown-light mt-0.5">In Stock (trays)</p>
-          </div>
-          <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
-            <p className="text-2xl font-bold text-store-brown">
-              {filteredBatchLogs.filter(b => componentFlavorIds.has(b.flavor_id) && !b.is_wasted).length}
-            </p>
-            <p className="text-xs text-store-brown-light mt-0.5">Batches Made</p>
-          </div>
+        <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
+          <p className="text-2xl font-bold text-store-brown">{(() => {
+            const n = inStockValue
+            const w = Math.floor(n), num = Math.round((n - w) * 18)
+            return num === 0 ? w : w === 0 ? `${num}/18` : `${w} ${num}/18`
+          })()}</p>
+          <p className="text-xs text-store-brown-light mt-0.5">Trays in stock</p>
         </div>
       )}
 
