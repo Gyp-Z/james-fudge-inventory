@@ -579,13 +579,13 @@ export default function Analytics() {
           <p className="text-xs text-store-brown-light mb-3">Caramel batches made per day</p>
           {caramelBatchData.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={caramelBatchData} margin={{ left: 0, right: 16 }}>
+              <LineChart data={caramelBatchData} margin={{ left: 0, right: 16 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
                 <XAxis dataKey="date" {...xProps} />
                 <YAxis {...yProps} allowDecimals={false} />
                 <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                <Bar dataKey="Batches" fill="#C4843A" radius={[4, 4, 0, 0]} />
-              </BarChart>
+                <Line type="monotone" dataKey="Batches" stroke="#C4843A" strokeWidth={2} dot={{ r: 5, fill: '#C4843A' }} activeDot={{ r: 7 }} />
+              </LineChart>
             </ResponsiveContainer>
           ) : empty('No Caramel batches logged in this range.')}
         </div>
