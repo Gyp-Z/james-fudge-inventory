@@ -60,7 +60,7 @@ export default function ShiftReport() {
         { data: invData },
         { data: bucketLogsData },
       ] = await Promise.all([
-        supabase.from('flavors').select('id, name, product_type, default_yield, low_tray_threshold, low_small_bucket_threshold, low_large_bucket_threshold, tracks_shelf_buckets, is_component').eq('is_active', true).order('product_type').order('name'),
+        supabase.from('flavors').select('*').eq('is_active', true).order('product_type').order('name'),
         supabase.from('ingredients').select('id, name, quantity, unit').eq('is_active', true).order('name'),
         supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count, barrel_count'),
         supabase.from('shelf_bucket_logs').select('flavor_id, small_buckets_made, large_buckets_made, small_buckets_sold, large_buckets_sold'),
