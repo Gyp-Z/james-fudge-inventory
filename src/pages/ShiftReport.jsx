@@ -85,7 +85,14 @@ export default function ShiftReport() {
       // Init popcorn product entries
       const popcornInit = {}
       popcornOnly.forEach(f => {
-        popcornInit[f.id] = { barrels_added: 0, barrels_to_display: 0, small_buckets_sold: 0, large_buckets_sold: 0 }
+        popcornInit[f.id] = {
+          barrels_added: 0,
+          barrels_to_display: 0,
+          small_buckets_made: 0,
+          large_buckets_made: 0,
+          small_buckets_sold: 0,
+          large_buckets_sold: 0,
+        }
       })
       setPopcornEntries(popcornInit)
 
@@ -257,6 +264,8 @@ export default function ShiftReport() {
 
       const barrelsAdded = pe.barrels_added || 0
       const barrelsToDisplay = pe.barrels_to_display || 0
+      const madSmall = pe.small_buckets_made || 0
+      const madLarge = pe.large_buckets_made || 0
       const soldSmall = pe.small_buckets_sold || 0
       const soldLarge = pe.large_buckets_sold || 0
 
@@ -268,12 +277,14 @@ export default function ShiftReport() {
           .upsert({ flavor_id: f.id, barrel_count: newBarrels }, { onConflict: 'flavor_id' })
       }
 
-      // Log bucket sales + barrels moved to display
-      if (soldSmall > 0 || soldLarge > 0 || barrelsToDisplay > 0) {
+      // Log bucket activity + barrels moved to display
+      if (madSmall > 0 || madLarge > 0 || soldSmall > 0 || soldLarge > 0 || barrelsToDisplay > 0) {
         await supabase.from('shelf_bucket_logs').insert({
           flavor_id: f.id,
-          small_buckets: soldSmall,
-          large_buckets: soldLarge,
+          small_buckets_made: madSmall,
+          large_buckets_made: madLarge,
+          small_buckets_sold: soldSmall,
+          large_buckets_sold: soldLarge,
           barrels_used: barrelsToDisplay > 0 ? barrelsToDisplay : null,
         })
       }
@@ -534,7 +545,7 @@ export default function ShiftReport() {
                 <div className="space-y-3">
                   <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide">Popcorn</p>
                   {allFlavors.filter(f => f.product_type === 'popcorn').map(f => {
-                    const pe = popcornEntries[f.id] || { barrels_added: 0, barrels_to_display: 0, small_buckets_sold: 0, large_buckets_sold: 0 }
+                    const pe = popcornEntries[f.id] || { barrels_added: 0, barrels_to_display: 0, small_buckets_made: 0, large_buckets_made: 0, small_buckets_sold: 0, large_buckets_sold: 0 }
                     return (
                       <div key={f.id} className="bg-amber-50 rounded-xl border border-amber-200 p-4 shadow-sm space-y-4">
                         <div className="flex items-center justify-between">
@@ -554,6 +565,15 @@ export default function ShiftReport() {
 
                         {f.tracks_shelf_buckets && (
                           <>
+                            <div className="h-px bg-amber-200 my-1" />
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-amber-800">Small buckets made</span>
+                              <Stepper value={pe.small_buckets_made} onChange={v => setPopcornField(f.id, 'small_buckets_made', v)} />
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-amber-800">Large buckets made</span>
+                              <Stepper value={pe.large_buckets_made} onChange={v => setPopcornField(f.id, 'large_buckets_made', v)} />
+                            </div>
                             <div className="flex items-center justify-between">
                               <span className="text-sm text-amber-800">Small buckets sold</span>
                               <Stepper value={pe.small_buckets_sold} onChange={v => setPopcornField(f.id, 'small_buckets_sold', v)} />
