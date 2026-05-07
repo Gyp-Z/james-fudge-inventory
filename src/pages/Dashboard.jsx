@@ -80,7 +80,7 @@ export default function Dashboard() {
   const loading = flavorsLoading || reportFound === null
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
 
-  const fudgeFlavors = flavors.filter(f => f.product_type !== 'popcorn')
+  const fudgeFlavors = flavors.filter(f => f.product_type !== 'popcorn' && f.is_component !== true)
   const popcornFlavors = flavors.filter(f => f.product_type === 'popcorn')
 
   const needsMaking = fudgeFlavors.filter((f) => (entries[f.id]?.full_trays ?? 0) <= (f.low_tray_threshold ?? 2))

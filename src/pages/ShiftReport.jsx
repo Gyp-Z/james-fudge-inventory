@@ -55,13 +55,14 @@ export default function ShiftReport() {
         { data: ingredientsData },
         { data: invData },
       ] = await Promise.all([
-        supabase.from('flavors').select('id, name, product_type, default_yield, low_tray_threshold').eq('is_active', true).order('product_type').order('name'),
+        supabase.from('flavors').select('id, name, product_type, default_yield, low_tray_threshold, tracks_shelf_buckets, is_component').eq('is_active', true).order('product_type').order('name'),
         supabase.from('ingredients').select('id, name, quantity, unit').eq('is_active', true).order('name'),
         supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count, barrel_count'),
       ])
 
       const all = allFlavorsData || []
-      const fudgeOnly = all.filter(f => f.product_type !== 'popcorn')
+      // Exclude component flavors (e.g. Caramel → used in Sea Salt Caramel, not sold directly)
+      const fudgeOnly = all.filter(f => f.product_type !== 'popcorn' && f.is_component !== true)
       const popcornOnly = all.filter(f => f.product_type === 'popcorn')
       const ings = ingredientsData || []
 
@@ -81,10 +82,10 @@ export default function ShiftReport() {
       })
       setEntries(initial)
 
-      // Init popcorn product entries
+      // Init popcorn product entries (only bucket-tracked flavors need form fields)
       const popcornInit = {}
       popcornOnly.forEach(f => {
-        popcornInit[f.id] = { barrels_sold: 0, small_buckets: '', large_buckets: '' }
+        popcornInit[f.id] = { small_buckets_sold: '', large_buckets_sold: '', barrels_used: '' }
       })
       setPopcornEntries(popcornInit)
 
@@ -248,24 +249,29 @@ export default function ShiftReport() {
       await supabase.from('current_inventory').upsert(activeRows, { onConflict: 'flavor_id' })
     }
 
-    // Popcorn: decrement barrel_count for barrels sold, log shelf buckets
+    // Popcorn: log bucket sales and decrement barrel_count by barrels used to refill display
     const popcornFlavorsLocal = allFlavors.filter(f => f.product_type === 'popcorn')
     for (const f of popcornFlavorsLocal) {
       const pe = popcornEntries[f.id]
       if (!pe) continue
 
-      if ((pe.barrels_sold ?? 0) > 0) {
-        const newBarrels = Math.max(0, (currentBarrels[f.id] ?? 0) - pe.barrels_sold)
-        await supabase.from('current_inventory')
-          .upsert({ flavor_id: f.id, barrel_count: newBarrels }, { onConflict: 'flavor_id' })
-      }
+      const soldSmall = parseInt(pe.small_buckets_sold) || 0
+      const soldLarge = parseInt(pe.large_buckets_sold) || 0
+      const barrelsUsed = parseFloat(pe.barrels_used) || 0
 
-      if (f.tracks_shelf_buckets && (pe.small_buckets !== '' || pe.large_buckets !== '')) {
+      if (soldSmall > 0 || soldLarge > 0 || barrelsUsed > 0) {
         await supabase.from('shelf_bucket_logs').insert({
           flavor_id: f.id,
-          small_buckets: parseInt(pe.small_buckets) || 0,
-          large_buckets: parseInt(pe.large_buckets) || 0,
+          small_buckets: soldSmall,
+          large_buckets: soldLarge,
+          barrels_used: barrelsUsed > 0 ? barrelsUsed : null,
         })
+      }
+
+      if (barrelsUsed > 0) {
+        const newBarrels = Math.max(0, (currentBarrels[f.id] ?? 0) - barrelsUsed)
+        await supabase.from('current_inventory')
+          .upsert({ flavor_id: f.id, barrel_count: newBarrels }, { onConflict: 'flavor_id' })
       }
     }
 
@@ -524,44 +530,48 @@ export default function ShiftReport() {
                 <div className="space-y-3">
                   <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide">Popcorn</p>
                   {allFlavors.filter(f => f.product_type === 'popcorn').map(f => {
-                    const pe = popcornEntries[f.id] || { barrels_sold: 0, small_buckets: '', large_buckets: '' }
+                    const pe = popcornEntries[f.id] || {}
                     return (
                       <div key={f.id} className="bg-amber-50 rounded-xl border border-amber-200 p-4 shadow-sm space-y-3">
                         <div className="flex items-center justify-between">
                           <p className="font-semibold text-amber-900">{f.name}</p>
                           <span className="text-xs text-amber-700">{currentBarrels[f.id] ?? 0} barrels on hand</span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-amber-800">Barrels sold</span>
-                          <Stepper
-                            value={pe.barrels_sold}
-                            max={currentBarrels[f.id] ?? 999}
-                            onChange={v => setPopcornField(f.id, 'barrels_sold', v)}
-                          />
-                        </div>
                         {f.tracks_shelf_buckets && (
-                          <div className="flex gap-3 pt-1">
-                            <div className="flex-1">
-                              <p className="text-xs text-amber-700 mb-1">Small buckets on shelf</p>
+                          <>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <p className="text-xs text-amber-700 mb-1">Small buckets sold</p>
+                                <input
+                                  type="number" inputMode="numeric" min="0"
+                                  value={pe.small_buckets_sold ?? ''}
+                                  onChange={e => setPopcornField(f.id, 'small_buckets_sold', e.target.value)}
+                                  placeholder="0"
+                                  className="w-full border border-amber-300 rounded-xl px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                                />
+                              </div>
+                              <div>
+                                <p className="text-xs text-amber-700 mb-1">Large buckets sold</p>
+                                <input
+                                  type="number" inputMode="numeric" min="0"
+                                  value={pe.large_buckets_sold ?? ''}
+                                  onChange={e => setPopcornField(f.id, 'large_buckets_sold', e.target.value)}
+                                  placeholder="0"
+                                  className="w-full border border-amber-300 rounded-xl px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-xs text-amber-700 mb-1">Barrels used to refill display</p>
                               <input
-                                type="number" inputMode="numeric" min="0"
-                                value={pe.small_buckets}
-                                onChange={e => setPopcornField(f.id, 'small_buckets', e.target.value)}
+                                type="number" inputMode="decimal" min="0" step="0.5"
+                                value={pe.barrels_used ?? ''}
+                                onChange={e => setPopcornField(f.id, 'barrels_used', e.target.value)}
                                 placeholder="0"
                                 className="w-full border border-amber-300 rounded-xl px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
                               />
                             </div>
-                            <div className="flex-1">
-                              <p className="text-xs text-amber-700 mb-1">Large buckets on shelf</p>
-                              <input
-                                type="number" inputMode="numeric" min="0"
-                                value={pe.large_buckets}
-                                onChange={e => setPopcornField(f.id, 'large_buckets', e.target.value)}
-                                placeholder="0"
-                                className="w-full border border-amber-300 rounded-xl px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
-                              />
-                            </div>
-                          </div>
+                          </>
                         )}
                       </div>
                     )
