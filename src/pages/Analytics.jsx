@@ -95,8 +95,9 @@ export default function Analytics() {
   // Flavors shown in pills for the active group
   const groupFlavors = useMemo(() => {
     if (groupFilter === 'popcorn') return shelvesOnly ? shelfFlavors : popcornFlavors
+    if (groupFilter === 'caramel') return componentFlavors
     return fudgeFlavors
-  }, [groupFilter, fudgeFlavors, popcornFlavors, shelfFlavors, shelvesOnly])
+  }, [groupFilter, fudgeFlavors, componentFlavors, popcornFlavors, shelfFlavors, shelvesOnly])
 
   // Flavors used by charts / summaries
   const visibleFlavors = useMemo(
@@ -150,6 +151,11 @@ export default function Analytics() {
   const inStockValue = useMemo(() => {
     if (groupFilter === 'fudge') {
       return fudgeFlavors
+        .filter(f => selectedFlavors === null || selectedFlavors.has(f.id))
+        .reduce((s, f) => s + (invMap[f.id]?.tray_count ?? 0), 0)
+    }
+    if (groupFilter === 'caramel') {
+      return componentFlavors
         .filter(f => selectedFlavors === null || selectedFlavors.has(f.id))
         .reduce((s, f) => s + (invMap[f.id]?.tray_count ?? 0), 0)
     }
@@ -311,6 +317,30 @@ export default function Analytics() {
     return Object.entries(byDate).sort().map(([d, v]) => ({ date: formatDate(d), ...v })).filter(r => r.Small > 0 || r.Large > 0)
   }, [filteredBucketLogs, shelfFlavors, viewPopcornIds])
 
+  const componentFlavorIds = useMemo(
+    () => new Set(componentFlavors.map(f => f.id)),
+    [componentFlavors]
+  )
+
+  const caramelBatchData = useMemo(() => {
+    const byDate = {}
+    filteredBatchLogs.filter(b => componentFlavorIds.has(b.flavor_id) && !b.is_wasted).forEach(b => {
+      byDate[b.batch_date] = (byDate[b.batch_date] ?? 0) + 1
+    })
+    return Object.entries(byDate).sort().map(([d, count]) => ({ date: formatDate(d), Batches: count }))
+  }, [filteredBatchLogs, componentFlavorIds])
+
+  const batchesWastedData = useMemo(() => {
+    const byDate = {}
+    filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && b.is_wasted).forEach(b => {
+      const f = popcornFlavors.find(f => f.id === b.flavor_id)
+      if (!f) return
+      if (!byDate[b.batch_date]) byDate[b.batch_date] = {}
+      byDate[b.batch_date][f.name] = (byDate[b.batch_date][f.name] ?? 0) + 1
+    })
+    return Object.entries(byDate).sort().map(([d, v]) => ({ date: formatDate(d), ...v }))
+  }, [filteredBatchLogs, viewPopcornIds, popcornFlavors])
+
   const popcornTotals = useMemo(() => ({
     batchesMade: filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && !b.is_wasted).length,
     batchesWasted: filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && b.is_wasted).length,
@@ -329,6 +359,7 @@ export default function Analytics() {
 
   const showFudge = groupFilter === 'fudge'
   const showPopcorn = groupFilter === 'popcorn'
+  const showCaramel = groupFilter === 'caramel'
 
   return (
     <div className="space-y-8">
@@ -367,6 +398,7 @@ export default function Analytics() {
         {/* Group buttons */}
         {[
           { key: 'fudge',   label: 'All Fudge',   activeClass: 'bg-store-brown text-white border-store-brown',     inactiveClass: 'bg-white text-store-brown border-store-tan hover:border-store-brown' },
+          { key: 'caramel', label: 'Caramel',      activeClass: 'bg-store-brown text-white border-store-brown',     inactiveClass: 'bg-white text-store-brown border-store-tan hover:border-store-brown' },
           { key: 'popcorn', label: 'All Popcorn', activeClass: 'bg-amber-700 text-white border-amber-700',         inactiveClass: 'bg-white text-amber-900 border-amber-200 hover:border-amber-500' },
         ].map(({ key, label, activeClass, inactiveClass }) => (
           <button key={key} onClick={() => handleGroupChange(key)}
@@ -414,6 +446,22 @@ export default function Analytics() {
           <div className="bg-white border border-store-tan rounded-xl p-3 shadow-sm text-center">
             <p className="text-2xl font-bold text-store-brown">{inStockValue}</p>
             <p className="text-xs text-store-brown-light mt-0.5">In Stock (trays)</p>
+          </div>
+        </div>
+      )}
+
+      {/* Caramel summary cards */}
+      {showCaramel && (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
+            <p className="text-2xl font-bold text-store-brown">{inStockValue}</p>
+            <p className="text-xs text-store-brown-light mt-0.5">In Stock (trays)</p>
+          </div>
+          <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
+            <p className="text-2xl font-bold text-store-brown">
+              {filteredBatchLogs.filter(b => componentFlavorIds.has(b.flavor_id) && !b.is_wasted).length}
+            </p>
+            <p className="text-xs text-store-brown-light mt-0.5">Batches Made</p>
           </div>
         </div>
       )}
@@ -524,46 +572,88 @@ export default function Analytics() {
         </>
       )}
 
+      {/* ── Caramel chart ── */}
+      {showCaramel && (
+        <div>
+          <h3 className="font-semibold text-store-brown mb-1">Batch History</h3>
+          <p className="text-xs text-store-brown-light mb-3">Caramel batches made per day</p>
+          {caramelBatchData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={caramelBatchData} margin={{ left: 0, right: 16 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                <XAxis dataKey="date" {...xProps} />
+                <YAxis {...yProps} allowDecimals={false} />
+                <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                <Bar dataKey="Batches" fill="#C4843A" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : empty('No Caramel batches logged in this range.')}
+        </div>
+      )}
+
       {/* ── Popcorn charts ── */}
       {showPopcorn && (
         <>
-          <div>
-            <h3 className="font-semibold text-amber-900 mb-1">Barrels Made</h3>
-            <p className="text-xs text-amber-700 mb-3">Barrels produced from batch logs</p>
-            {barrelsMadeData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#FDE68A" />
-                  <XAxis dataKey="date" {...xProps} />
-                  <YAxis {...yProps} />
-                  <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  {viewPopcornFlavors.map((f, i) => (
-                    <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
-                  ))}
-                </BarChart>
-              </ResponsiveContainer>
-            ) : empty('No batches logged yet. Use the Batches tab in Report to log production.')}
-          </div>
+          {!shelvesOnly && (
+            <>
+              <div>
+                <h3 className="font-semibold text-amber-900 mb-1">Barrels Made</h3>
+                <p className="text-xs text-amber-700 mb-3">Barrels produced from batch logs</p>
+                {barrelsMadeData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#FDE68A" />
+                      <XAxis dataKey="date" {...xProps} />
+                      <YAxis {...yProps} />
+                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      {viewPopcornFlavors.map((f, i) => (
+                        <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : empty('No batches logged yet. Use the Batches tab in Report to log production.')}
+              </div>
 
-          <div>
-            <h3 className="font-semibold text-amber-900 mb-1">Barrels Sold</h3>
-            <p className="text-xs text-amber-700 mb-3">Barrels moved from storage to display per day</p>
-            {barrelsSoldData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={barrelsSoldData} margin={{ left: 0, right: 16 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#FDE68A" />
-                  <XAxis dataKey="date" {...xProps} />
-                  <YAxis {...yProps} />
-                  <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  {viewPopcornFlavors.map((f, i) => (
-                    <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
-                  ))}
-                </BarChart>
-              </ResponsiveContainer>
-            ) : empty('No barrels sold logged yet. Use the Products tab in Report.')}
-          </div>
+              <div>
+                <h3 className="font-semibold text-amber-900 mb-1">Barrels Sold</h3>
+                <p className="text-xs text-amber-700 mb-3">Barrels moved from storage to display per day</p>
+                {barrelsSoldData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={barrelsSoldData} margin={{ left: 0, right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#FDE68A" />
+                      <XAxis dataKey="date" {...xProps} />
+                      <YAxis {...yProps} />
+                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      {viewPopcornFlavors.map((f, i) => (
+                        <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : empty('No barrels sold logged yet. Use the Products tab in Report.')}
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-amber-900 mb-1">Batches Wasted</h3>
+                <p className="text-xs text-amber-700 mb-3">Wasted batches per day (crystallized / unusable)</p>
+                {batchesWastedData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={batchesWastedData} margin={{ left: 0, right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#FDE68A" />
+                      <XAxis dataKey="date" {...xProps} />
+                      <YAxis {...yProps} allowDecimals={false} />
+                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      {viewPopcornFlavors.map((f, i) => (
+                        <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : empty('No wasted batches logged yet.')}
+              </div>
+            </>
+          )}
 
           {(shelvesOnly || viewPopcornFlavors.some(f => f.tracks_shelf_buckets)) && (
             <>

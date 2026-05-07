@@ -29,6 +29,7 @@ export default function ShiftReport() {
   // Products tab state — popcorn
   const [popcornEntries, setPopcornEntries] = useState({}) // flavor_id -> { barrels_added, barrels_sold, small/large buckets made/sold }
   const [currentBarrels, setCurrentBarrels] = useState({}) // flavor_id -> barrel_count
+  const [currentShelfBuckets, setCurrentShelfBuckets] = useState({}) // flavor_id -> { small, large }
 
   // Batches tab state
   const [batchCounts, setBatchCounts] = useState({})
@@ -55,10 +56,12 @@ export default function ShiftReport() {
         { data: allFlavorsData },
         { data: ingredientsData },
         { data: invData },
+        { data: bucketLogsData },
       ] = await Promise.all([
         supabase.from('flavors').select('id, name, product_type, default_yield, low_tray_threshold, tracks_shelf_buckets, is_component').eq('is_active', true).order('product_type').order('name'),
         supabase.from('ingredients').select('id, name, quantity, unit').eq('is_active', true).order('name'),
         supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count, barrel_count'),
+        supabase.from('shelf_bucket_logs').select('flavor_id, small_buckets_made, large_buckets_made, small_buckets_sold, large_buckets_sold'),
       ])
 
       const all = allFlavorsData || []
@@ -117,6 +120,16 @@ export default function ShiftReport() {
       setCurrentInventory(invMap)
       setCurrentInProgress(inProgMap)
       setCurrentBarrels(barrelMap)
+
+      const bucketMap = {}
+      ;(bucketLogsData || []).forEach(row => {
+        const prev = bucketMap[row.flavor_id] || { small: 0, large: 0 }
+        bucketMap[row.flavor_id] = {
+          small: prev.small + (row.small_buckets_made ?? 0) - (row.small_buckets_sold ?? 0),
+          large: prev.large + (row.large_buckets_made ?? 0) - (row.large_buckets_sold ?? 0),
+        }
+      })
+      setCurrentShelfBuckets(bucketMap)
 
       // Today's totals for products tab
       const { data: todayReports } = await supabase
@@ -397,10 +410,24 @@ export default function ShiftReport() {
               <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide mb-2">Fudge</p>
               <div className="space-y-2">
                 {fudgeFlavors.map(f => (
-                  <div key={f.id} className="bg-white rounded-xl border border-store-tan px-4 py-3 flex items-center justify-between shadow-sm">
-                    <span className="text-sm font-medium text-store-brown">{f.name}</span>
-                    <Stepper value={batchCounts[f.id] ?? 0} onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))} />
-                  </div>
+                  f.is_component ? (
+                    <div key={f.id} className="bg-store-cream rounded-xl border border-store-tan px-4 py-3 shadow-sm space-y-3">
+                      <span className="text-sm font-medium text-store-brown">{f.name}</span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-store-brown-light">Batches made</span>
+                        <Stepper value={batchCounts[f.id] ?? 0} onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))} />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-red-400">Batches wasted</span>
+                        <Stepper value={batchWasted[f.id] ?? 0} onChange={v => setBatchWasted(prev => ({ ...prev, [f.id]: v }))} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div key={f.id} className="bg-white rounded-xl border border-store-tan px-4 py-3 flex items-center justify-between shadow-sm">
+                      <span className="text-sm font-medium text-store-brown">{f.name}</span>
+                      <Stepper value={batchCounts[f.id] ?? 0} onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))} />
+                    </div>
+                  )
                 ))}
               </div>
             </div>
@@ -580,6 +607,11 @@ export default function ShiftReport() {
 
                         {f.tracks_shelf_buckets && (
                           <>
+                            <div className="flex gap-4 bg-amber-100 rounded-lg px-3 py-2 text-xs text-amber-800">
+                              <span className="font-medium">On shelf now:</span>
+                              <span>Small: {Math.max(0, currentShelfBuckets[f.id]?.small ?? 0)}</span>
+                              <span>Large: {Math.max(0, currentShelfBuckets[f.id]?.large ?? 0)}</span>
+                            </div>
                             <div className="h-px bg-amber-200 my-1" />
                             <div className="flex items-center justify-between">
                               <span className="text-sm text-amber-800">Small buckets made</span>
