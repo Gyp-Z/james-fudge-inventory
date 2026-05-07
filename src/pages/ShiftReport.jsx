@@ -18,13 +18,17 @@ export default function ShiftReport() {
 
   const [loading, setLoading] = useState(true)
 
-  // Products tab state
+  // Products tab state — fudge
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [entries, setEntries] = useState({})
   const [todayTotals, setTodayTotals] = useState({})
   const [currentInventory, setCurrentInventory] = useState({})
   const [currentInProgress, setCurrentInProgress] = useState({})
+
+  // Products tab state — popcorn
+  const [popcornEntries, setPopcornEntries] = useState({}) // flavor_id -> { barrels_sold, small_buckets, large_buckets }
+  const [currentBarrels, setCurrentBarrels] = useState({}) // flavor_id -> barrel_count
 
   // Batches tab state
   const [batchCounts, setBatchCounts] = useState({})
@@ -53,11 +57,12 @@ export default function ShiftReport() {
       ] = await Promise.all([
         supabase.from('flavors').select('id, name, product_type, default_yield, low_tray_threshold').eq('is_active', true).order('product_type').order('name'),
         supabase.from('ingredients').select('id, name, quantity, unit').eq('is_active', true).order('name'),
-        supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count'),
+        supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count, barrel_count'),
       ])
 
       const all = allFlavorsData || []
       const fudgeOnly = all.filter(f => f.product_type !== 'popcorn')
+      const popcornOnly = all.filter(f => f.product_type === 'popcorn')
       const ings = ingredientsData || []
 
       setAllFlavors(all)
@@ -69,12 +74,19 @@ export default function ShiftReport() {
       all.forEach(f => { batchInit[f.id] = 0 })
       setBatchCounts(batchInit)
 
-      // Init product entries
+      // Init fudge product entries
       const initial = {}
       fudgeOnly.forEach((f) => {
         initial[f.id] = { full_trays: 0, in_progress_trays: 0, trays_sold: 0, trays_wasted: 0, waste_reason: '' }
       })
       setEntries(initial)
+
+      // Init popcorn product entries
+      const popcornInit = {}
+      popcornOnly.forEach(f => {
+        popcornInit[f.id] = { barrels_sold: 0, small_buckets: '', large_buckets: '' }
+      })
+      setPopcornEntries(popcornInit)
 
       // Init ingredient forms
       const ingInit = {}
@@ -86,12 +98,15 @@ export default function ShiftReport() {
       // Current inventory map
       const invMap = {}
       const inProgMap = {}
+      const barrelMap = {}
       ;(invData || []).forEach((row) => {
         invMap[row.flavor_id] = row.tray_count ?? 0
         inProgMap[row.flavor_id] = row.in_progress_count ?? 0
+        barrelMap[row.flavor_id] = row.barrel_count ?? 0
       })
       setCurrentInventory(invMap)
       setCurrentInProgress(inProgMap)
+      setCurrentBarrels(barrelMap)
 
       // Today's totals for products tab
       const { data: todayReports } = await supabase
@@ -173,6 +188,10 @@ export default function ShiftReport() {
     setEntries((prev) => ({ ...prev, [flavorId]: { ...prev[flavorId], [field]: value } }))
   }
 
+  function setPopcornField(flavorId, field, value) {
+    setPopcornEntries((prev) => ({ ...prev, [flavorId]: { ...prev[flavorId], [field]: value } }))
+  }
+
   async function handleProductSubmit() {
     setSubmitting(true)
     const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
@@ -227,6 +246,27 @@ export default function ShiftReport() {
 
     if (activeRows.length > 0) {
       await supabase.from('current_inventory').upsert(activeRows, { onConflict: 'flavor_id' })
+    }
+
+    // Popcorn: decrement barrel_count for barrels sold, log shelf buckets
+    const popcornFlavorsLocal = allFlavors.filter(f => f.product_type === 'popcorn')
+    for (const f of popcornFlavorsLocal) {
+      const pe = popcornEntries[f.id]
+      if (!pe) continue
+
+      if ((pe.barrels_sold ?? 0) > 0) {
+        const newBarrels = Math.max(0, (currentBarrels[f.id] ?? 0) - pe.barrels_sold)
+        await supabase.from('current_inventory')
+          .upsert({ flavor_id: f.id, barrel_count: newBarrels }, { onConflict: 'flavor_id' })
+      }
+
+      if (f.tracks_shelf_buckets && (pe.small_buckets !== '' || pe.large_buckets !== '')) {
+        await supabase.from('shelf_bucket_logs').insert({
+          flavor_id: f.id,
+          small_buckets: parseInt(pe.small_buckets) || 0,
+          large_buckets: parseInt(pe.large_buckets) || 0,
+        })
+      }
     }
 
     setSubmitted(true)
@@ -476,6 +516,57 @@ export default function ShiftReport() {
                   )
                 })}
               </div>
+
+              {/* Popcorn section */}
+              {allFlavors.filter(f => f.product_type === 'popcorn').length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide">Popcorn</p>
+                  {allFlavors.filter(f => f.product_type === 'popcorn').map(f => {
+                    const pe = popcornEntries[f.id] || { barrels_sold: 0, small_buckets: '', large_buckets: '' }
+                    return (
+                      <div key={f.id} className="bg-amber-50 rounded-xl border border-amber-200 p-4 shadow-sm space-y-3">
+                        <div className="flex items-center justify-between">
+                          <p className="font-semibold text-amber-900">{f.name}</p>
+                          <span className="text-xs text-amber-700">{currentBarrels[f.id] ?? 0} barrels on hand</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-amber-800">Barrels sold</span>
+                          <Stepper
+                            value={pe.barrels_sold}
+                            max={currentBarrels[f.id] ?? 999}
+                            onChange={v => setPopcornField(f.id, 'barrels_sold', v)}
+                          />
+                        </div>
+                        {f.tracks_shelf_buckets && (
+                          <div className="flex gap-3 pt-1">
+                            <div className="flex-1">
+                              <p className="text-xs text-amber-700 mb-1">Small buckets on shelf</p>
+                              <input
+                                type="number" inputMode="numeric" min="0"
+                                value={pe.small_buckets}
+                                onChange={e => setPopcornField(f.id, 'small_buckets', e.target.value)}
+                                placeholder="0"
+                                className="w-full border border-amber-300 rounded-xl px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                              />
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-xs text-amber-700 mb-1">Large buckets on shelf</p>
+                              <input
+                                type="number" inputMode="numeric" min="0"
+                                value={pe.large_buckets}
+                                onChange={e => setPopcornField(f.id, 'large_buckets', e.target.value)}
+                                placeholder="0"
+                                className="w-full border border-amber-300 rounded-xl px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
               <button
                 onClick={handleProductSubmit}
                 disabled={submitting}
