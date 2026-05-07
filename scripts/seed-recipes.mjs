@@ -351,15 +351,18 @@ async function main() {
   // Index ingredients by "name||unit" for exact match
   const ingMap = new Map(ings.map(i => [`${i.name}||${i.unit}`, i.id]))
 
-  // Helper: get ingredient ID by name+unit, inserting if missing
+  // Helper: get ingredient ID by name+unit, inserting if missing.
+  // If another row with the same name already exists (delivery row), the new
+  // row is a recipe-reference helper and should be hidden from the UI.
   async function getOrCreateIngredient(name, unit) {
     const key = `${name}||${unit}`
     if (ingMap.has(key)) return ingMap.get(key)
 
-    console.log(`  → Creating new ingredient: ${name} (${unit})`)
+    const hasSameName = [...ingMap.keys()].some(k => k.startsWith(`${name}||`) && k !== key)
+    console.log(`  → Creating new ingredient: ${name} (${unit})${hasSameName ? ' [hidden — delivery row exists]' : ''}`)
     const { data, error } = await supabase
       .from('ingredients')
-      .insert({ name, unit, quantity: 0, low_stock_threshold: 0 })
+      .insert({ name, unit, quantity: 0, low_stock_threshold: 0, is_active: !hasSameName })
       .select('id')
       .single()
 
