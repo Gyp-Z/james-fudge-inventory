@@ -264,6 +264,28 @@ export default function Dashboard() {
               <div className="flex flex-wrap gap-2">{stockedPopcorn.map(renderPopcornPill)}</div>
             </div>
           )}
+
+          {popcornFlavors.some(f => f.tracks_shelf_buckets) && (
+            <div>
+              <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">Popcorn Shelves</h3>
+              <div className="flex flex-wrap gap-2">
+                {popcornFlavors.filter(f => f.tracks_shelf_buckets).map(f => {
+                  const b = todayBuckets[f.id] || { small: 0, large: 0 }
+                  const hasStock = b.small > 0 || b.large > 0
+                  return (
+                    <div key={f.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${
+                      hasStock ? 'bg-store-green-light border-store-green text-store-green' : 'bg-red-50 border-red-300 text-red-700'
+                    }`}>
+                      <span>{f.name}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${hasStock ? 'bg-store-green text-white' : 'bg-red-200 text-red-800'}`}>
+                        {b.small}S / {b.large}L
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
