@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
+const DEDUCTION_PAGE_SIZE = 50
+
 function getStatus(quantity, threshold) {
   if (quantity === 0) return 'out'
   if (quantity <= threshold) return 'low'
@@ -57,6 +59,11 @@ export default function Ingredients() {
   // Archive toggle
   const [showArchived, setShowArchived] = useState(false)
 
+  // Deduction log
+  const [deductions, setDeductions] = useState([])
+  const [deductionsLoading, setDeductionsLoading] = useState(false)
+  const [showDeductionLog, setShowDeductionLog] = useState(false)
+
   async function loadIngredients() {
     let query = supabase.from('ingredients').select('*').order('name')
     if (!showArchived) query = query.eq('is_active', true)
@@ -100,6 +107,28 @@ export default function Ingredients() {
     await loadIngredients()
   }
 
+  async function loadDeductions() {
+    setDeductionsLoading(true)
+    const { data } = await supabase
+      .from('ingredient_deductions')
+      .select(`
+        id, quantity_deducted, unit, deducted_at,
+        ingredients(name),
+        batch_logs(flavors(name))
+      `)
+      .order('deducted_at', { ascending: false })
+      .limit(DEDUCTION_PAGE_SIZE)
+    setDeductions(data || [])
+    setDeductionsLoading(false)
+  }
+
+  function handleToggleDeductionLog() {
+    if (!showDeductionLog && deductions.length === 0) {
+      loadDeductions()
+    }
+    setShowDeductionLog(v => !v)
+  }
+
   async function handleAdd(e) {
     e.preventDefault()
     if (!newName.trim() || !newUnit.trim()) return
@@ -125,6 +154,7 @@ export default function Ingredients() {
 
   const activeIngredients = ingredients.filter(i => i.is_active !== false)
   const archivedIngredients = ingredients.filter(i => i.is_active === false)
+  const negativeIngredients = activeIngredients.filter(i => i.quantity < 0)
   const needsOrder = activeIngredients.filter(i => getStatus(i.quantity, i.low_stock_threshold) !== 'ok')
   const inStock = activeIngredients.filter(i => getStatus(i.quantity, i.low_stock_threshold) === 'ok')
 
@@ -209,6 +239,78 @@ export default function Ingredients() {
         <p className="text-store-brown-light text-sm text-center py-2">No archived ingredients</p>
       )}
 
+      {/* Negative quantity warnings */}
+      {negativeIngredients.length > 0 && (
+        <div className="bg-red-50 border border-red-300 rounded-xl p-4 space-y-2">
+          <h3 className="font-semibold text-red-700">⚠ Negative Quantities ({negativeIngredients.length})</h3>
+          <p className="text-xs text-red-600">These went below zero after auto-deduction. Do a manual count or log a delivery.</p>
+          <div className="space-y-1">
+            {negativeIngredients.map(i => (
+              <p key={i.id} className="text-sm font-medium text-red-800">
+                {i.name}: {i.quantity.toFixed(2)} {i.unit}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Deduction log (admin only) */}
+      {isAdmin && (
+        <div>
+          <button
+            onClick={handleToggleDeductionLog}
+            className="text-sm font-semibold text-store-brown-light hover:text-store-brown underline"
+          >
+            {showDeductionLog ? 'Hide' : 'Show'} Recent Deductions
+          </button>
+
+          {showDeductionLog && (
+            <div className="mt-3 bg-white border border-store-tan rounded-xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-store-tan flex items-center justify-between">
+                <h3 className="font-semibold text-store-brown text-sm">Recent Deductions (last {DEDUCTION_PAGE_SIZE})</h3>
+                <button
+                  onClick={loadDeductions}
+                  className="text-xs text-store-brown-light hover:text-store-brown"
+                >
+                  Refresh
+                </button>
+              </div>
+              {deductionsLoading ? (
+                <p className="text-store-brown-light text-center text-sm py-4">Loading...</p>
+              ) : deductions.length === 0 ? (
+                <p className="text-store-brown-light text-center text-sm py-4">No deductions logged yet</p>
+              ) : (
+                <div className="divide-y divide-store-tan">
+                  {deductions.map(d => {
+                    const flavorName = d.batch_logs?.flavors?.name ?? '—'
+                    const ingName = d.ingredients?.name ?? '—'
+                    const when = new Date(d.deducted_at).toLocaleString('en-US', {
+                      timeZone: 'America/New_York',
+                      month: 'short', day: 'numeric',
+                      hour: 'numeric', minute: '2-digit',
+                    })
+                    return (
+                      <div key={d.id} className="px-4 py-2.5 flex items-center justify-between gap-4 text-sm">
+                        <div className="min-w-0">
+                          <span className="font-medium text-store-brown">{ingName}</span>
+                          <span className="text-store-brown-light ml-2">via {flavorName}</span>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="font-mono text-store-brown-light text-xs">
+                            −{d.quantity_deducted} {d.unit}
+                          </span>
+                          <span className="text-store-brown-light text-xs">{when}</span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {isAdmin && (
         <div className="bg-white rounded-xl border border-store-tan p-4 shadow-sm">
           <h3 className="font-semibold text-store-brown mb-3">Add Ingredient</h3>
@@ -278,7 +380,6 @@ function IngredientRow({
 }) {
   const isEditing = editingId === ing.id
   const isEditingThreshold = editingThresholdId === ing.id
-  const containerStr = formatContainers(ing.quantity, ing.container_size, ing.container_unit)
 
   return (
     <div className="bg-white rounded-xl border border-store-tan shadow-sm overflow-hidden">
@@ -325,9 +426,6 @@ function IngredientRow({
                 </button>
               ) : (
                 <span className="text-sm text-store-brown-light font-mono">{ing.quantity} {ing.unit}</span>
-              )}
-              {containerStr && (
-                <span className="text-xs text-store-brown-light opacity-60">· {containerStr}</span>
               )}
             </>
           )}

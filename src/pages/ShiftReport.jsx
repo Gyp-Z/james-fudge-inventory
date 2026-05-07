@@ -3,22 +3,33 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import Stepper from '../components/Stepper'
+import { autoDeductIngredients, incrementBarrelCount } from '../utils/autoDeduct'
 
 export default function ShiftReport() {
   const { session } = useAuth()
   const navigate = useNavigate()
 
-  const [activeTab, setActiveTab] = useState('products')
+  const [activeTab, setActiveTab] = useState('batches')
+
+  // All flavors (fudge + popcorn) — for Batches tab
+  const [allFlavors, setAllFlavors] = useState([])
+  // Fudge-only flavors — for Products tab
+  const [flavors, setFlavors] = useState([])
+
+  const [loading, setLoading] = useState(true)
 
   // Products tab state
-  const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
-  const [flavors, setFlavors] = useState([])
   const [entries, setEntries] = useState({})
   const [todayTotals, setTodayTotals] = useState({})
-  const [currentInventory, setCurrentInventory] = useState({}) // flavor_id -> tray_count
-  const [currentInProgress, setCurrentInProgress] = useState({}) // flavor_id -> in_progress_count
+  const [currentInventory, setCurrentInventory] = useState({})
+  const [currentInProgress, setCurrentInProgress] = useState({})
+
+  // Batches tab state
+  const [batchCounts, setBatchCounts] = useState({})
+  const [batchSubmitting, setBatchSubmitting] = useState(false)
+  const [batchResult, setBatchResult] = useState(null)
 
   // Ingredients tab — usage state
   const [ingList, setIngList] = useState([])
@@ -35,29 +46,44 @@ export default function ShiftReport() {
     async function load() {
       const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
-      const [{ data: flavorsData }, { data: ingredientsData }, { data: invData }] = await Promise.all([
-        supabase.from('flavors').select('id, name, low_tray_threshold').eq('is_active', true).order('name'),
+      const [
+        { data: allFlavorsData },
+        { data: ingredientsData },
+        { data: invData },
+      ] = await Promise.all([
+        supabase.from('flavors').select('id, name, product_type, default_yield, low_tray_threshold').eq('is_active', true).order('product_type').order('name'),
         supabase.from('ingredients').select('id, name, quantity, unit').eq('is_active', true).order('name'),
         supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count'),
       ])
 
-      const activeFlavors = flavorsData || []
+      const all = allFlavorsData || []
+      const fudgeOnly = all.filter(f => f.product_type !== 'popcorn')
       const ings = ingredientsData || []
-      setFlavors(activeFlavors)
+
+      setAllFlavors(all)
+      setFlavors(fudgeOnly)
       setIngList(ings)
 
+      // Init batch counts
+      const batchInit = {}
+      all.forEach(f => { batchInit[f.id] = 0 })
+      setBatchCounts(batchInit)
+
+      // Init product entries
       const initial = {}
-      activeFlavors.forEach((f) => {
+      fudgeOnly.forEach((f) => {
         initial[f.id] = { full_trays: 0, in_progress_trays: 0, trays_sold: 0, trays_wasted: 0, waste_reason: '' }
       })
       setEntries(initial)
 
+      // Init ingredient forms
       const ingInit = {}
       const recInit = {}
       ings.forEach((i) => { ingInit[i.id] = 0; recInit[i.id] = 0 })
       setIngUsage(ingInit)
       setIngReceived(recInit)
 
+      // Current inventory map
       const invMap = {}
       const inProgMap = {}
       ;(invData || []).forEach((row) => {
@@ -67,7 +93,7 @@ export default function ShiftReport() {
       setCurrentInventory(invMap)
       setCurrentInProgress(inProgMap)
 
-      // Load today's totals for products tab
+      // Today's totals for products tab
       const { data: todayReports } = await supabase
         .from('shift_reports').select('id').eq('report_date', todayStr)
       if (todayReports && todayReports.length > 0) {
@@ -90,11 +116,58 @@ export default function ShiftReport() {
     load()
   }, [])
 
-  // Reload fresh quantities after any ingredient submit
   async function reloadIngList() {
     const { data } = await supabase.from('ingredients').select('id, name, quantity, unit').eq('is_active', true).order('name')
     setIngList(data || [])
   }
+
+  // ── BATCHES TAB ──────────────────────────────────────────────────────────
+
+  async function handleBatchSubmit() {
+    const toLog = allFlavors.filter(f => (batchCounts[f.id] ?? 0) > 0)
+    if (toLog.length === 0) return
+    setBatchSubmitting(true)
+    setBatchResult(null)
+
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+    const allDeductions = []
+    const allNegatives = []
+    const allSkipped = []
+
+    for (const flavor of toLog) {
+      const count = batchCounts[flavor.id]
+      for (let i = 0; i < count; i++) {
+        const { data: inserted } = await supabase
+          .from('batch_logs')
+          .insert({ flavor_id: flavor.id, batch_date: todayStr })
+          .select('id')
+          .single()
+
+        if (!inserted) continue
+
+        const { deductions, negatives, skipped } = await autoDeductIngredients(flavor.id, inserted.id)
+        allDeductions.push(...deductions)
+        allNegatives.push(...negatives)
+        allSkipped.push(...skipped)
+
+        if (flavor.product_type === 'popcorn') {
+          await incrementBarrelCount(flavor.id, flavor.default_yield ?? 1)
+        }
+      }
+    }
+
+    setBatchResult({
+      flavors: toLog,
+      deductions: allDeductions,
+      negatives: allNegatives,
+      skipped: allSkipped,
+    })
+    setBatchSubmitting(false)
+    // Reset counts to 0
+    setBatchCounts(prev => Object.fromEntries(Object.keys(prev).map(k => [k, 0])))
+  }
+
+  // ── PRODUCTS TAB ─────────────────────────────────────────────────────────
 
   function setField(flavorId, field, value) {
     setEntries((prev) => ({ ...prev, [flavorId]: { ...prev[flavorId], [field]: value } }))
@@ -127,7 +200,6 @@ export default function ShiftReport() {
       await supabase.from('shift_report_entries').insert(entryRows)
     }
 
-    // Fetch fresh inventory then apply delta — only touch flavors with non-zero activity
     const { data: freshInv } = await supabase.from('current_inventory').select('flavor_id, tray_count')
     const freshMap = {}
     ;(freshInv || []).forEach((row) => { freshMap[row.flavor_id] = row.tray_count ?? 0 })
@@ -144,7 +216,6 @@ export default function ShiftReport() {
         const sold = e?.trays_sold ?? 0
         const wasted = e?.trays_wasted ?? 0
         const existingInProg = currentInProgress[f.id] ?? 0
-        // topped = how many in-progress trays were completed this session
         const topped = Math.min(made, existingInProg)
         return {
           flavor_id: f.id,
@@ -162,6 +233,8 @@ export default function ShiftReport() {
     setSubmitting(false)
     setTimeout(() => navigate('/'), 1500)
   }
+
+  // ── INGREDIENTS TAB ───────────────────────────────────────────────────────
 
   async function handleIngredientSubmit() {
     const used = ingList.filter((i) => (ingUsage[i.id] ?? 0) > 0)
@@ -208,11 +281,17 @@ export default function ShiftReport() {
     }, 1500)
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
 
   const todayLabel = new Date().toLocaleDateString('en-US', {
     timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric',
   })
+
+  const fudgeFlavors = allFlavors.filter(f => f.product_type !== 'popcorn')
+  const popcornFlavors = allFlavors.filter(f => f.product_type === 'popcorn')
+  const batchesReady = allFlavors.some(f => (batchCounts[f.id] ?? 0) > 0)
 
   return (
     <div className="space-y-6">
@@ -223,24 +302,103 @@ export default function ShiftReport() {
         <p className="text-store-brown-light text-sm mt-1">{todayLabel}</p>
       </div>
 
-      {/* Tab switcher — visible to everyone */}
+      {/* Tab switcher */}
       <div className="flex gap-2">
-        {['products', 'ingredients'].map((tab) => (
+        {[
+          { key: 'batches', label: 'Batches' },
+          { key: 'products', label: 'Products' },
+          { key: 'ingredients', label: 'Ingredients' },
+        ].map(({ key, label }) => (
           <button
-            key={tab}
-            onClick={() => { setActiveTab(tab); setSubmitted(false); setIngSubmitted(false); setRecSubmitted(false) }}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors touch-manipulation capitalize ${
-              activeTab === tab
+            key={key}
+            onClick={() => { setActiveTab(key); setSubmitted(false); setIngSubmitted(false); setRecSubmitted(false); setBatchResult(null) }}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors touch-manipulation ${
+              activeTab === key
                 ? 'bg-store-brown text-white'
                 : 'bg-store-tan text-store-brown hover:bg-store-brown hover:text-white'
             }`}
           >
-            {tab === 'products' ? 'Products' : 'Ingredients'}
+            {label}
           </button>
         ))}
       </div>
 
-      {/* Products tab */}
+      {/* ── BATCHES TAB ── */}
+      {activeTab === 'batches' && (
+        <div className="space-y-4">
+          <p className="text-store-brown-light text-xs -mt-2">Log what you made today. Ingredients will be auto-deducted.</p>
+
+          {fudgeFlavors.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide mb-2">Fudge</p>
+              <div className="space-y-2">
+                {fudgeFlavors.map(f => (
+                  <div key={f.id} className="bg-white rounded-xl border border-store-tan px-4 py-3 flex items-center justify-between shadow-sm">
+                    <span className="text-sm font-medium text-store-brown">{f.name}</span>
+                    <Stepper
+                      value={batchCounts[f.id] ?? 0}
+                      onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {popcornFlavors.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide mb-2">Popcorn</p>
+              <div className="space-y-2">
+                {popcornFlavors.map(f => (
+                  <div key={f.id} className="bg-amber-50 rounded-xl border border-amber-200 px-4 py-3 flex items-center justify-between shadow-sm">
+                    <span className="text-sm font-medium text-amber-900">{f.name}</span>
+                    <Stepper
+                      value={batchCounts[f.id] ?? 0}
+                      onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <button
+            onClick={handleBatchSubmit}
+            disabled={batchSubmitting || !batchesReady}
+            className="w-full bg-store-green hover:bg-store-green-dark text-white py-4 rounded-xl text-lg font-semibold transition-colors disabled:opacity-50 touch-manipulation"
+          >
+            {batchSubmitting ? 'Logging…' : 'Log Batches'}
+          </button>
+
+          {batchResult && (
+            <div className={`rounded-xl border p-4 space-y-2 ${batchResult.negatives.length > 0 ? 'bg-red-50 border-red-200' : 'bg-store-green-light border-store-green'}`}>
+              <p className={`font-semibold text-sm ${batchResult.negatives.length > 0 ? 'text-red-700' : 'text-store-green'}`}>
+                ✓ Batches logged for: {batchResult.flavors.map(f => f.name).join(', ')}
+              </p>
+              {batchResult.negatives.length > 0 && (
+                <div className="space-y-1">
+                  {batchResult.negatives.map(n => (
+                    <p key={n.ingredient_id} className="text-xs text-red-700 font-medium">
+                      ⚠ {n.name} is now {n.new_quantity.toFixed(2)} {n.unit} — manual count needed
+                    </p>
+                  ))}
+                </div>
+              )}
+              {batchResult.skipped.length > 0 && (
+                <div className="space-y-1">
+                  {batchResult.skipped.map((s, i) => (
+                    <p key={i} className="text-xs text-amber-700">
+                      ⚠ {s.name} not deducted — {s.reason}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── PRODUCTS TAB ── */}
       {activeTab === 'products' && (
         <>
           {submitted ? (
@@ -250,12 +408,17 @@ export default function ShiftReport() {
             </div>
           ) : (
             <>
-              <p className="text-store-brown-light text-xs -mt-3">Log what you made, sold, or wasted this session.</p>
+              <p className="text-store-brown-light text-xs -mt-3">Log what's on the shelf — trays made, sold, or wasted this session.</p>
               <div className="space-y-3">
                 {flavors.map((f) => {
                   const e = entries[f.id] || { full_trays: 0, in_progress_trays: 0, trays_sold: 0, trays_wasted: 0, waste_reason: '' }
                   const inProgCount = currentInProgress[f.id] ?? 0
                   const liveInProg = Math.max(0, inProgCount - (e.full_trays ?? 0))
+
+                  const totalMadeToday = (todayTotals[f.id]?.made ?? 0) + (e.full_trays ?? 0)
+                  const defaultYield = f.default_yield ?? 3
+                  const estimatedBatches = totalMadeToday > 0 ? Math.round(totalMadeToday / defaultYield) : 0
+
                   return (
                     <div key={f.id} className="bg-white rounded-xl border border-store-tan p-4 shadow-sm space-y-4">
                       <div className="flex items-center justify-between">
@@ -267,8 +430,11 @@ export default function ShiftReport() {
                           {inProgCount > 0 && (
                             <><span>·</span><span className="text-amber-600 font-medium">{liveInProg} in progress</span></>
                           )}
-                          {todayTotals[f.id]?.made > 0 && (
-                            <><span>·</span><span>{todayTotals[f.id].made} made today</span></>
+                          {totalMadeToday > 0 && (
+                            <><span>·</span><span>{totalMadeToday} made today</span></>
+                          )}
+                          {estimatedBatches > 0 && (
+                            <><span>·</span><span className="text-store-green font-medium">≈ {estimatedBatches} {estimatedBatches === 1 ? 'batch' : 'batches'}</span></>
                           )}
                           {todayTotals[f.id]?.sold > 0 && (
                             <><span>·</span><span>{todayTotals[f.id].sold} sold today</span></>
@@ -322,50 +488,13 @@ export default function ShiftReport() {
         </>
       )}
 
-      {/* Ingredients tab */}
+      {/* ── INGREDIENTS TAB ── */}
       {activeTab === 'ingredients' && (
         <div className="space-y-6">
-
-          {/* Used this session */}
-          <div className="space-y-3">
-            <div>
-              <p className="text-sm font-semibold text-store-brown">Used This Session</p>
-              <p className="text-xs text-store-brown-light mt-0.5">How much of each ingredient was used?</p>
-            </div>
-            {ingSubmitted ? (
-              <div className="bg-store-green-light border border-store-green rounded-xl px-4 py-3 text-center">
-                <p className="text-store-green font-semibold">Usage logged ✓</p>
-              </div>
-            ) : (
-              <>
-                <div className="space-y-2">
-                  {ingList.map((ing) => (
-                    <IngRow
-                      key={ing.id}
-                      ing={ing}
-                      value={ingUsage[ing.id] || ''}
-                      onChange={(v) => setIngUsage((prev) => ({ ...prev, [ing.id]: parseFloat(v) || 0 }))}
-                    />
-                  ))}
-                </div>
-                <button
-                  onClick={handleIngredientSubmit}
-                  disabled={ingSubmitting || !ingList.some((i) => (ingUsage[i.id] ?? 0) > 0)}
-                  className="w-full bg-store-green hover:bg-store-green-dark text-white py-3 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 touch-manipulation"
-                >
-                  {ingSubmitting ? 'Logging…' : 'Log Usage'}
-                </button>
-              </>
-            )}
-          </div>
-
-          <hr className="border-store-tan" />
-
-          {/* Order received */}
           <div className="space-y-3">
             <div>
               <p className="text-sm font-semibold text-store-brown">Order Received</p>
-              <p className="text-xs text-store-brown-light mt-0.5">Did an order come in? Enter what was received.</p>
+              <p className="text-xs text-store-brown-light mt-0.5">Did a delivery come in? Log what was received.</p>
             </div>
             {recSubmitted ? (
               <div className="bg-store-green-light border border-store-green rounded-xl px-4 py-3 text-center">
@@ -394,6 +523,39 @@ export default function ShiftReport() {
             )}
           </div>
 
+          <hr className="border-store-tan" />
+
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm font-semibold text-store-brown">Manual Usage</p>
+              <p className="text-xs text-store-brown-light mt-0.5">Used something that wasn't part of a batch? Log it here.</p>
+            </div>
+            {ingSubmitted ? (
+              <div className="bg-store-green-light border border-store-green rounded-xl px-4 py-3 text-center">
+                <p className="text-store-green font-semibold">Usage logged ✓</p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  {ingList.map((ing) => (
+                    <IngRow
+                      key={ing.id}
+                      ing={ing}
+                      value={ingUsage[ing.id] || ''}
+                      onChange={(v) => setIngUsage((prev) => ({ ...prev, [ing.id]: parseFloat(v) || 0 }))}
+                    />
+                  ))}
+                </div>
+                <button
+                  onClick={handleIngredientSubmit}
+                  disabled={ingSubmitting || !ingList.some((i) => (ingUsage[i.id] ?? 0) > 0)}
+                  className="w-full bg-store-green hover:bg-store-green-dark text-white py-3 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 touch-manipulation"
+                >
+                  {ingSubmitting ? 'Logging…' : 'Log Usage'}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

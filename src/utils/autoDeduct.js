@@ -1,0 +1,138 @@
+import { supabase } from '../lib/supabase'
+
+/**
+ * Auto-deducts ingredients for a batch and logs each deduction.
+ *
+ * Strategy:
+ *   1. Fetch recipe rows (ingredient name + recipe quantity/unit).
+ *   2. For each name, find the ACTIVE delivery-unit ingredient row.
+ *   3. Convert recipe qty → delivery qty:  delivery = recipe_qty / container_size.
+ *   4. Subtract from ingredient.quantity and insert a deduction log row.
+ *
+ * Ingredients without container_size set are skipped (not yet configured).
+ * Ingredients are allowed to go negative — that signals a manual count is needed.
+ * Returns { deductions, negatives, skipped }.
+ */
+export async function autoDeductIngredients(flavorId, batchLogId) {
+  const { data: recipes, error } = await supabase
+    .from('recipes')
+    .select('ingredient_id, quantity_per_batch, unit, ingredients(name)')
+    .eq('flavor_id', flavorId)
+
+  if (error) {
+    console.error('autoDeductIngredients: failed to fetch recipes', error.message)
+    return { deductions: [], negatives: [], skipped: [] }
+  }
+
+  if (!recipes || recipes.length === 0) return { deductions: [], negatives: [], skipped: [] }
+
+  // Collect unique ingredient names from recipe rows
+  const names = [...new Set(recipes.map(r => r.ingredients?.name).filter(Boolean))]
+
+  if (names.length === 0) return { deductions: [], negatives: [], skipped: [] }
+
+  // Fetch all active ingredient rows for those names
+  const { data: activeIngs, error: ingErr } = await supabase
+    .from('ingredients')
+    .select('id, name, quantity, unit, container_size, container_unit')
+    .in('name', names)
+    .eq('is_active', true)
+
+  if (ingErr) {
+    console.error('autoDeductIngredients: failed to fetch active ingredients', ingErr.message)
+    return { deductions: [], negatives: [], skipped: [] }
+  }
+
+  // Build name → ingredient map; prefer row with container_size set if duplicates exist
+  const activeIngMap = new Map()
+  for (const ing of activeIngs ?? []) {
+    const existing = activeIngMap.get(ing.name)
+    if (!existing || (ing.container_size != null && existing.container_size == null)) {
+      activeIngMap.set(ing.name, ing)
+    }
+  }
+
+  const deductions = []
+  const negatives = []
+  const skipped = []
+
+  for (const r of recipes) {
+    const ingName = r.ingredients?.name
+    if (!ingName) continue
+
+    const activeIng = activeIngMap.get(ingName)
+    if (!activeIng) {
+      console.warn(`autoDeductIngredients: no active ingredient found for "${ingName}" — skipping`)
+      skipped.push({ name: ingName, reason: 'no active row' })
+      continue
+    }
+
+    if (activeIng.container_size == null) {
+      console.warn(`autoDeductIngredients: "${ingName}" has no container_size — skipping deduction`)
+      skipped.push({ name: ingName, reason: 'container_size not set' })
+      continue
+    }
+
+    const deliveryQty = r.quantity_per_batch / activeIng.container_size
+    const newQty = (activeIng.quantity ?? 0) - deliveryQty
+
+    const [updateResult, insertResult] = await Promise.all([
+      supabase
+        .from('ingredients')
+        .update({ quantity: newQty })
+        .eq('id', activeIng.id),
+      supabase.from('ingredient_deductions').insert({
+        batch_log_id: batchLogId,
+        ingredient_id: activeIng.id,
+        quantity_deducted: deliveryQty,
+        unit: activeIng.unit,
+        notes: `${r.quantity_per_batch} ${r.unit} ÷ ${activeIng.container_size} = ${deliveryQty.toFixed(4)} ${activeIng.unit}`,
+      }),
+    ])
+
+    if (updateResult.error) {
+      console.error(`autoDeductIngredients: update failed for "${ingName}"`, updateResult.error.message)
+    }
+    if (insertResult.error) {
+      console.error(`autoDeductIngredients: deduction log insert failed for "${ingName}"`, insertResult.error.message)
+    }
+
+    const entry = {
+      ingredient_id: activeIng.id,
+      name: ingName,
+      quantity_deducted: deliveryQty,
+      unit: activeIng.unit,
+      new_quantity: newQty,
+    }
+    deductions.push(entry)
+    if (newQty < 0) negatives.push(entry)
+
+    // Update local map so if a later recipe references the same ingredient, qty is current
+    activeIngMap.set(ingName, { ...activeIng, quantity: newQty })
+  }
+
+  return { deductions, negatives, skipped }
+}
+
+/**
+ * Increments barrel_count in current_inventory for a popcorn flavor.
+ * Reads the current value then writes back current + amount.
+ */
+export async function incrementBarrelCount(flavorId, amount) {
+  const { data, error } = await supabase
+    .from('current_inventory')
+    .select('barrel_count')
+    .eq('flavor_id', flavorId)
+    .single()
+
+  if (error) {
+    console.error('incrementBarrelCount: failed to read current barrel_count', error.message)
+    return
+  }
+
+  const newCount = (data?.barrel_count ?? 0) + amount
+
+  await supabase
+    .from('current_inventory')
+    .upsert({ flavor_id: flavorId, barrel_count: newCount }, { onConflict: 'flavor_id' })
+}
