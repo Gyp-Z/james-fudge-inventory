@@ -216,6 +216,14 @@ const FLAVOR_RECIPES = [
     ],
   },
   {
+    flavorName: 'Dirt',
+    // Chocolate base + Oreo Pieces (same qty as Cookies & Cream)
+    ingredients: [
+      ...CHOCOLATE_BASE,
+      { name: 'Oreo Pieces', unit: 'oz', qty: 192 },
+    ],
+  },
+  {
     flavorName: 'Chocolate Rocky Road',
     ingredients: [
       ...CHOCOLATE_BASE,
