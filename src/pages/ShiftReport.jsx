@@ -353,7 +353,7 @@ export default function ShiftReport() {
     timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric',
   })
 
-  const fudgeFlavors = allFlavors.filter(f => f.product_type !== 'popcorn' && !f.is_component)
+  const fudgeFlavors = allFlavors.filter(f => f.product_type !== 'popcorn')
   const popcornFlavors = allFlavors.filter(f => f.product_type === 'popcorn')
   const batchesReady = allFlavors.some(f => (batchCounts[f.id] ?? 0) > 0 || (batchWasted[f.id] ?? 0) > 0)
 

@@ -95,8 +95,8 @@ export default function Analytics() {
   // Flavors shown in pills for the active group
   const groupFlavors = useMemo(() => {
     if (groupFilter === 'popcorn') return shelvesOnly ? shelfFlavors : popcornFlavors
-    return [...fudgeFlavors, ...componentFlavors]
-  }, [groupFilter, fudgeFlavors, componentFlavors, popcornFlavors, shelfFlavors, shelvesOnly])
+    return fudgeFlavors
+  }, [groupFilter, fudgeFlavors, popcornFlavors, shelfFlavors, shelvesOnly])
 
   // Flavors used by charts / summaries
   const visibleFlavors = useMemo(
@@ -149,7 +149,7 @@ export default function Analytics() {
   // In Stock for the mode-specific summary card
   const inStockValue = useMemo(() => {
     if (groupFilter === 'fudge') {
-      return [...fudgeFlavors, ...componentFlavors]
+      return fudgeFlavors
         .filter(f => selectedFlavors === null || selectedFlavors.has(f.id))
         .reduce((s, f) => s + (invMap[f.id]?.tray_count ?? 0), 0)
     }
@@ -425,12 +425,10 @@ export default function Analytics() {
             <p className="text-2xl font-bold text-amber-700">{popcornTotals.batchesMade}</p>
             <p className="text-xs text-amber-800 mt-0.5">Batches Made</p>
           </div>
-          {popcornTotals.batchesWasted > 0 && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-3 shadow-sm text-center">
-              <p className="text-2xl font-bold text-red-600">{popcornTotals.batchesWasted}</p>
-              <p className="text-xs text-red-700 mt-0.5">Batches Wasted</p>
-            </div>
-          )}
+          <div className="bg-red-50 border border-red-200 rounded-xl p-3 shadow-sm text-center">
+            <p className="text-2xl font-bold text-red-600">{popcornTotals.batchesWasted}</p>
+            <p className="text-xs text-red-700 mt-0.5">Batches Wasted</p>
+          </div>
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 shadow-sm text-center">
             <p className="text-2xl font-bold text-amber-600">{popcornTotals.barrelsSold}</p>
             <p className="text-xs text-amber-800 mt-0.5">Barrels Sold</p>
