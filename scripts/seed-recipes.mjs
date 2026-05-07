@@ -137,14 +137,14 @@ const FLAVOR_RECIPES = [
     flavorName: 'Cookies & Cream',
     ingredients: [
       ...VANILLA_BASE,
-      { name: 'Oreo Pieces', unit: 'oz', qty: 192 },
+      { name: 'Oreo Pieces', unit: 'oz', qty: 6.4 },
     ],
   },
   {
     flavorName: 'Vanilla M&M',
     ingredients: [
       ...VANILLA_BASE,
-      { name: 'M&Ms', unit: 'oz', qty: 144 },
+      { name: 'M&Ms', unit: 'oz', qty: 11.2 },
     ],
   },
   {
@@ -158,7 +158,7 @@ const FLAVOR_RECIPES = [
     flavorName: 'Vanilla Walnut',
     ingredients: [
       ...VANILLA_BASE,
-      { name: 'Walnuts', unit: 'oz', qty: 192 },
+      { name: 'Walnuts', unit: 'oz', qty: 8 },
     ],
   },
   {
@@ -191,14 +191,14 @@ const FLAVOR_RECIPES = [
     flavorName: 'Chocolate Walnut',
     ingredients: [
       ...CHOCOLATE_BASE,
-      { name: 'Walnuts', unit: 'oz', qty: 192 },
+      { name: 'Walnuts', unit: 'oz', qty: 8 },
     ],
   },
   {
     flavorName: 'Chocolate M&M',
     ingredients: [
       ...CHOCOLATE_BASE,
-      { name: 'M&Ms', unit: 'oz', qty: 144 },
+      { name: 'M&Ms', unit: 'oz', qty: 11.2 },
     ],
   },
   {
@@ -212,7 +212,7 @@ const FLAVOR_RECIPES = [
     flavorName: "Chocolate Reese's",
     ingredients: [
       ...CHOCOLATE_BASE,
-      { name: 'Reeses Pieces', unit: 'oz', qty: 144 },
+      { name: 'Reeses Pieces', unit: 'oz', qty: 11.2 },
     ],
   },
   {
@@ -220,7 +220,7 @@ const FLAVOR_RECIPES = [
     // Chocolate base + Oreo Pieces (same qty as Cookies & Cream)
     ingredients: [
       ...CHOCOLATE_BASE,
-      { name: 'Oreo Pieces', unit: 'oz', qty: 192 },
+      { name: 'Oreo Pieces', unit: 'oz', qty: 6.4 },
     ],
   },
   {
@@ -228,7 +228,7 @@ const FLAVOR_RECIPES = [
     ingredients: [
       ...CHOCOLATE_BASE,
       { name: 'Marshmallows', unit: 'oz', qty: 31 },
-      { name: 'Walnuts',      unit: 'oz', qty: 192 },
+      { name: 'Walnuts',      unit: 'oz', qty: 8 },
     ],
   },
   {
@@ -242,7 +242,7 @@ const FLAVOR_RECIPES = [
     flavorName: 'Maple Walnut',
     ingredients: [
       ...BROWN_SUGAR_BASE,
-      { name: 'Walnuts', unit: 'oz', qty: 192 },
+      { name: 'Walnuts', unit: 'oz', qty: 8 },
     ],
   },
 
