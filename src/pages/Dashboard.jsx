@@ -101,6 +101,7 @@ export default function Dashboard() {
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
 
   const fudgeFlavors = flavors.filter(f => f.product_type !== 'popcorn' && f.is_component !== true)
+  const componentFlavors = flavors.filter(f => f.is_component === true)
   const popcornFlavors = flavors.filter(f => f.product_type === 'popcorn')
 
   const needsMaking = fudgeFlavors.filter((f) => (entries[f.id]?.full_trays ?? 0) <= (f.low_tray_threshold ?? 2))
@@ -202,14 +203,15 @@ export default function Dashboard() {
 
       {/* ── FUDGE ─────────────────────────────────────────────── */}
       <div className="space-y-4">
+        <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
+          Fudge
+        </h2>
         <div>
-          <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
-            Make Soon
-          </h2>
+          <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">Make Soon</h3>
           {needsMaking.length > 0 ? (
-            <div className="flex flex-wrap gap-2 mt-2">{needsMaking.map(renderFlavorPill)}</div>
+            <div className="flex flex-wrap gap-2">{needsMaking.map(renderFlavorPill)}</div>
           ) : (
-            <p className="text-sm text-store-green font-medium mt-2">All fudge stocked ✓</p>
+            <p className="text-sm text-store-green font-medium">All fudge stocked ✓</p>
           )}
         </div>
 
@@ -243,6 +245,20 @@ export default function Dashboard() {
       )}
 
       <hr className="border-store-tan" />
+
+      {/* ── CARAMEL ───────────────────────────────────────────── */}
+      {componentFlavors.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
+            Caramel
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {componentFlavors.map(renderFlavorPill)}
+          </div>
+        </div>
+      )}
+
+      {componentFlavors.length > 0 && <hr className="border-store-tan" />}
 
       {/* ── POPCORN ───────────────────────────────────────────── */}
       {popcornFlavors.length > 0 && (
