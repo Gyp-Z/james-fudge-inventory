@@ -322,13 +322,37 @@ export default function Analytics() {
     [componentFlavors]
   )
 
-  const caramelBatchData = useMemo(() => {
-    const byDate = {}
-    filteredBatchLogs.filter(b => componentFlavorIds.has(b.flavor_id) && !b.is_wasted).forEach(b => {
-      byDate[b.batch_date] = (byDate[b.batch_date] ?? 0) + 1
+  const caramelStockData = useMemo(() => {
+    if (!reports.length || !componentFlavors.length) return []
+    const SEASON_START = '2026-04-22'
+    const snapshots = {}
+    const running = {}
+    ;[...reports].filter(r => r.report_date >= SEASON_START).sort((a, b) => a.report_date.localeCompare(b.report_date)).forEach(r => {
+      r.shift_report_entries?.forEach(e => {
+        const d = (e.full_trays ?? 0) - (e.trays_sold ?? 0) - (e.trays_wasted ?? 0)
+        running[e.flavor_id] = Math.max(0, (running[e.flavor_id] ?? 0) + d)
+      })
+      snapshots[r.report_date] = { ...running }
     })
-    return Object.entries(byDate).sort().map(([d, count]) => ({ date: formatDate(d), Batches: count }))
-  }, [filteredBatchLogs, componentFlavorIds])
+    if (!Object.keys(snapshots).length) return []
+    const todayStr = getDateStr(new Date())
+    const startStr = cutoffStr && cutoffStr > SEASON_START ? cutoffStr : SEASON_START
+    let last = {}
+    for (const d of Object.keys(snapshots).sort()) { if (d <= startStr) last = snapshots[d]; else break }
+    const rows = []
+    const cursor = new Date(startStr + 'T12:00:00')
+    while (cursor <= new Date(todayStr + 'T12:00:00')) {
+      const ds = getDateStr(cursor)
+      if (snapshots[ds]) last = snapshots[ds]
+      if (Object.keys(last).length) {
+        const row = { date: formatDate(ds) }
+        componentFlavors.forEach(f => { row[f.name] = last[f.id] ?? null })
+        rows.push(row)
+      }
+      cursor.setDate(cursor.getDate() + 1)
+    }
+    return rows
+  }, [reports, componentFlavors, cutoffStr])
 
   const batchesWastedData = useMemo(() => {
     const byDate = {}
@@ -575,19 +599,22 @@ export default function Analytics() {
       {/* ── Caramel chart ── */}
       {showCaramel && (
         <div>
-          <h3 className="font-semibold text-store-brown mb-1">Batch History</h3>
-          <p className="text-xs text-store-brown-light mb-3">Caramel batches made per day</p>
-          {caramelBatchData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={280}>
-              <LineChart data={caramelBatchData} margin={{ left: 0, right: 16 }}>
+          <h3 className="font-semibold text-store-brown mb-1">Stock Trend</h3>
+          <p className="text-xs text-store-brown-light mb-3">Caramel tray count over time</p>
+          {caramelStockData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={caramelStockData} margin={{ left: 0, right: 16 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
                 <XAxis dataKey="date" {...xProps} />
-                <YAxis {...yProps} allowDecimals={false} />
+                <YAxis {...yProps} />
                 <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                <Line type="monotone" dataKey="Batches" stroke="#C4843A" strokeWidth={2} dot={{ r: 5, fill: '#C4843A' }} activeDot={{ r: 7 }} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                {componentFlavors.map((f, i) => (
+                  <Line key={f.id} type="monotone" dataKey={f.name} stroke={FUDGE_COLORS[i % FUDGE_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                ))}
               </LineChart>
             </ResponsiveContainer>
-          ) : empty('No Caramel batches logged in this range.')}
+          ) : empty('No stock data in this range yet.')}
         </div>
       )}
 
