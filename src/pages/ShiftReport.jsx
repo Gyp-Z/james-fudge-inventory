@@ -32,6 +32,7 @@ export default function ShiftReport() {
 
   // Batches tab state
   const [batchCounts, setBatchCounts] = useState({})
+  const [batchWasted, setBatchWasted] = useState({})
   const [batchSubmitting, setBatchSubmitting] = useState(false)
   const [batchResult, setBatchResult] = useState(null)
 
@@ -74,6 +75,7 @@ export default function ShiftReport() {
       const batchInit = {}
       all.forEach(f => { batchInit[f.id] = 0 })
       setBatchCounts(batchInit)
+      setBatchWasted({ ...batchInit })
 
       // Init fudge product entries
       const initial = {}
@@ -147,7 +149,7 @@ export default function ShiftReport() {
   // ── BATCHES TAB ──────────────────────────────────────────────────────────
 
   async function handleBatchSubmit() {
-    const toLog = allFlavors.filter(f => (batchCounts[f.id] ?? 0) > 0)
+    const toLog = allFlavors.filter(f => (batchCounts[f.id] ?? 0) > 0 || (batchWasted[f.id] ?? 0) > 0)
     if (toLog.length === 0) return
     setBatchSubmitting(true)
     setBatchResult(null)
@@ -158,11 +160,13 @@ export default function ShiftReport() {
     const allSkipped = []
 
     for (const flavor of toLog) {
-      const count = batchCounts[flavor.id]
-      for (let i = 0; i < count; i++) {
+      const madeCount = batchCounts[flavor.id] ?? 0
+      const wastedCount = batchWasted[flavor.id] ?? 0
+      for (let i = 0; i < madeCount + wastedCount; i++) {
+        const isWasted = i >= madeCount
         const { data: inserted } = await supabase
           .from('batch_logs')
-          .insert({ flavor_id: flavor.id, batch_date: todayStr })
+          .insert({ flavor_id: flavor.id, batch_date: todayStr, is_wasted: isWasted })
           .select('id')
           .single()
 
@@ -172,20 +176,21 @@ export default function ShiftReport() {
         allDeductions.push(...deductions)
         allNegatives.push(...negatives)
         allSkipped.push(...skipped)
-
         await deductCaramelComponent(flavor.name, flavor.default_yield ?? 3)
       }
     }
 
     setBatchResult({
       flavors: toLog,
+      madeMap: { ...batchCounts },
+      wastedMap: { ...batchWasted },
       deductions: allDeductions,
       negatives: allNegatives,
       skipped: allSkipped,
     })
     setBatchSubmitting(false)
-    // Reset counts to 0
     setBatchCounts(prev => Object.fromEntries(Object.keys(prev).map(k => [k, 0])))
+    setBatchWasted(prev => Object.fromEntries(Object.keys(prev).map(k => [k, 0])))
   }
 
   // ── PRODUCTS TAB ─────────────────────────────────────────────────────────
@@ -350,7 +355,7 @@ export default function ShiftReport() {
 
   const fudgeFlavors = allFlavors.filter(f => f.product_type !== 'popcorn')
   const popcornFlavors = allFlavors.filter(f => f.product_type === 'popcorn')
-  const batchesReady = allFlavors.some(f => (batchCounts[f.id] ?? 0) > 0)
+  const batchesReady = allFlavors.some(f => (batchCounts[f.id] ?? 0) > 0 || (batchWasted[f.id] ?? 0) > 0)
 
   return (
     <div className="space-y-6">
@@ -392,12 +397,16 @@ export default function ShiftReport() {
               <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide mb-2">Fudge</p>
               <div className="space-y-2">
                 {fudgeFlavors.map(f => (
-                  <div key={f.id} className="bg-white rounded-xl border border-store-tan px-4 py-3 flex items-center justify-between shadow-sm">
+                  <div key={f.id} className="bg-white rounded-xl border border-store-tan px-4 py-3 shadow-sm space-y-3">
                     <span className="text-sm font-medium text-store-brown">{f.name}</span>
-                    <Stepper
-                      value={batchCounts[f.id] ?? 0}
-                      onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))}
-                    />
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-store-brown-light">Batches made</span>
+                      <Stepper value={batchCounts[f.id] ?? 0} onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))} />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-red-400">Batches wasted</span>
+                      <Stepper value={batchWasted[f.id] ?? 0} onChange={v => setBatchWasted(prev => ({ ...prev, [f.id]: v }))} />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -409,12 +418,16 @@ export default function ShiftReport() {
               <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide mb-2">Popcorn</p>
               <div className="space-y-2">
                 {popcornFlavors.map(f => (
-                  <div key={f.id} className="bg-amber-50 rounded-xl border border-amber-200 px-4 py-3 flex items-center justify-between shadow-sm">
+                  <div key={f.id} className="bg-amber-50 rounded-xl border border-amber-200 px-4 py-3 shadow-sm space-y-3">
                     <span className="text-sm font-medium text-amber-900">{f.name}</span>
-                    <Stepper
-                      value={batchCounts[f.id] ?? 0}
-                      onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))}
-                    />
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-amber-700">Batches made</span>
+                      <Stepper value={batchCounts[f.id] ?? 0} onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))} />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-red-400">Batches wasted</span>
+                      <Stepper value={batchWasted[f.id] ?? 0} onChange={v => setBatchWasted(prev => ({ ...prev, [f.id]: v }))} />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -432,8 +445,19 @@ export default function ShiftReport() {
           {batchResult && (
             <div className={`rounded-xl border p-4 space-y-2 ${batchResult.negatives.length > 0 ? 'bg-red-50 border-red-200' : 'bg-store-green-light border-store-green'}`}>
               <p className={`font-semibold text-sm ${batchResult.negatives.length > 0 ? 'text-red-700' : 'text-store-green'}`}>
-                ✓ Batches logged for: {batchResult.flavors.map(f => f.name).join(', ')}
+                ✓ Batches logged
               </p>
+              <div className="space-y-0.5">
+                {batchResult.flavors.map(f => {
+                  const made = batchResult.madeMap[f.id] ?? 0
+                  const wasted = batchResult.wastedMap[f.id] ?? 0
+                  return (
+                    <p key={f.id} className="text-xs text-store-brown">
+                      {f.name}: {made > 0 ? `${made} made` : ''}{made > 0 && wasted > 0 ? ', ' : ''}{wasted > 0 ? `${wasted} wasted` : ''}
+                    </p>
+                  )
+                })}
+              </div>
               {batchResult.negatives.length > 0 && (
                 <div className="space-y-1">
                   {batchResult.negatives.map(n => (

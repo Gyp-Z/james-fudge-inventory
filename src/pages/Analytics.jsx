@@ -29,8 +29,8 @@ export default function Analytics() {
   const [bucketLogs, setBucketLogs] = useState([])
   const [currentInventory, setCurrentInventory] = useState([])
   const [range, setRange] = useState(7)
-  // 'all' | 'fudge' | 'popcorn'
-  const [groupFilter, setGroupFilter] = useState('all')
+  // 'fudge' | 'popcorn'
+  const [groupFilter, setGroupFilter] = useState('fudge')
   // Set of flavor ids | null (null = all in group)
   const [selectedFlavors, setSelectedFlavors] = useState(null)
   // Popcorn-only: narrow to shelf flavors (Caramel Corn, Nut Caramel Corn)
@@ -57,10 +57,10 @@ export default function Analytics() {
           .select('id, name, product_type, tracks_shelf_buckets, is_component, default_yield')
           .eq('is_active', true)
           .order('name'),
-        supabase.from('batch_logs').select('flavor_id, batch_date').order('batch_date'),
+        supabase.from('batch_logs').select('flavor_id, batch_date, is_wasted').order('batch_date'),
         supabase
           .from('shelf_bucket_logs')
-          .select('flavor_id, barrels_used, small_buckets_sold, large_buckets_sold, logged_at')
+          .select('flavor_id, barrels_used, small_buckets_made, large_buckets_made, small_buckets_sold, large_buckets_sold, logged_at')
           .order('logged_at'),
         supabase.from('current_inventory').select('flavor_id, tray_count, barrel_count'),
       ])
@@ -94,9 +94,8 @@ export default function Analytics() {
 
   // Flavors shown in pills for the active group
   const groupFlavors = useMemo(() => {
-    if (groupFilter === 'fudge') return [...fudgeFlavors, ...componentFlavors]
     if (groupFilter === 'popcorn') return shelvesOnly ? shelfFlavors : popcornFlavors
-    return [...fudgeFlavors, ...componentFlavors, ...popcornFlavors]
+    return [...fudgeFlavors, ...componentFlavors]
   }, [groupFilter, fudgeFlavors, componentFlavors, popcornFlavors, shelfFlavors, shelvesOnly])
 
   // Flavors used by charts / summaries
@@ -267,7 +266,7 @@ export default function Analytics() {
   // ── Popcorn charts ────────────────────────────────────────────────────────
   const barrelsMadeData = useMemo(() => {
     const byDate = {}
-    filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id)).forEach(b => {
+    filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && !b.is_wasted).forEach(b => {
       const f = popcornFlavors.find(f => f.id === b.flavor_id)
       if (!f) return
       if (!byDate[b.batch_date]) byDate[b.batch_date] = {}
@@ -300,8 +299,21 @@ export default function Analytics() {
     return Object.entries(byDate).sort().map(([d, v]) => ({ date: formatDate(d), ...v })).filter(r => r.Small > 0 || r.Large > 0)
   }, [filteredBucketLogs, shelfFlavors, viewPopcornIds])
 
+  const bucketsMadeData = useMemo(() => {
+    const shelfIds = new Set(shelfFlavors.map(f => f.id))
+    const byDate = {}
+    filteredBucketLogs.filter(b => shelfIds.has(b.flavor_id) && viewPopcornIds.has(b.flavor_id)).forEach(b => {
+      const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+      if (!byDate[d]) byDate[d] = { Small: 0, Large: 0 }
+      byDate[d].Small += b.small_buckets_made ?? 0
+      byDate[d].Large += b.large_buckets_made ?? 0
+    })
+    return Object.entries(byDate).sort().map(([d, v]) => ({ date: formatDate(d), ...v })).filter(r => r.Small > 0 || r.Large > 0)
+  }, [filteredBucketLogs, shelfFlavors, viewPopcornIds])
+
   const popcornTotals = useMemo(() => ({
-    batchesMade: filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id)).length,
+    batchesMade: filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && !b.is_wasted).length,
+    batchesWasted: filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && b.is_wasted).length,
     barrelsSold: filteredBucketLogs.filter(b => viewPopcornIds.has(b.flavor_id)).reduce((s, b) => s + (b.barrels_used ?? 0), 0),
     bucketsSold: filteredBucketLogs.filter(b => viewPopcornIds.has(b.flavor_id)).reduce((s, b) => s + (b.small_buckets_sold ?? 0) + (b.large_buckets_sold ?? 0), 0),
   }), [filteredBatchLogs, filteredBucketLogs, viewPopcornIds])
@@ -315,7 +327,7 @@ export default function Analytics() {
   const yProps = { tick: { fontSize: 11, fill: '#8B5E3C' } }
   const empty = msg => <p className="text-store-brown-light text-sm text-center py-8">{msg}</p>
 
-  const showFudge = groupFilter === 'all' || groupFilter === 'fudge'
+  const showFudge = groupFilter === 'fudge'
   const showPopcorn = groupFilter === 'popcorn'
 
   return (
@@ -354,9 +366,8 @@ export default function Analytics() {
       <div className="flex flex-wrap gap-2">
         {/* Group buttons */}
         {[
-          { key: 'all',     label: 'All',         activeClass: 'bg-store-brown text-white border-store-brown',       inactiveClass: 'bg-white text-store-brown border-store-tan hover:border-store-brown' },
-          { key: 'fudge',   label: 'All Fudge',   activeClass: 'bg-store-brown text-white border-store-brown',       inactiveClass: 'bg-white text-store-brown border-store-tan hover:border-store-brown' },
-          { key: 'popcorn', label: 'All Popcorn', activeClass: 'bg-amber-700 text-white border-amber-700',           inactiveClass: 'bg-white text-amber-900 border-amber-200 hover:border-amber-500' },
+          { key: 'fudge',   label: 'All Fudge',   activeClass: 'bg-store-brown text-white border-store-brown',     inactiveClass: 'bg-white text-store-brown border-store-tan hover:border-store-brown' },
+          { key: 'popcorn', label: 'All Popcorn', activeClass: 'bg-amber-700 text-white border-amber-700',         inactiveClass: 'bg-white text-amber-900 border-amber-200 hover:border-amber-500' },
         ].map(({ key, label, activeClass, inactiveClass }) => (
           <button key={key} onClick={() => handleGroupChange(key)}
             className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors touch-manipulation border ${groupFilter === key && selectedFlavors === null && !shelvesOnly ? activeClass : inactiveClass}`}>
@@ -409,11 +420,17 @@ export default function Analytics() {
 
       {/* Popcorn summary cards */}
       {groupFilter === 'popcorn' && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 shadow-sm text-center">
             <p className="text-2xl font-bold text-amber-700">{popcornTotals.batchesMade}</p>
             <p className="text-xs text-amber-800 mt-0.5">Batches Made</p>
           </div>
+          {popcornTotals.batchesWasted > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 shadow-sm text-center">
+              <p className="text-2xl font-bold text-red-600">{popcornTotals.batchesWasted}</p>
+              <p className="text-xs text-red-700 mt-0.5">Batches Wasted</p>
+            </div>
+          )}
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 shadow-sm text-center">
             <p className="text-2xl font-bold text-amber-600">{popcornTotals.barrelsSold}</p>
             <p className="text-xs text-amber-800 mt-0.5">Barrels Sold</p>
@@ -551,23 +568,43 @@ export default function Analytics() {
           </div>
 
           {(shelvesOnly || viewPopcornFlavors.some(f => f.tracks_shelf_buckets)) && (
-            <div>
-              <h3 className="font-semibold text-amber-900 mb-1">Bucket Sales</h3>
-              <p className="text-xs text-amber-700 mb-3">Small and large caramel corn buckets sold per day</p>
-              {bucketSalesData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={bucketSalesData} margin={{ left: 0, right: 16 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#FDE68A" />
-                    <XAxis dataKey="date" {...xProps} />
-                    <YAxis {...yProps} />
-                    <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="Small" fill="#D97706" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="Large" fill="#92400E" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : empty('No bucket sales logged yet. Use the Products tab in Report.')}
-            </div>
+            <>
+              <div>
+                <h3 className="font-semibold text-amber-900 mb-1">Buckets Made</h3>
+                <p className="text-xs text-amber-700 mb-3">Small and large caramel corn buckets made per day</p>
+                {bucketsMadeData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={bucketsMadeData} margin={{ left: 0, right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#FDE68A" />
+                      <XAxis dataKey="date" {...xProps} />
+                      <YAxis {...yProps} />
+                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Bar dataKey="Small" fill="#D97706" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Large" fill="#92400E" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : empty('No buckets made logged yet. Use the Products tab in Report.')}
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-amber-900 mb-1">Bucket Sales</h3>
+                <p className="text-xs text-amber-700 mb-3">Small and large caramel corn buckets sold per day</p>
+                {bucketSalesData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={bucketSalesData} margin={{ left: 0, right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#FDE68A" />
+                      <XAxis dataKey="date" {...xProps} />
+                      <YAxis {...yProps} />
+                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Bar dataKey="Small" fill="#D97706" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Large" fill="#92400E" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : empty('No bucket sales logged yet. Use the Products tab in Report.')}
+              </div>
+            </>
           )}
         </>
       )}
