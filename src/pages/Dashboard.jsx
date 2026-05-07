@@ -56,11 +56,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function loadBuckets() {
-      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
       const { data, error } = await supabase
         .from('shelf_bucket_logs')
         .select('flavor_id, small_buckets_made, large_buckets_made, small_buckets_sold, large_buckets_sold')
-        .gte('logged_at', since)
       if (error) return
       const map = {}
       ;(data || []).forEach(row => {

@@ -270,17 +270,6 @@ export default function Analytics() {
   }, [filteredReports])
 
   // ── Popcorn charts ────────────────────────────────────────────────────────
-  const barrelsMadeData = useMemo(() => {
-    const byDate = {}
-    filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && !b.is_wasted).forEach(b => {
-      const f = popcornFlavors.find(f => f.id === b.flavor_id)
-      if (!f) return
-      if (!byDate[b.batch_date]) byDate[b.batch_date] = {}
-      byDate[b.batch_date][f.name] = (byDate[b.batch_date][f.name] ?? 0) + (f.default_yield ?? 1)
-    })
-    return Object.entries(byDate).sort().map(([d, v]) => ({ date: formatDate(d), ...v }))
-  }, [filteredBatchLogs, viewPopcornIds, popcornFlavors])
-
   const barrelsSoldData = useMemo(() => {
     const byDate = {}
     filteredBucketLogs.filter(b => viewPopcornIds.has(b.flavor_id) && (b.barrels_used ?? 0) > 0).forEach(b => {
@@ -354,15 +343,14 @@ export default function Analytics() {
     return rows
   }, [reports, componentFlavors, cutoffStr])
 
-  const batchesWastedData = useMemo(() => {
-    const byDate = {}
+  const popcornWasteTotals = useMemo(() => {
+    const totals = {}
     filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && b.is_wasted).forEach(b => {
       const f = popcornFlavors.find(f => f.id === b.flavor_id)
       if (!f) return
-      if (!byDate[b.batch_date]) byDate[b.batch_date] = {}
-      byDate[b.batch_date][f.name] = (byDate[b.batch_date][f.name] ?? 0) + 1
+      totals[f.name] = (totals[f.name] ?? 0) + 1
     })
-    return Object.entries(byDate).sort().map(([d, v]) => ({ date: formatDate(d), ...v }))
+    return Object.entries(totals).map(([name, batches]) => ({ name, batches })).sort((a, b) => b.batches - a.batches)
   }, [filteredBatchLogs, viewPopcornIds, popcornFlavors])
 
   const popcornTotals = useMemo(() => ({
@@ -625,30 +613,17 @@ export default function Analytics() {
             <>
               <div>
                 <h3 className="font-semibold text-amber-900 mb-1">Barrels Made</h3>
-                <p className="text-xs text-amber-700 mb-3">Barrels produced from batch logs</p>
-                {barrelsMadeData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#FDE68A" />
-                      <XAxis dataKey="date" {...xProps} />
-                      <YAxis {...yProps} />
-                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      {viewPopcornFlavors.map((f, i) => (
-                        <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
-                      ))}
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : empty('No batches logged yet. Use the Batches tab in Report to log production.')}
+                <p className="text-xs text-amber-700 mb-3">Log barrel movements in the Products tab when moved to the floor</p>
+                {empty('No barrel movements logged yet.')}
               </div>
 
               <div>
                 <h3 className="font-semibold text-amber-900 mb-1">Barrels Sold</h3>
-                <p className="text-xs text-amber-700 mb-3">Barrels moved from storage to display per day</p>
+                <p className="text-xs text-amber-700 mb-3">Barrels sold per day</p>
                 {barrelsSoldData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={280}>
+                  <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={barrelsSoldData} margin={{ left: 0, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#FDE68A" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
                       <XAxis dataKey="date" {...xProps} />
                       <YAxis {...yProps} />
                       <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
@@ -663,18 +638,14 @@ export default function Analytics() {
 
               <div>
                 <h3 className="font-semibold text-amber-900 mb-1">Batches Wasted</h3>
-                <p className="text-xs text-amber-700 mb-3">Wasted batches per day (crystallized / unusable)</p>
-                {batchesWastedData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={batchesWastedData} margin={{ left: 0, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#FDE68A" />
-                      <XAxis dataKey="date" {...xProps} />
-                      <YAxis {...yProps} allowDecimals={false} />
+                <p className="text-xs text-amber-700 mb-3">Total wasted batches per flavor</p>
+                {popcornWasteTotals.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={Math.max(120, popcornWasteTotals.length * 52)}>
+                    <BarChart data={popcornWasteTotals} layout="vertical" margin={{ left: 16, right: 16 }}>
+                      <XAxis type="number" {...xProps} allowDecimals={false} />
+                      <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12, fill: '#4A2C17' }} />
                       <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      {viewPopcornFlavors.map((f, i) => (
-                        <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
-                      ))}
+                      <Bar dataKey="batches" fill="#D97706" radius={[0, 4, 4, 0]} name="Batches wasted" />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : empty('No wasted batches logged yet.')}
@@ -686,29 +657,29 @@ export default function Analytics() {
             <>
               <div>
                 <h3 className="font-semibold text-amber-900 mb-1">Buckets Made</h3>
-                <p className="text-xs text-amber-700 mb-3">Small and large caramel corn buckets made per day</p>
+                <p className="text-xs text-amber-700 mb-3">Small and large buckets made per day</p>
                 {bucketsMadeData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={bucketsMadeData} margin={{ left: 0, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#FDE68A" />
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={bucketsMadeData} margin={{ left: 0, right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
                       <XAxis dataKey="date" {...xProps} />
-                      <YAxis {...yProps} />
+                      <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
                       <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Bar dataKey="Small" fill="#D97706" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Large" fill="#92400E" radius={[4, 4, 0, 0]} />
-                    </BarChart>
+                      <Line type="monotone" dataKey="Small" stroke="#D97706" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                      <Line type="monotone" dataKey="Large" stroke="#92400E" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                    </LineChart>
                   </ResponsiveContainer>
                 ) : empty('No buckets made logged yet. Use the Products tab in Report.')}
               </div>
 
               <div>
                 <h3 className="font-semibold text-amber-900 mb-1">Bucket Sales</h3>
-                <p className="text-xs text-amber-700 mb-3">Small and large caramel corn buckets sold per day</p>
+                <p className="text-xs text-amber-700 mb-3">Small and large buckets sold per day</p>
                 {bucketSalesData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={280}>
+                  <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={bucketSalesData} margin={{ left: 0, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#FDE68A" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
                       <XAxis dataKey="date" {...xProps} />
                       <YAxis {...yProps} />
                       <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />

@@ -73,8 +73,8 @@ export async function autoDeductIngredients(flavorId, batchLogId) {
       continue
     }
 
-    const deliveryQty = r.quantity_per_batch / activeIng.container_size
-    const newQty = (activeIng.quantity ?? 0) - deliveryQty
+    const deliveryQty = Math.round((r.quantity_per_batch / activeIng.container_size) * 10) / 10
+    const newQty = Math.round(((activeIng.quantity ?? 0) - deliveryQty) * 10) / 10
 
     const [updateResult, insertResult] = await Promise.all([
       supabase

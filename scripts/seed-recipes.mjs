@@ -7,7 +7,7 @@ import { createClient } from '@supabase/supabase-js'
 // Reeses Pieces: 25 lb box = 400 oz
 // Oreo Pieces: 25 lb box = 400 oz
 // Marshmallows: 12 oz bag
-// Peanuts (Popcorn): 15 lb box
+// Peanuts: 15 lb box
 // Cashews: 15 lb box
 // Almonds: 25 lb box
 // Corn Treats: box of 12 bags (16.5 lbs net per box)
@@ -60,11 +60,11 @@ const BROWN_SUGAR_BASE = VANILLA_BASE.map(i =>
   { name: 'Brown Sugar', unit: 'lbs', qty: 3.58 },
 ])
 
-// Peanut butter base = vanilla base, Butter 2.5 (extra 0.5), add Peanuts (Fudge)
+// Peanut butter base = vanilla base, Butter 2.5 (extra 0.5), add Peanuts
 const PEANUT_BUTTER_BASE = VANILLA_BASE.map(i =>
   i.name === 'Butter' ? { ...i, qty: 2.5 } : i
 ).concat([
-  { name: 'Peanuts (Fudge)', unit: 'quarts', qty: 3 },
+  { name: 'Peanuts', unit: 'lbs', qty: 4 },
 ])
 
 // Caramel base (Trey's recipe) — completely different, 2 trays per batch
@@ -292,7 +292,7 @@ const FLAVOR_RECIPES = [
       { name: 'Brown Sugar',       unit: 'lbs',  qty: 3.2 },
       { name: 'Butter',            unit: 'lbs',  qty: 1 },
       { name: 'Corn Treats',       unit: 'bags', qty: 3 },
-      { name: 'Peanuts (Popcorn)', unit: 'lbs',  qty: 0.75 },
+      { name: 'Peanuts',           unit: 'lbs',  qty: 0.75 },
       { name: 'Almonds',           unit: 'lbs',  qty: 0.375 },
       { name: 'Cashews',           unit: 'lbs',  qty: 0.375 },
     ],
