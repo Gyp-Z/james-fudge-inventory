@@ -327,8 +327,12 @@ export default function Analytics() {
       byDate[d][`Large ${fname}`] = (byDate[d][`Large ${fname}`] ?? 0) + (b.large_buckets_made ?? 0)
     })
     const keys = shelfFlavors.flatMap(f => [`Small ${f.name}`, `Large ${f.name}`])
+    const running = Object.fromEntries(keys.map(k => [k, 0]))
     return Object.entries(byDate).sort()
-      .map(([d, v]) => ({ date: formatDate(d), ...v }))
+      .map(([d, v]) => {
+        keys.forEach(k => { running[k] += v[k] ?? 0 })
+        return { date: formatDate(d), ...running }
+      })
       .filter(row => keys.some(k => (row[k] ?? 0) > 0))
   }, [filteredBucketLogs, shelfFlavors, viewPopcornIds])
 
@@ -713,7 +717,7 @@ export default function Analytics() {
             <>
               <div>
                 <h3 className="font-semibold text-amber-900 mb-1">Buckets Made</h3>
-                <p className="text-xs text-amber-700 mb-3">Small and large buckets made per day</p>
+                <p className="text-xs text-amber-700 mb-3">Cumulative buckets made over time</p>
                 {bucketsMadeData.length > 0 ? (
                   <ResponsiveContainer width="100%" height={300}>
                     <LineChart data={bucketsMadeData} margin={{ left: 0, right: 16 }}>
