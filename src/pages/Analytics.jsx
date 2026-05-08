@@ -285,15 +285,17 @@ export default function Analytics() {
 
   // ── Popcorn charts ────────────────────────────────────────────────────────
   const barrelsMadeData = useMemo(() => {
-    const flavorById = new Map(popcornFlavors.map(f => [f.id, f]))
+    const flavorById = new Map(popcornFlavors.map(f => [f.id, f.name]))
     const byDate = {}
-    filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && !b.is_wasted && b.batch_quantity != null).forEach(b => {
-      const d = (b.batch_date ?? '').slice(0, 10)
-      const f = flavorById.get(b.flavor_id)
-      if (!f) return
-      if (!byDate[d]) byDate[d] = {}
-      byDate[d][f.name] = (byDate[d][f.name] ?? 0) + b.batch_quantity
-    })
+    filteredBucketLogs
+      .filter(b => viewPopcornIds.has(b.flavor_id) && (b.barrels_added ?? 0) > 0)
+      .forEach(b => {
+        const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+        const fname = flavorById.get(b.flavor_id)
+        if (!fname) return
+        if (!byDate[d]) byDate[d] = {}
+        byDate[d][fname] = (byDate[d][fname] ?? 0) + b.barrels_added
+      })
     const keys = [...new Set(popcornFlavors.map(f => f.name))]
     const running = Object.fromEntries(keys.map(k => [k, 0]))
     return Object.entries(byDate).sort()
@@ -302,7 +304,7 @@ export default function Analytics() {
         return { date: formatDate(d), ...running }
       })
       .filter(row => keys.some(k => (row[k] ?? 0) > 0))
-  }, [filteredBatchLogs, viewPopcornIds, popcornFlavors])
+  }, [filteredBucketLogs, viewPopcornIds, popcornFlavors])
 
   const barrelsSoldData = useMemo(() => {
     const byDate = {}

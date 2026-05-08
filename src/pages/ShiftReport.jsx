@@ -312,10 +312,11 @@ export default function ShiftReport() {
           .upsert({ flavor_id: f.id, barrel_count: newBarrels }, { onConflict: 'flavor_id' })
       }
 
-      // Log bucket activity + barrels sold
-      if (madSmall > 0 || madLarge > 0 || soldSmall > 0 || soldLarge > 0 || barrelsSold > 0) {
+      // Log bucket + barrel activity
+      if (barrelsAdded > 0 || madSmall > 0 || madLarge > 0 || soldSmall > 0 || soldLarge > 0 || barrelsSold > 0) {
         await supabase.from('shelf_bucket_logs').insert({
           flavor_id: f.id,
+          barrels_added: barrelsAdded > 0 ? barrelsAdded : null,
           small_buckets_made: madSmall,
           large_buckets_made: madLarge,
           small_buckets_sold: soldSmall,

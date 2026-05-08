@@ -98,10 +98,11 @@ export default function Batch() {
     const batchLogId = inserted.id
     const batchQty = batchQtyForInsert
 
-    // Fire auto-deduction and (for popcorn) barrel count increment in parallel
+    // Fire auto-deduction and (for popcorn) barrel count increment + history log in parallel
     const [{ deductions, negatives }] = await Promise.all([
       autoDeductIngredients(flavorId, batchLogId),
       isPopcorn ? incrementBarrelCount(flavorId, batchQty) : Promise.resolve(),
+      isPopcorn ? supabase.from('shelf_bucket_logs').insert({ flavor_id: flavorId, barrels_added: batchQty }) : Promise.resolve(),
     ])
 
     setLastResult({
