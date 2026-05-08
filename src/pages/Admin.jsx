@@ -272,7 +272,7 @@ function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEdi
 
   return (
     <div className="bg-white rounded-xl border border-store-tan shadow-sm overflow-hidden">
-      <div className="p-3 flex items-start sm:items-center justify-between gap-4 flex-col sm:flex-row">
+      <div className="p-3 flex sm:items-center justify-between gap-4 flex-col sm:flex-row">
         <div className="flex items-start sm:items-center gap-2 flex-1">
           <span className="text-sm font-medium text-store-brown leading-tight">{f.name}</span>
           {isOut ? (
@@ -283,7 +283,7 @@ function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEdi
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-store-green-light text-store-green">OK</span>
           )}
         </div>
-        <div className="flex items-center gap-3 flex-wrap w-full sm:w-auto">
+        <div className="flex items-center gap-3 flex-wrap">
           {f.is_component ? (
             editingCount ? (
               <div className="flex items-center gap-1.5">
