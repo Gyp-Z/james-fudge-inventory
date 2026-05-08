@@ -278,6 +278,11 @@ export default function Analytics() {
     return { sold, wasted, made }
   }, [filteredReports])
 
+  const caramelWasted = useMemo(() => {
+    const componentIds = new Set(componentFlavors.map(f => f.id))
+    return filteredBatchLogs.filter(b => componentIds.has(b.flavor_id) && b.is_wasted).length
+  }, [filteredBatchLogs, componentFlavors])
+
   // ── Popcorn charts ────────────────────────────────────────────────────────
   const barrelsSoldData = useMemo(() => {
     const byDate = {}
@@ -466,6 +471,8 @@ export default function Analytics() {
         <div className="bg-white border border-store-tan rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-store-brown">{stockSnapshot.fudgeTrays}</p>
           <p className="text-xs text-store-brown-light mt-0.5">Fudge trays</p>
+          <p className="text-base font-semibold text-store-green mt-1">{fudgeTotals.sold} sold</p>
+          <p className="text-base font-semibold text-amber-600">{fudgeTotals.wasted} wasted</p>
         </div>
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-amber-700">{stockSnapshot.popcornBarrels}</p>
@@ -480,6 +487,12 @@ export default function Analytics() {
             return num === 0 ? w : w === 0 ? `${num}/18` : `${w} ${num}/18`
           })()}</p>
           <p className="text-xs text-store-brown-light mt-0.5">Caramel trays</p>
+          {caramelWasted > 0 && (
+            <>
+              <p className="text-base font-semibold text-amber-600 mt-1">{caramelWasted} wasted</p>
+              <p className="text-xs text-store-brown-light">{caramelWasted === 1 ? 'batch' : 'batches'}</p>
+            </>
+          )}
         </div>
       </div>
 
