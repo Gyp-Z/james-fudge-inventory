@@ -29,6 +29,7 @@ export default function ShiftReport() {
   // Products tab state — popcorn
   const [popcornEntries, setPopcornEntries] = useState({}) // flavor_id -> { barrels_added, barrels_sold, small/large buckets made/sold }
   const [currentBarrels, setCurrentBarrels] = useState({}) // flavor_id -> barrel_count
+  const [currentInProgressBarrels, setCurrentInProgressBarrels] = useState({}) // flavor_id -> in_progress_barrel_count
   const [currentShelfBuckets, setCurrentShelfBuckets] = useState({}) // flavor_id -> { small, large }
   const [barrelThresholds, setBarrelThresholds] = useState({}) // flavor_id -> low_tray_threshold
   const [bucketThresholds, setBucketThresholds] = useState({}) // flavor_id -> { small, large }
@@ -62,7 +63,7 @@ export default function ShiftReport() {
       ] = await Promise.all([
         supabase.from('flavors').select('*').eq('is_active', true).order('product_type').order('name'),
         supabase.from('ingredients').select('id, name, quantity, unit').eq('is_active', true).order('name'),
-        supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count, barrel_count'),
+        supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count, barrel_count, in_progress_barrel_count'),
         supabase.from('shelf_bucket_logs').select('flavor_id, small_buckets_made, large_buckets_made, small_buckets_sold, large_buckets_sold'),
       ])
 
@@ -95,6 +96,7 @@ export default function ShiftReport() {
         popcornInit[f.id] = {
           barrels_added: 0,
           barrels_sold: 0,
+          in_progress_barrels: 0,
           small_buckets_made: 0,
           large_buckets_made: 0,
           small_buckets_sold: 0,
@@ -122,14 +124,17 @@ export default function ShiftReport() {
       const invMap = {}
       const inProgMap = {}
       const barrelMap = {}
+      const inProgBarrelMap = {}
       ;(invData || []).forEach((row) => {
         invMap[row.flavor_id] = row.tray_count ?? 0
         inProgMap[row.flavor_id] = row.in_progress_count ?? 0
         barrelMap[row.flavor_id] = row.barrel_count ?? 0
+        inProgBarrelMap[row.flavor_id] = row.in_progress_barrel_count ?? 0
       })
       setCurrentInventory(invMap)
       setCurrentInProgress(inProgMap)
       setCurrentBarrels(barrelMap)
+      setCurrentInProgressBarrels(inProgBarrelMap)
 
       const bucketMap = {}
       ;(bucketLogsData || []).forEach(row => {
@@ -299,17 +304,21 @@ export default function ShiftReport() {
 
       const barrelsAdded = pe.barrels_added || 0
       const barrelsSold = pe.barrels_sold || 0
+      const newInProgBarrels = pe.in_progress_barrels || 0
       const madSmall = pe.small_buckets_made || 0
       const madLarge = pe.large_buckets_made || 0
       const soldSmall = pe.small_buckets_sold || 0
       const soldLarge = pe.large_buckets_sold || 0
 
-      // Update barrel_count: +added −sold
+      // Update barrel_count: +added −sold; in_progress_barrel_count: +new, topped by added
       const netBarrelChange = barrelsAdded - barrelsSold
-      if (netBarrelChange !== 0) {
+      const existingInProgBarrels = currentInProgressBarrels[f.id] ?? 0
+      const toppedBarrels = Math.min(barrelsAdded, existingInProgBarrels)
+      const newInProgBarrelCount = Math.max(0, existingInProgBarrels + newInProgBarrels - toppedBarrels)
+      if (netBarrelChange !== 0 || newInProgBarrels !== 0 || toppedBarrels !== 0) {
         const newBarrels = Math.max(0, (currentBarrels[f.id] ?? 0) + netBarrelChange)
         await supabase.from('current_inventory')
-          .upsert({ flavor_id: f.id, barrel_count: newBarrels }, { onConflict: 'flavor_id' })
+          .upsert({ flavor_id: f.id, barrel_count: newBarrels, in_progress_barrel_count: newInProgBarrelCount }, { onConflict: 'flavor_id' })
       }
 
       // Log bucket + barrel activity
@@ -642,9 +651,21 @@ export default function ShiftReport() {
                           </div>
                         </div>
 
+                        {(currentInProgressBarrels[f.id] ?? 0) > 0 && (
+                          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                            <span className="text-amber-700 font-semibold text-sm">{currentInProgressBarrels[f.id]} in progress</span>
+                            <span className="text-amber-600 text-xs">— adding barrels will top {currentInProgressBarrels[f.id] === 1 ? 'it' : 'them'}</span>
+                          </div>
+                        )}
+
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-amber-800">Barrels added</span>
                           <Stepper value={pe.barrels_added} onChange={v => setPopcornField(f.id, 'barrels_added', v)} />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-amber-800">In-progress barrels</span>
+                          <Stepper value={pe.in_progress_barrels} onChange={v => setPopcornField(f.id, 'in_progress_barrels', v)} />
                         </div>
 
                         <div className="flex items-center justify-between">

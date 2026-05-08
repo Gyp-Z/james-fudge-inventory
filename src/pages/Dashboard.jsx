@@ -80,7 +80,7 @@ export default function Dashboard() {
         { data: batchData },
         { data: allFlavorsData },
       ] = await Promise.all([
-        supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count, barrel_count'),
+        supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count, barrel_count, in_progress_barrel_count'),
         supabase.from('batch_logs').select('flavor_id, batch_date, is_wasted'),
         supabase.from('flavors').select('id, name, default_yield, is_component'),
       ])
@@ -92,6 +92,7 @@ export default function Dashboard() {
             full_trays: row.tray_count,
             in_progress_trays: row.in_progress_count ?? 0,
             barrel_count: row.barrel_count ?? 0,
+            in_progress_barrels: row.in_progress_barrel_count ?? 0,
           }
         })
 
@@ -189,6 +190,7 @@ export default function Dashboard() {
 
   const renderPopcornPill = (flavor) => {
     const barrels = entries[flavor.id]?.barrel_count ?? 0
+    const inProgressBarrels = entries[flavor.id]?.in_progress_barrels ?? 0
     const threshold = flavor.low_tray_threshold ?? 1
     const isOut = barrels === 0
     const isLow = !isOut && barrels <= threshold
@@ -213,6 +215,9 @@ export default function Dashboard() {
         <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${countClass}`}>
           {barrels} {barrels === 1 ? 'barrel' : 'barrels'}
         </span>
+        {inProgressBarrels > 0 && (
+          <span className="text-xs opacity-60">+{inProgressBarrels} in progress</span>
+        )}
         {bucketParts.length > 0 && (
           <span className="text-xs opacity-70">{bucketParts.join(' ')} on shelf</span>
         )}
