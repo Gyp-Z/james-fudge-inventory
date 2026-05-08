@@ -151,7 +151,10 @@ export default function Analytics() {
     fudgeTrays: fudgeFlavors.reduce((s, f) => s + (invMap[f.id]?.tray_count ?? 0), 0),
     popcornBarrels: popcornFlavors.reduce((s, f) => s + (invMap[f.id]?.barrel_count ?? 0), 0),
     caramelTrays: componentFlavors.reduce((s, f) => s + (invMap[f.id]?.tray_count ?? 0), 0),
-  }), [invMap, fudgeFlavors, popcornFlavors, componentFlavors])
+    totalBuckets: bucketLogs.reduce((s, b) =>
+      s + (b.small_buckets_made ?? 0) + (b.large_buckets_made ?? 0)
+        - (b.small_buckets_sold ?? 0) - (b.large_buckets_sold ?? 0), 0),
+  }), [invMap, fudgeFlavors, popcornFlavors, componentFlavors, bucketLogs])
 
   // In Stock for the mode-specific summary card
   const inStockValue = useMemo(() => {
@@ -467,6 +470,8 @@ export default function Analytics() {
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-amber-700">{stockSnapshot.popcornBarrels}</p>
           <p className="text-xs text-amber-800 mt-0.5">Popcorn barrels</p>
+          <p className="text-base font-semibold text-amber-600 mt-1">{stockSnapshot.totalBuckets}</p>
+          <p className="text-xs text-amber-700">Total buckets</p>
         </div>
         <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-store-brown">{(() => {
