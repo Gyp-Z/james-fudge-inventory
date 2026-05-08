@@ -284,6 +284,19 @@ export default function Analytics() {
   }, [filteredBatchLogs, componentFlavors])
 
   // ── Popcorn charts ────────────────────────────────────────────────────────
+  const barrelsMadeData = useMemo(() => {
+    const flavorById = new Map(popcornFlavors.map(f => [f.id, f]))
+    const byDate = {}
+    filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && !b.is_wasted).forEach(b => {
+      const d = (b.batch_date ?? '').slice(0, 10)
+      const f = flavorById.get(b.flavor_id)
+      if (!f) return
+      if (!byDate[d]) byDate[d] = {}
+      byDate[d][f.name] = (byDate[d][f.name] ?? 0) + (f.default_yield ?? 1)
+    })
+    return Object.entries(byDate).sort().map(([d, v]) => ({ date: formatDate(d), ...v }))
+  }, [filteredBatchLogs, viewPopcornIds, popcornFlavors])
+
   const barrelsSoldData = useMemo(() => {
     const byDate = {}
     filteredBucketLogs.filter(b => viewPopcornIds.has(b.flavor_id) && (b.barrels_used ?? 0) > 0).forEach(b => {
@@ -673,8 +686,21 @@ export default function Analytics() {
             <>
               <div>
                 <h3 className="font-semibold text-amber-900 mb-1">Barrels Made</h3>
-                <p className="text-xs text-amber-700 mb-3">Log barrel movements in the Products tab when moved to the floor</p>
-                {empty('No barrel movements logged yet.')}
+                <p className="text-xs text-amber-700 mb-3">Barrels produced per day by flavor</p>
+                {barrelsMadeData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                      <XAxis dataKey="date" {...xProps} />
+                      <YAxis {...yProps} />
+                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      {viewPopcornFlavors.map((f, i) => (
+                        <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : empty('No popcorn batches logged yet.')}
               </div>
 
               <div>
