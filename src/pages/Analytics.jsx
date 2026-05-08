@@ -437,6 +437,12 @@ export default function Analytics() {
     bucketsSold: filteredBucketLogs.filter(b => viewPopcornIds.has(b.flavor_id)).reduce((s, b) => s + (b.small_buckets_sold ?? 0) + (b.large_buckets_sold ?? 0), 0),
   }), [filteredBatchLogs, filteredBucketLogs, viewPopcornIds])
 
+  const allPopcornIds = useMemo(() => new Set(popcornFlavors.map(f => f.id)), [popcornFlavors])
+  const allPopcornTotals = useMemo(() => ({
+    barrelsSold: filteredBucketLogs.filter(b => allPopcornIds.has(b.flavor_id)).reduce((s, b) => s + (b.barrels_used ?? 0), 0),
+    batchesWasted: filteredBatchLogs.filter(b => allPopcornIds.has(b.flavor_id) && b.is_wasted).length,
+  }), [filteredBatchLogs, filteredBucketLogs, allPopcornIds])
+
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading analytics...</p>
 
@@ -471,14 +477,20 @@ export default function Analytics() {
         <div className="bg-white border border-store-tan rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-store-brown">{stockSnapshot.fudgeTrays}</p>
           <p className="text-xs text-store-brown-light mt-0.5">Fudge trays</p>
-          <p className="text-base font-semibold text-store-green mt-1">{fudgeTotals.sold} sold</p>
-          <p className="text-base font-semibold text-amber-600">{fudgeTotals.wasted} wasted</p>
+          <p className="text-base font-semibold text-store-green mt-1">{fudgeTotals.sold}</p>
+          <p className="text-xs text-store-brown-light">Sold (trays)</p>
+          <p className="text-base font-semibold text-amber-600 mt-1">{fudgeTotals.wasted}</p>
+          <p className="text-xs text-store-brown-light">Wasted (trays)</p>
         </div>
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-amber-700">{stockSnapshot.popcornBarrels}</p>
           <p className="text-xs text-amber-800 mt-0.5">Popcorn barrels</p>
           <p className="text-base font-semibold text-amber-600 mt-1">{stockSnapshot.totalBuckets}</p>
           <p className="text-xs text-amber-700">Total buckets</p>
+          <p className="text-base font-semibold text-amber-600 mt-1">{allPopcornTotals.barrelsSold}</p>
+          <p className="text-xs text-amber-700">Barrels sold</p>
+          <p className="text-base font-semibold text-amber-600 mt-1">{allPopcornTotals.batchesWasted}</p>
+          <p className="text-xs text-amber-700">Batches wasted</p>
         </div>
         <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-store-brown">{(() => {
@@ -487,12 +499,8 @@ export default function Analytics() {
             return num === 0 ? w : w === 0 ? `${num}/18` : `${w} ${num}/18`
           })()}</p>
           <p className="text-xs text-store-brown-light mt-0.5">Caramel trays</p>
-          {caramelWasted > 0 && (
-            <>
-              <p className="text-base font-semibold text-amber-600 mt-1">{caramelWasted} wasted</p>
-              <p className="text-xs text-store-brown-light">{caramelWasted === 1 ? 'batch' : 'batches'}</p>
-            </>
-          )}
+          <p className="text-base font-semibold text-amber-600 mt-1">{caramelWasted}</p>
+          <p className="text-xs text-store-brown-light">Wasted {caramelWasted === 1 ? 'batch' : 'batches'}</p>
         </div>
       </div>
 
@@ -534,58 +542,6 @@ export default function Analytics() {
           )
         })}
       </div>
-
-      {/* Fudge summary cards */}
-      {groupFilter === 'fudge' && (
-        <div className="grid grid-cols-3 gap-3">
-          <div className="bg-white border border-store-tan rounded-xl p-3 shadow-sm text-center">
-            <p className="text-2xl font-bold text-store-green">{fudgeTotals.sold}</p>
-            <p className="text-xs text-store-brown-light mt-0.5">Sold (trays)</p>
-          </div>
-          <div className="bg-white border border-store-tan rounded-xl p-3 shadow-sm text-center">
-            <p className="text-2xl font-bold text-amber-600">{fudgeTotals.wasted}</p>
-            <p className="text-xs text-store-brown-light mt-0.5">Wasted (trays)</p>
-          </div>
-          <div className="bg-white border border-store-tan rounded-xl p-3 shadow-sm text-center">
-            <p className="text-2xl font-bold text-store-brown">{inStockValue}</p>
-            <p className="text-xs text-store-brown-light mt-0.5">In Stock (trays)</p>
-          </div>
-        </div>
-      )}
-
-      {/* Caramel summary cards */}
-      {showCaramel && (
-        <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
-          <p className="text-2xl font-bold text-store-brown">{(() => {
-            const n = caramelComputedTotal
-            const w = Math.floor(n), num = Math.round((n - w) * 18)
-            return num === 0 ? w : w === 0 ? `${num}/18` : `${w} ${num}/18`
-          })()}</p>
-          <p className="text-xs text-store-brown-light mt-0.5">Trays in stock</p>
-        </div>
-      )}
-
-      {/* Popcorn summary cards */}
-      {groupFilter === 'popcorn' && (
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 shadow-sm text-center">
-            <p className="text-2xl font-bold text-amber-700">{popcornTotals.batchesMade}</p>
-            <p className="text-xs text-amber-800 mt-0.5">Batches Made</p>
-          </div>
-          <div className="bg-red-50 border border-red-200 rounded-xl p-3 shadow-sm text-center">
-            <p className="text-2xl font-bold text-red-600">{popcornTotals.batchesWasted}</p>
-            <p className="text-xs text-red-700 mt-0.5">Batches Wasted</p>
-          </div>
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 shadow-sm text-center">
-            <p className="text-2xl font-bold text-amber-600">{popcornTotals.barrelsSold}</p>
-            <p className="text-xs text-amber-800 mt-0.5">Barrels Sold</p>
-          </div>
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 shadow-sm text-center">
-            <p className="text-2xl font-bold text-store-brown">{inStockValue}</p>
-            <p className="text-xs text-amber-800 mt-0.5">In Stock (barrels)</p>
-          </div>
-        </div>
-      )}
 
       {/* ── Fudge charts ── */}
       {showFudge && (
