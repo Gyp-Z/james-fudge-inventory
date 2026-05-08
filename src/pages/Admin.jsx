@@ -6,6 +6,10 @@ export default function Admin() {
   const [inventory, setInventory] = useState({}) // flavor_id -> { trays, barrels }
   const [recipes, setRecipes] = useState({}) // flavor_id -> [{ name, qty, unit }]
   const [newName, setNewName] = useState('')
+  const [newType, setNewType] = useState('fudge')
+  const [newYield, setNewYield] = useState('3')
+  const [newThreshold, setNewThreshold] = useState('2')
+  const [newTracksShelf, setNewTracksShelf] = useState(false)
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
   const [editingThresholdId, setEditingThresholdId] = useState(null)
@@ -52,9 +56,22 @@ export default function Admin() {
     e.preventDefault()
     if (!newName.trim()) return
     setAdding(true)
-    await supabase.from('flavors').insert({ name: newName.trim(), is_active: true })
+    const isPopcorn = newType === 'popcorn'
+    const { data: inserted } = await supabase.from('flavors').insert({
+      name: newName.trim(),
+      is_active: true,
+      product_type: newType,
+      stock_unit: isPopcorn ? 'barrel' : 'tray',
+      default_yield: parseFloat(newYield) || (isPopcorn ? 1 : 3),
+      low_tray_threshold: parseInt(newThreshold) || (isPopcorn ? 1 : 2),
+      tracks_shelf_buckets: isPopcorn ? newTracksShelf : false,
+    }).select('id').single()
+    if (inserted) {
+      await supabase.from('current_inventory')
+        .upsert({ flavor_id: inserted.id, tray_count: 0, barrel_count: 0 }, { onConflict: 'flavor_id' })
+    }
     setNewName('')
-    await loadFlavors()
+    await Promise.all([loadFlavors(), loadInventory()])
     setAdding(false)
   }
 
@@ -73,9 +90,10 @@ export default function Admin() {
   }
 
   async function saveCount(flavor, newCount) {
+    const field = flavor.product_type === 'popcorn' ? 'barrel_count' : 'tray_count'
     await supabase
       .from('current_inventory')
-      .upsert({ flavor_id: flavor.id, tray_count: newCount }, { onConflict: 'flavor_id' })
+      .upsert({ flavor_id: flavor.id, [field]: newCount }, { onConflict: 'flavor_id' })
     await loadInventory()
   }
 
@@ -162,16 +180,58 @@ export default function Admin() {
 
       <div className="bg-white rounded-xl border border-store-tan p-4 shadow-sm">
         <h3 className="font-semibold text-store-brown mb-3">Add Product</h3>
-        <form onSubmit={handleAdd} className="flex gap-2">
-          <input
-            type="text"
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            placeholder="e.g. Chocolate Peanut Butter"
-            className="flex-1 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
-          />
-          <button type="submit" disabled={adding} className="bg-store-green hover:bg-store-green-dark text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50">
-            Add
+        <form onSubmit={handleAdd} className="space-y-3">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              placeholder="e.g. Chocolate Peanut Butter"
+              className="flex-1 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+            />
+            <div className="flex rounded-xl border border-store-tan overflow-hidden text-sm font-medium">
+              {['fudge', 'popcorn'].map(t => (
+                <button
+                  key={t} type="button"
+                  onClick={() => {
+                    setNewType(t)
+                    setNewYield(t === 'popcorn' ? '1' : '3')
+                    setNewThreshold(t === 'popcorn' ? '1' : '2')
+                    setNewTracksShelf(false)
+                  }}
+                  className={`px-3 py-2.5 capitalize transition-colors ${newType === t ? 'bg-store-green text-white' : 'bg-store-cream text-store-brown hover:bg-store-tan'}`}
+                >{t}</button>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <div className="flex-1 flex items-center gap-2 border border-store-tan rounded-xl px-4 py-2.5 bg-store-cream">
+              <span className="text-xs text-store-brown-light whitespace-nowrap">Default yield</span>
+              <input
+                type="number" value={newYield} onChange={e => setNewYield(e.target.value)}
+                min="0" step="0.5"
+                className="flex-1 bg-transparent text-sm text-store-brown focus:outline-none text-right"
+              />
+              <span className="text-xs text-store-brown-light">{newType === 'popcorn' ? 'barrels' : 'trays'}</span>
+            </div>
+            <div className="flex-1 flex items-center gap-2 border border-store-tan rounded-xl px-4 py-2.5 bg-store-cream">
+              <span className="text-xs text-store-brown-light whitespace-nowrap">Alert at</span>
+              <input
+                type="number" value={newThreshold} onChange={e => setNewThreshold(e.target.value)}
+                min="0" step="1"
+                className="flex-1 bg-transparent text-sm text-store-brown focus:outline-none text-right"
+              />
+              <span className="text-xs text-store-brown-light">{newType === 'popcorn' ? 'barrels' : 'trays'}</span>
+            </div>
+          </div>
+          {newType === 'popcorn' && (
+            <label className="flex items-center gap-3 px-4 py-2.5 border border-store-tan rounded-xl bg-store-cream cursor-pointer">
+              <input type="checkbox" checked={newTracksShelf} onChange={e => setNewTracksShelf(e.target.checked)} className="accent-store-green w-4 h-4" />
+              <span className="text-sm text-store-brown">Tracks shelf buckets (Caramel Corn, Nut Caramel Corn)</span>
+            </label>
+          )}
+          <button type="submit" disabled={adding || !newName.trim()} className="w-full bg-store-green hover:bg-store-green-dark text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50">
+            {adding ? 'Adding…' : 'Add Product'}
           </button>
         </form>
       </div>

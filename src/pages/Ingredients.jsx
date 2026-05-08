@@ -186,7 +186,7 @@ export default function Ingredients() {
                 onThresholdStart={(i) => { setEditingThresholdId(i.id); setEditThreshold(String(i.low_stock_threshold ?? 0)) }}
                 onThresholdChange={setEditThreshold} onThresholdSave={saveThreshold}
                 onThresholdCancel={() => { setEditingThresholdId(null); setEditThreshold('') }}
-                onArchive={handleArchive} onUnarchive={handleUnarchive}
+                onArchive={handleArchive} onUnarchive={handleUnarchive} onReload={loadIngredients}
               />
             ))}
           </div>
@@ -206,7 +206,7 @@ export default function Ingredients() {
               onThresholdStart={(i) => { setEditingThresholdId(i.id); setEditThreshold(String(i.low_stock_threshold ?? 0)) }}
               onThresholdChange={setEditThreshold} onThresholdSave={saveThreshold}
               onThresholdCancel={() => { setEditingThresholdId(null); setEditThreshold('') }}
-              onArchive={handleArchive} onUnarchive={handleUnarchive}
+              onArchive={handleArchive} onUnarchive={handleUnarchive} onReload={loadIngredients}
             />
           ))}
           {inStock.length === 0 && (
@@ -229,7 +229,7 @@ export default function Ingredients() {
                 onThresholdStart={(i) => { setEditingThresholdId(i.id); setEditThreshold(String(i.low_stock_threshold ?? 0)) }}
                 onThresholdChange={setEditThreshold} onThresholdSave={saveThreshold}
                 onThresholdCancel={() => { setEditingThresholdId(null); setEditThreshold('') }}
-                onArchive={handleArchive} onUnarchive={handleUnarchive}
+                onArchive={handleArchive} onUnarchive={handleUnarchive} onReload={loadIngredients}
               />
             ))}
           </div>
@@ -376,10 +376,23 @@ function IngredientRow({
   ing, isAdmin,
   editingId, editQty, saving, onEditStart, onEditChange, onSave, onEditCancel,
   editingThresholdId, editThreshold, onThresholdStart, onThresholdChange, onThresholdSave, onThresholdCancel,
-  onArchive, onUnarchive,
+  onArchive, onUnarchive, onReload,
 }) {
   const isEditing = editingId === ing.id
   const isEditingThreshold = editingThresholdId === ing.id
+  const [editingContainer, setEditingContainer] = useState(false)
+  const [containerSizeInput, setContainerSizeInput] = useState('')
+  const [containerUnitInput, setContainerUnitInput] = useState('')
+
+  async function saveContainer() {
+    const size = parseFloat(containerSizeInput)
+    await supabase.from('ingredients').update({
+      container_size: isNaN(size) ? null : size,
+      container_unit: containerUnitInput.trim() || null,
+    }).eq('id', ing.id)
+    setEditingContainer(false)
+    onReload?.()
+  }
 
   return (
     <div className="bg-white rounded-xl border border-store-tan shadow-sm overflow-hidden">
@@ -438,6 +451,21 @@ function IngredientRow({
               >
                 Alert at {ing.low_stock_threshold ?? 0} {ing.unit}
               </button>
+              {ing.container_size != null ? (
+                <button
+                  onClick={() => { setContainerSizeInput(String(ing.container_size)); setContainerUnitInput(ing.container_unit ?? ''); setEditingContainer(true) }}
+                  className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
+                >
+                  {ing.container_size} {ing.unit}/{ing.container_unit || 'container'}
+                </button>
+              ) : (
+                <button
+                  onClick={() => { setContainerSizeInput(''); setContainerUnitInput(''); setEditingContainer(true) }}
+                  className="text-xs text-amber-600 hover:text-amber-800 px-2 py-1 rounded-lg hover:bg-amber-50 transition-colors"
+                >
+                  Set container size
+                </button>
+              )}
               <button
                 onClick={() => onArchive(ing)}
                 className="text-xs text-store-brown-light hover:text-red-600 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
@@ -480,6 +508,43 @@ function IngredientRow({
           </button>
           <button
             onClick={onThresholdCancel}
+            className="text-xs text-store-brown-light hover:text-store-brown px-3 py-1.5 rounded-lg hover:bg-white transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Edit container size panel */}
+      {editingContainer && (
+        <div className="border-t border-store-tan px-4 py-3 bg-store-cream flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-store-brown-light">Container holds</span>
+          <input
+            type="number"
+            value={containerSizeInput}
+            onChange={e => setContainerSizeInput(e.target.value)}
+            min="0"
+            step="any"
+            autoFocus
+            placeholder="e.g. 50"
+            className="w-24 border border-store-tan rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-white"
+          />
+          <span className="text-sm text-store-brown-light">{ing.unit} per</span>
+          <input
+            type="text"
+            value={containerUnitInput}
+            onChange={e => setContainerUnitInput(e.target.value)}
+            placeholder="bag, box, jug…"
+            className="w-28 border border-store-tan rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-white"
+          />
+          <button
+            onClick={saveContainer}
+            className="bg-store-green text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-store-green-dark transition-colors"
+          >
+            Save
+          </button>
+          <button
+            onClick={() => setEditingContainer(false)}
             className="text-xs text-store-brown-light hover:text-store-brown px-3 py-1.5 rounded-lg hover:bg-white transition-colors"
           >
             Cancel
