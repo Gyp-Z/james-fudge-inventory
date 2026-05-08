@@ -704,7 +704,7 @@ export default function Analytics() {
                       <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
                       <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      {viewPopcornFlavors.map((f, i) => (
+                      {viewPopcornFlavors.filter(f => barrelsMadeData.some(row => (row[f.name] ?? 0) > 0)).map((f, i) => (
                         <Line key={f.id} type="monotone" dataKey={f.name} stroke={POPCORN_COLORS[i % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
                       ))}
                     </LineChart>
