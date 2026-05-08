@@ -358,25 +358,27 @@ export default function Analytics() {
 
     if (!relevantBatches.length) return []
 
-    // Key deltas by YYYY-MM-DD (batch_date is timestamptz, slice to date)
-    const dailyDelta = {}
+    // Track additions (caramel made) and deductions (SSC used) separately per day
+    // so a day where both happen shows the peak before the dip
+    const dailyPos = {}
+    const dailyNeg = {}
     relevantBatches.forEach(b => {
       const key = (b.batch_date ?? '').slice(0, 10)
-      if (!dailyDelta[key]) dailyDelta[key] = 0
       if (b.flavor_id === caramelFlavor.id) {
-        dailyDelta[key] += 1
+        dailyPos[key] = (dailyPos[key] ?? 0) + 1
       } else {
-        dailyDelta[key] -= sscIdToYield.get(b.flavor_id) / 18
+        dailyNeg[key] = (dailyNeg[key] ?? 0) - sscIdToYield.get(b.flavor_id) / 18
       }
     })
 
     const todayStr = getDateStr(new Date())
     const startStr = cutoffStr && cutoffStr > SEASON_START ? cutoffStr : SEASON_START
 
-    // Forward from 0: sum all deltas before startStr to get the value at that point
+    // Forward from 0: accumulate deltas before the visible range
     let runningToStart = 0
-    for (const [d, v] of Object.entries(dailyDelta)) {
-      if (d < startStr) runningToStart += v
+    const allEventDates = new Set([...Object.keys(dailyPos), ...Object.keys(dailyNeg)])
+    for (const d of allEventDates) {
+      if (d < startStr) runningToStart += (dailyPos[d] ?? 0) + (dailyNeg[d] ?? 0)
     }
 
     const rows = []
@@ -384,7 +386,16 @@ export default function Analytics() {
     let running = runningToStart
     while (cursor <= new Date(todayStr + 'T12:00:00')) {
       const ds = getDateStr(cursor)
-      if (dailyDelta[ds]) running += dailyDelta[ds]
+      const pos = dailyPos[ds] ?? 0
+      const neg = dailyNeg[ds] ?? 0
+
+      if (pos > 0) running += pos
+      // Same day: caramel made AND used for SSC — insert the peak before the dip
+      if (pos > 0 && neg < 0) {
+        rows.push({ date: formatDate(ds), [caramelFlavor.name]: Math.max(0, Math.round(running * 1000) / 1000) })
+      }
+      if (neg < 0) running += neg
+
       rows.push({ date: formatDate(ds), [caramelFlavor.name]: Math.max(0, Math.round(running * 1000) / 1000) })
       cursor.setDate(cursor.getDate() + 1)
     }
