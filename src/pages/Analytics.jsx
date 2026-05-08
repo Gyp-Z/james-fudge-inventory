@@ -61,7 +61,7 @@ export default function Analytics() {
         supabase.from('batch_logs').select('*').order('batch_date'),
         supabase
           .from('shelf_bucket_logs')
-          .select('flavor_id, barrels_used, small_buckets_made, large_buckets_made, small_buckets_sold, large_buckets_sold, logged_at')
+          .select('flavor_id, barrels_added, barrels_used, small_buckets_made, large_buckets_made, small_buckets_sold, large_buckets_sold, logged_at')
           .order('logged_at'),
         supabase.from('current_inventory').select('flavor_id, tray_count, barrel_count'),
       ])
