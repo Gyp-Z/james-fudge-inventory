@@ -181,15 +181,15 @@ export default function Admin() {
       <div className="bg-white rounded-xl border border-store-tan p-4 shadow-sm">
         <h3 className="font-semibold text-store-brown mb-3">Add Product</h3>
         <form onSubmit={handleAdd} className="space-y-3">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <input
               type="text"
               value={newName}
               onChange={e => setNewName(e.target.value)}
               placeholder="e.g. Chocolate Peanut Butter"
-              className="flex-1 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+              className="flex-1 min-w-0 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
             />
-            <div className="flex rounded-xl border border-store-tan overflow-hidden text-sm font-medium">
+            <div className="flex rounded-xl border border-store-tan overflow-hidden text-sm font-medium shrink-0">
               {['fudge', 'popcorn'].map(t => (
                 <button
                   key={t} type="button"
@@ -204,24 +204,24 @@ export default function Admin() {
               ))}
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <div className="flex-1 flex items-center gap-2 border border-store-tan rounded-xl px-4 py-2.5 bg-store-cream">
               <span className="text-xs text-store-brown-light whitespace-nowrap">Default yield</span>
               <input
                 type="number" value={newYield} onChange={e => setNewYield(e.target.value)}
                 min="0" step="0.5"
-                className="flex-1 bg-transparent text-sm text-store-brown focus:outline-none text-right"
+                className="flex-1 min-w-0 bg-transparent text-sm text-store-brown focus:outline-none text-right"
               />
-              <span className="text-xs text-store-brown-light">{newType === 'popcorn' ? 'barrels' : 'trays'}</span>
+              <span className="text-xs text-store-brown-light shrink-0">{newType === 'popcorn' ? 'barrels' : 'trays'}</span>
             </div>
             <div className="flex-1 flex items-center gap-2 border border-store-tan rounded-xl px-4 py-2.5 bg-store-cream">
               <span className="text-xs text-store-brown-light whitespace-nowrap">Alert at</span>
               <input
                 type="number" value={newThreshold} onChange={e => setNewThreshold(e.target.value)}
                 min="0" step="1"
-                className="flex-1 bg-transparent text-sm text-store-brown focus:outline-none text-right"
+                className="flex-1 min-w-0 bg-transparent text-sm text-store-brown focus:outline-none text-right"
               />
-              <span className="text-xs text-store-brown-light">{newType === 'popcorn' ? 'barrels' : 'trays'}</span>
+              <span className="text-xs text-store-brown-light shrink-0">{newType === 'popcorn' ? 'barrels' : 'trays'}</span>
             </div>
           </div>
           {newType === 'popcorn' && (

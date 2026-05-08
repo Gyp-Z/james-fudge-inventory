@@ -315,20 +315,20 @@ export default function Ingredients() {
         <div className="bg-white rounded-xl border border-store-tan p-4 shadow-sm">
           <h3 className="font-semibold text-store-brown mb-3">Add Ingredient</h3>
           <form onSubmit={handleAdd} className="space-y-3">
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input
                 type="text"
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
                 placeholder="Name (e.g. Heavy Cream)"
-                className="flex-1 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+                className="flex-1 min-w-0 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
               />
               <input
                 type="text"
                 value={newUnit}
                 onChange={e => setNewUnit(e.target.value)}
                 placeholder="Unit"
-                className="w-28 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+                className="w-24 shrink-0 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
               />
               <input
                 type="number"
@@ -337,16 +337,16 @@ export default function Ingredients() {
                 placeholder="Alert at"
                 min="0"
                 step="0.5"
-                className="w-24 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+                className="w-24 shrink-0 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
               />
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input
                 type="text"
                 value={newContainerUnit}
                 onChange={e => setNewContainerUnit(e.target.value)}
                 placeholder="Container type (e.g. bag, barrel)"
-                className="flex-1 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+                className="flex-1 min-w-0 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
               />
               <input
                 type="number"
@@ -355,7 +355,7 @@ export default function Ingredients() {
                 placeholder="Size per container"
                 min="0"
                 step="any"
-                className="w-40 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+                className="w-40 shrink-0 border border-store-tan rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
               />
             </div>
             <button

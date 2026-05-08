@@ -96,6 +96,7 @@ Charts and stats filtered by 7 Days / 30 Days / All Time.
 Manage raw ingredient inventory:
 - Tap quantity to edit inline
 - Set low-stock threshold per ingredient
+- Set **container size** per ingredient inline (e.g. "50 lbs per bag") — required for auto-deduction to work; rows without it show an amber "Set container size" prompt
 - Archive / restore ingredients
 - **Recent Deductions** section — last 50 auto-deductions with date, flavor, ingredient, amount
 
@@ -103,11 +104,11 @@ Manage raw ingredient inventory:
 
 ### Admin / Products (`/admin`) — Admin only
 Manage flavors and component inventory:
-- Add new flavors with name, product type (fudge/popcorn), stock unit (tray/barrel), and thresholds
+- **Add new product** with name, type (Fudge / Popcorn toggle), default yield, alert threshold, and optional "tracks shelf buckets" flag for popcorn — automatically creates the inventory row on add
 - Click tray/barrel count to edit inline — supports `X Y/18` fraction format for Caramel
 - Toggle flavors active/inactive (inactive flavors disappear from reports and dashboard)
 - Restore archived flavors
-- Set `default_yield`, `tracks_shelf_buckets`, and bucket alert thresholds per flavor
+- Set bucket alert thresholds (small/large) per shelf-tracked flavor
 
 ---
 
