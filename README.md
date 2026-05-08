@@ -72,25 +72,23 @@ For Sea Salt Caramel batches, `deductCaramelComponent` also runs:
 ### Analytics (`/analytics`) — Admin only
 Charts and stats filtered by 7 Days / 30 Days / All Time.
 
-**Summary cards (always visible)**
-- Fudge trays in stock
-- Popcorn barrels in stock
-- Caramel trays in stock (computed from batch history, shown as e.g. `1 6/18`)
+**Summary cards (always visible, all three modes)**
+- **Fudge trays** — trays in stock + trays sold + trays wasted (for the selected time range)
+- **Popcorn barrels** — barrels in stock + total buckets on shelf + barrels sold + batches wasted
+- **Caramel trays** — trays in stock (computed from batch history, shown as e.g. `1 6/18`) + batches wasted
 
 **Fudge mode**
-- Sold / Wasted / In Stock summary cards
 - Sales bar chart — trays sold per day by flavor
 - Waste bar chart + detail table (date, flavor, trays, reason)
 - Stock Trend line chart — inventory level per flavor over time
 
 **Caramel mode**
-- Stock Trend line chart — starts at the full stocked count on the first caramel batch date, drops when SSC batches are logged
+- Stock Trend line chart — starts at full peak on the first caramel batch date, drops each time SSC batches are logged; no data points plotted before the first caramel batch
 
 **Popcorn mode**
-- Batches Made / Wasted summary cards
 - Barrels Sold bar chart
 - Wasted Batches bar chart
-- Shelves sub-view (Caramel Corn / Nut Caramel Corn only): Buckets Made + Bucket Sales line/bar charts
+- Shelves sub-view (Caramel Corn / Nut Caramel Corn only): Buckets Made line chart + Bucket Sales bar chart, both broken out into four series — Small Caramel Corn, Large Caramel Corn, Small Nut Caramel Corn, Large Nut Caramel Corn
 
 ---
 
