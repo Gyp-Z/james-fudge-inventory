@@ -349,59 +349,55 @@ export default function Analytics() {
         .map(f => [f.id, f.default_yield ?? 6])
     )
 
-    const relevantBatches = batchLogs.filter(b => {
+    const caramelBatches = batchLogs.filter(b => {
       if (b.is_wasted) return false
       const bDate = (b.batch_date ?? '').slice(0, 10)
-      if (bDate < SEASON_START) return false
-      return b.flavor_id === caramelFlavor.id || sscIdToYield.has(b.flavor_id)
+      return bDate >= SEASON_START && b.flavor_id === caramelFlavor.id
+    })
+    const sscBatches = batchLogs.filter(b => {
+      if (b.is_wasted) return false
+      const bDate = (b.batch_date ?? '').slice(0, 10)
+      return bDate >= SEASON_START && sscIdToYield.has(b.flavor_id)
     })
 
-    if (!relevantBatches.length) return []
+    if (!caramelBatches.length) return []
 
-    // Track additions (caramel made) and deductions (SSC used) separately per day
-    // so a day where both happen shows the peak before the dip
-    const dailyPos = {}
-    const dailyNeg = {}
-    relevantBatches.forEach(b => {
+    // Total caramel trays ever made — this is the peak the graph starts at
+    const caramelPeak = caramelBatches.length
+
+    // SSC deductions grouped by date
+    const sscByDate = {}
+    sscBatches.forEach(b => {
       const key = (b.batch_date ?? '').slice(0, 10)
-      if (b.flavor_id === caramelFlavor.id) {
-        dailyPos[key] = (dailyPos[key] ?? 0) + 1
-      } else {
-        dailyNeg[key] = (dailyNeg[key] ?? 0) - sscIdToYield.get(b.flavor_id) / 18
-      }
+      sscByDate[key] = (sscByDate[key] ?? 0) - sscIdToYield.get(b.flavor_id) / 18
     })
+
+    // Graph starts at the first caramel batch date showing the full peak —
+    // no step-by-step buildup, just "fully stocked" from day one
+    const firstCaramelDate = caramelBatches
+      .map(b => (b.batch_date ?? '').slice(0, 10))
+      .sort()[0]
 
     const todayStr = getDateStr(new Date())
-    const startStr = cutoffStr && cutoffStr > SEASON_START ? cutoffStr : SEASON_START
+    // Honor the range cutoff, but never start after firstCaramelDate
+    const effectiveStart = cutoffStr && cutoffStr > firstCaramelDate ? cutoffStr : firstCaramelDate
 
-    // Forward from 0: accumulate deltas before the visible range
-    let runningToStart = 0
-    const allEventDates = new Set([...Object.keys(dailyPos), ...Object.keys(dailyNeg)])
-    for (const d of allEventDates) {
-      if (d < startStr) runningToStart += (dailyPos[d] ?? 0) + (dailyNeg[d] ?? 0)
+    // Account for any SSC deductions that occurred before the visible range
+    let runningAtStart = caramelPeak
+    for (const [d, v] of Object.entries(sscByDate)) {
+      if (d < effectiveStart) runningAtStart += v
     }
 
     const rows = []
-    const cursor = new Date(startStr + 'T12:00:00')
-    let running = runningToStart
+    const cursor = new Date(effectiveStart + 'T12:00:00')
+    let running = runningAtStart
     while (cursor <= new Date(todayStr + 'T12:00:00')) {
       const ds = getDateStr(cursor)
-      const pos = dailyPos[ds] ?? 0
-      const neg = dailyNeg[ds] ?? 0
-
-      if (pos > 0) running += pos
-      // Same day: caramel made AND used for SSC — insert the peak before the dip
-      if (pos > 0 && neg < 0) {
-        rows.push({ date: formatDate(ds), [caramelFlavor.name]: Math.max(0, Math.round(running * 1000) / 1000) })
-      }
-      if (neg < 0) running += neg
-
+      if (sscByDate[ds]) running += sscByDate[ds]
       rows.push({ date: formatDate(ds), [caramelFlavor.name]: Math.max(0, Math.round(running * 1000) / 1000) })
       cursor.setDate(cursor.getDate() + 1)
     }
-    // Drop leading zero rows — nothing to plot before the first caramel event
-    const firstNonZero = rows.findIndex(r => r[caramelFlavor.name] > 0)
-    return firstNonZero >= 0 ? rows.slice(firstNonZero) : []
+    return rows
   }, [batchLogs, allFlavorsList, componentFlavors, cutoffStr])
 
   const popcornWasteTotals = useMemo(() => {
