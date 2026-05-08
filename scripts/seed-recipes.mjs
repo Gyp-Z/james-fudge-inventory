@@ -64,7 +64,7 @@ const BROWN_SUGAR_BASE = VANILLA_BASE.map(i =>
 const PEANUT_BUTTER_BASE = VANILLA_BASE.map(i =>
   i.name === 'Butter' ? { ...i, qty: 2.5 } : i
 ).concat([
-  { name: 'Peanuts', unit: 'lbs', qty: 4 },
+  { name: 'Peanuts', unit: 'lbs', qty: 5 },
 ])
 
 // Caramel base (Trey's recipe) — completely different, 2 trays per batch
@@ -404,15 +404,17 @@ async function main() {
 
     if (rows.length === 0) continue
 
-    const { error } = await supabase
-      .from('recipes')
-      .upsert(rows, { onConflict: 'flavor_id,ingredient_id' })
+    // Delete existing rows first so re-running always produces a clean state
+    // (avoids stale duplicates when ingredient IDs change between runs)
+    await supabase.from('recipes').delete().eq('flavor_id', flavorId)
+
+    const { error } = await supabase.from('recipes').insert(rows)
 
     if (error) {
-      console.error(`  ✗ Upsert failed for ${flavorName}:`, error.message)
+      console.error(`  ✗ Insert failed for ${flavorName}:`, error.message)
       totalWarnings++
     } else {
-      console.log(`  ✓ Upserted ${rows.length} recipe rows`)
+      console.log(`  ✓ Inserted ${rows.length} recipe rows`)
       totalUpserted += rows.length
     }
   }
