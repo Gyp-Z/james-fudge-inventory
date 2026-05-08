@@ -478,9 +478,9 @@ export default function Analytics() {
           <p className="text-2xl font-bold text-store-brown">{stockSnapshot.fudgeTrays}</p>
           <p className="text-xs text-store-brown-light mt-0.5">Fudge trays</p>
           <p className="text-base font-semibold text-store-green mt-1">{fudgeTotals.sold}</p>
-          <p className="text-xs text-store-brown-light">Sold (trays)</p>
+          <p className="text-xs text-store-brown-light">Trays sold</p>
           <p className="text-base font-semibold text-amber-600 mt-1">{fudgeTotals.wasted}</p>
-          <p className="text-xs text-store-brown-light">Wasted (trays)</p>
+          <p className="text-xs text-store-brown-light">Trays wasted</p>
         </div>
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-amber-700">{stockSnapshot.popcornBarrels}</p>
@@ -500,7 +500,7 @@ export default function Analytics() {
           })()}</p>
           <p className="text-xs text-store-brown-light mt-0.5">Caramel trays</p>
           <p className="text-base font-semibold text-amber-600 mt-1">{caramelWasted}</p>
-          <p className="text-xs text-store-brown-light">Wasted {caramelWasted === 1 ? 'batch' : 'batches'}</p>
+          <p className="text-xs text-store-brown-light">Batches wasted</p>
         </div>
       </div>
 
