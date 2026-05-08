@@ -287,14 +287,21 @@ export default function Analytics() {
   const barrelsMadeData = useMemo(() => {
     const flavorById = new Map(popcornFlavors.map(f => [f.id, f]))
     const byDate = {}
-    filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && !b.is_wasted).forEach(b => {
+    filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && !b.is_wasted && b.batch_quantity != null).forEach(b => {
       const d = (b.batch_date ?? '').slice(0, 10)
       const f = flavorById.get(b.flavor_id)
       if (!f) return
       if (!byDate[d]) byDate[d] = {}
-      byDate[d][f.name] = (byDate[d][f.name] ?? 0) + (f.default_yield ?? 1)
+      byDate[d][f.name] = (byDate[d][f.name] ?? 0) + b.batch_quantity
     })
-    return Object.entries(byDate).sort().map(([d, v]) => ({ date: formatDate(d), ...v }))
+    const keys = [...new Set(popcornFlavors.map(f => f.name))]
+    const running = Object.fromEntries(keys.map(k => [k, 0]))
+    return Object.entries(byDate).sort()
+      .map(([d, v]) => {
+        keys.forEach(k => { running[k] += v[k] ?? 0 })
+        return { date: formatDate(d), ...running }
+      })
+      .filter(row => keys.some(k => (row[k] ?? 0) > 0))
   }, [filteredBatchLogs, viewPopcornIds, popcornFlavors])
 
   const barrelsSoldData = useMemo(() => {
@@ -686,19 +693,19 @@ export default function Analytics() {
             <>
               <div>
                 <h3 className="font-semibold text-amber-900 mb-1">Barrels Made</h3>
-                <p className="text-xs text-amber-700 mb-3">Barrels produced per day by flavor</p>
+                <p className="text-xs text-amber-700 mb-3">Cumulative barrels produced over time</p>
                 {barrelsMadeData.length > 0 ? (
                   <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
+                    <LineChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
                       <XAxis dataKey="date" {...xProps} />
-                      <YAxis {...yProps} />
+                      <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
                       <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
                       {viewPopcornFlavors.map((f, i) => (
-                        <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
+                        <Line key={f.id} type="monotone" dataKey={f.name} stroke={POPCORN_COLORS[i % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
                       ))}
-                    </BarChart>
+                    </LineChart>
                   </ResponsiveContainer>
                 ) : empty('No popcorn batches logged yet.')}
               </div>

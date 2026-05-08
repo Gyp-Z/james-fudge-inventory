@@ -76,6 +76,7 @@ export default function Batch() {
       notes = `Popping rounds: ${rounds}`
     }
 
+    const batchQtyForInsert = parseFloat(quantity) || (selectedFlavor.default_yield ?? (isPopcorn ? 1 : 3))
     const { data: inserted, error: insertError } = await supabase
       .from('batch_logs')
       .insert({
@@ -83,6 +84,7 @@ export default function Batch() {
         batch_date: todayStr,
         weight_lbs: weightLbs ? parseFloat(weightLbs) : null,
         notes,
+        ...(isPopcorn ? { batch_quantity: batchQtyForInsert } : {}),
       })
       .select('id')
       .single()
@@ -94,7 +96,7 @@ export default function Batch() {
     }
 
     const batchLogId = inserted.id
-    const batchQty = parseFloat(quantity) || (selectedFlavor.default_yield ?? (isPopcorn ? 1 : 3))
+    const batchQty = batchQtyForInsert
 
     // Fire auto-deduction and (for popcorn) barrel count increment in parallel
     const [{ deductions, negatives }] = await Promise.all([
