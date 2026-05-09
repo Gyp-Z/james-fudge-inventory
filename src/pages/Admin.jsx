@@ -271,7 +271,7 @@ function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEdi
   const isLow = !isOut && count <= threshold
 
   return (
-    <div className="bg-white rounded-xl border border-store-tan shadow-sm overflow-hidden">
+    <div className="bg-white rounded-xl border border-store-tan shadow-sm">
       <div className="p-3 flex sm:items-center justify-between gap-4 flex-col sm:flex-row">
         <div className="flex items-start sm:items-center gap-2 flex-1">
           <span className="text-sm font-medium text-store-brown leading-tight">{f.name}</span>
@@ -395,7 +395,7 @@ function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEdi
       </div>
 
       {showRecipe && recipe.length > 0 && (
-        <div className="border-t border-store-tan px-4 py-3 bg-store-cream">
+        <div className="border-t border-store-tan px-4 py-3 bg-store-cream rounded-b-xl">
           <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide mb-2">Recipe — per batch</p>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1">
             {recipe.sort((a, b) => a.name.localeCompare(b.name)).map((r, i) => (
