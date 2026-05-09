@@ -298,12 +298,18 @@ export default function Analytics() {
       })
     const keys = [...new Set(popcornFlavors.map(f => f.name))]
     const running = Object.fromEntries(keys.map(k => [k, null]))
-    return Object.entries(byDate).sort()
+    const rows = Object.entries(byDate).sort()
       .map(([d, v]) => {
         keys.forEach(k => { if (v[k] != null) running[k] = (running[k] ?? 0) + v[k] })
-        return { date: formatDate(d), ...running }
+        return { date: formatDate(d), _dateStr: d, ...running }
       })
       .filter(row => keys.some(k => (row[k] ?? 0) > 0))
+    const todayStr = getDateStr(new Date())
+    if (rows.length > 0 && rows[rows.length - 1]._dateStr < todayStr) {
+      rows.push({ date: formatDate(todayStr), _dateStr: todayStr, ...running })
+    }
+    rows.forEach(r => delete r._dateStr)
+    return rows
   }, [filteredBucketLogs, viewPopcornIds, popcornFlavors])
 
   const barrelsSoldData = useMemo(() => {
@@ -350,12 +356,18 @@ export default function Analytics() {
     })
     const keys = shelfFlavors.flatMap(f => [`Small ${f.name}`, `Large ${f.name}`])
     const running = Object.fromEntries(keys.map(k => [k, 0]))
-    return Object.entries(byDate).sort()
+    const rows = Object.entries(byDate).sort()
       .map(([d, v]) => {
         keys.forEach(k => { running[k] += v[k] ?? 0 })
-        return { date: formatDate(d), ...running }
+        return { date: formatDate(d), _dateStr: d, ...running }
       })
       .filter(row => keys.some(k => (row[k] ?? 0) > 0))
+    const todayStr = getDateStr(new Date())
+    if (rows.length > 0 && rows[rows.length - 1]._dateStr < todayStr) {
+      rows.push({ date: formatDate(todayStr), _dateStr: todayStr, ...running })
+    }
+    rows.forEach(r => delete r._dateStr)
+    return rows
   }, [filteredBucketLogs, shelfFlavors, viewPopcornIds])
 
   const componentFlavorIds = useMemo(
