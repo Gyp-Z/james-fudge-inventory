@@ -205,21 +205,21 @@ export default function Admin() {
             </div>
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
-            <div className="flex-1 flex items-center gap-2 border border-store-tan rounded-xl px-4 py-2.5 bg-store-cream">
+            <div className="flex-1 min-w-0 flex items-center gap-2 border border-store-tan rounded-xl px-4 py-2.5 bg-store-cream">
               <span className="text-xs text-store-brown-light whitespace-nowrap">Default yield</span>
               <input
                 type="number" value={newYield} onChange={e => setNewYield(e.target.value)}
                 min="0" step="0.5"
-                className="flex-1 min-w-0 bg-transparent text-sm text-store-brown focus:outline-none text-right"
+                className="w-12 min-w-0 bg-transparent text-sm text-store-brown focus:outline-none text-right"
               />
               <span className="text-xs text-store-brown-light shrink-0">{newType === 'popcorn' ? 'barrels' : 'trays'}</span>
             </div>
-            <div className="flex-1 flex items-center gap-2 border border-store-tan rounded-xl px-4 py-2.5 bg-store-cream">
+            <div className="flex-1 min-w-0 flex items-center gap-2 border border-store-tan rounded-xl px-4 py-2.5 bg-store-cream">
               <span className="text-xs text-store-brown-light whitespace-nowrap">Alert at</span>
               <input
                 type="number" value={newThreshold} onChange={e => setNewThreshold(e.target.value)}
                 min="0" step="1"
-                className="flex-1 min-w-0 bg-transparent text-sm text-store-brown focus:outline-none text-right"
+                className="w-12 min-w-0 bg-transparent text-sm text-store-brown focus:outline-none text-right"
               />
               <span className="text-xs text-store-brown-light shrink-0">{newType === 'popcorn' ? 'barrels' : 'trays'}</span>
             </div>
