@@ -328,7 +328,7 @@ export default function Analytics() {
     const shelfIds = new Set(shelfFlavors.map(f => f.id))
     const flavorById = new Map(shelfFlavors.map(f => [f.id, f.name]))
     const byDate = {}
-    filteredBucketLogs.filter(b => shelfIds.has(b.flavor_id) && viewPopcornIds.has(b.flavor_id)).forEach(b => {
+    filteredBucketLogs.filter(b => shelfIds.has(b.flavor_id)).forEach(b => {
       const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
       const fname = flavorById.get(b.flavor_id)
       if (!fname) return
@@ -340,13 +340,13 @@ export default function Analytics() {
     return Object.entries(byDate).sort()
       .map(([d, v]) => ({ date: formatDate(d), ...v }))
       .filter(row => keys.some(k => (row[k] ?? 0) > 0))
-  }, [filteredBucketLogs, shelfFlavors, viewPopcornIds])
+  }, [filteredBucketLogs, shelfFlavors])
 
   const bucketsMadeData = useMemo(() => {
     const shelfIds = new Set(shelfFlavors.map(f => f.id))
     const flavorById = new Map(shelfFlavors.map(f => [f.id, f.name]))
     const byDate = {}
-    filteredBucketLogs.filter(b => shelfIds.has(b.flavor_id) && viewPopcornIds.has(b.flavor_id)).forEach(b => {
+    filteredBucketLogs.filter(b => shelfIds.has(b.flavor_id)).forEach(b => {
       const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
       const fname = flavorById.get(b.flavor_id)
       if (!fname) return
@@ -368,7 +368,7 @@ export default function Analytics() {
     }
     rows.forEach(r => delete r._dateStr)
     return rows
-  }, [filteredBucketLogs, shelfFlavors, viewPopcornIds])
+  }, [filteredBucketLogs, shelfFlavors])
 
   const componentFlavorIds = useMemo(
     () => new Set(componentFlavors.map(f => f.id)),
@@ -760,7 +760,7 @@ export default function Analytics() {
             </>
           )}
 
-          {(shelvesOnly || viewPopcornFlavors.some(f => f.tracks_shelf_buckets)) && (
+          {shelfFlavors.length > 0 && (
             <>
               <div>
                 <h3 className="font-semibold text-amber-900 mb-1">Buckets Made</h3>
