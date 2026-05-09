@@ -215,19 +215,7 @@ export default function ShiftReport() {
           )
         }
 
-        // Popcorn batches: increment barrel_count and log to shelf_bucket_logs
-        if (flavor.product_type === 'popcorn' && !isWasted) {
-          const batchYield = flavor.default_yield ?? 1
-          const { data: inv } = await supabase.from('current_inventory').select('barrel_count').eq('flavor_id', flavor.id).single()
-          await supabase.from('current_inventory').upsert(
-            { flavor_id: flavor.id, barrel_count: (inv?.barrel_count ?? 0) + batchYield },
-            { onConflict: 'flavor_id' }
-          )
-          await supabase.from('shelf_bucket_logs').insert({
-            flavor_id: flavor.id,
-            barrels_added: batchYield,
-          })
-        }
+
       }
     }
 
