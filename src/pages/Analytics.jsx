@@ -351,8 +351,8 @@ export default function Analytics() {
       const fname = flavorById.get(b.flavor_id)
       if (!fname) return
       if (!byDate[d]) byDate[d] = {}
-      byDate[d][`Small ${fname}`] = (byDate[d][`Small ${fname}`] ?? 0) + (b.small_buckets_made ?? 0)
-      byDate[d][`Large ${fname}`] = (byDate[d][`Large ${fname}`] ?? 0) + (b.large_buckets_made ?? 0)
+      byDate[d][`Small ${fname}`] = (byDate[d][`Small ${fname}`] ?? 0) + (b.small_buckets_made ?? 0) - (b.small_buckets_sold ?? 0)
+      byDate[d][`Large ${fname}`] = (byDate[d][`Large ${fname}`] ?? 0) + (b.large_buckets_made ?? 0) - (b.large_buckets_sold ?? 0)
     })
     const keys = shelfFlavors.flatMap(f => [`Small ${f.name}`, `Large ${f.name}`])
     const running = Object.fromEntries(keys.map(k => [k, 0]))
@@ -763,8 +763,8 @@ export default function Analytics() {
           {shelfFlavors.length > 0 && (
             <>
               <div>
-                <h3 className="font-semibold text-amber-900 mb-1">Buckets Made</h3>
-                <p className="text-xs text-amber-700 mb-3">Cumulative buckets made over time</p>
+                <h3 className="font-semibold text-amber-900 mb-1">Buckets on Shelf</h3>
+                <p className="text-xs text-amber-700 mb-3">Net buckets on shelf (made minus sold)</p>
                 {bucketsMadeData.length > 0 ? (
                   <ResponsiveContainer width="100%" height={300}>
                     <LineChart data={bucketsMadeData} margin={{ left: 0, right: 16 }}>
