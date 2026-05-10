@@ -766,7 +766,7 @@ export default function Analytics() {
             </>
           )}
 
-          {shelfFlavors.length > 0 && (
+          {viewShelfFlavors.length > 0 && (
             <>
               <div>
                 <h3 className="font-semibold text-amber-900 mb-1">Buckets on Shelf</h3>
