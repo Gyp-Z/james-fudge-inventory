@@ -123,8 +123,10 @@ export default function Analytics() {
     [viewPopcornFlavors]
   )
   const viewShelfFlavors = useMemo(
-    () => shelfFlavors.filter(f => viewPopcornIds.has(f.id)),
-    [shelfFlavors, viewPopcornIds]
+    () => selectedFlavors === null
+      ? shelfFlavors
+      : shelfFlavors.filter(f => selectedFlavors.has(f.id)),
+    [shelfFlavors, selectedFlavors]
   )
 
   function handleGroupChange(g) {
