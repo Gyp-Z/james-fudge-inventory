@@ -122,6 +122,10 @@ export default function Analytics() {
     () => new Set(viewPopcornFlavors.map(f => f.id)),
     [viewPopcornFlavors]
   )
+  const viewShelfFlavors = useMemo(
+    () => shelfFlavors.filter(f => viewPopcornIds.has(f.id)),
+    [shelfFlavors, viewPopcornIds]
+  )
 
   function handleGroupChange(g) {
     setGroupFilter(g)
@@ -325,8 +329,8 @@ export default function Analytics() {
   }, [filteredBucketLogs, viewPopcornIds, popcornFlavors])
 
   const bucketSalesData = useMemo(() => {
-    const shelfIds = new Set(shelfFlavors.map(f => f.id))
-    const flavorById = new Map(shelfFlavors.map(f => [f.id, f.name]))
+    const shelfIds = new Set(viewShelfFlavors.map(f => f.id))
+    const flavorById = new Map(viewShelfFlavors.map(f => [f.id, f.name]))
     const byDate = {}
     filteredBucketLogs.filter(b => shelfIds.has(b.flavor_id)).forEach(b => {
       const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
@@ -336,15 +340,15 @@ export default function Analytics() {
       byDate[d][`Small ${fname}`] = (byDate[d][`Small ${fname}`] ?? 0) + (b.small_buckets_sold ?? 0)
       byDate[d][`Large ${fname}`] = (byDate[d][`Large ${fname}`] ?? 0) + (b.large_buckets_sold ?? 0)
     })
-    const keys = shelfFlavors.flatMap(f => [`Small ${f.name}`, `Large ${f.name}`])
+    const keys = viewShelfFlavors.flatMap(f => [`Small ${f.name}`, `Large ${f.name}`])
     return Object.entries(byDate).sort()
       .map(([d, v]) => ({ date: formatDate(d), ...v }))
       .filter(row => keys.some(k => (row[k] ?? 0) > 0))
-  }, [filteredBucketLogs, shelfFlavors])
+  }, [filteredBucketLogs, viewShelfFlavors])
 
   const bucketsMadeData = useMemo(() => {
-    const shelfIds = new Set(shelfFlavors.map(f => f.id))
-    const flavorById = new Map(shelfFlavors.map(f => [f.id, f.name]))
+    const shelfIds = new Set(viewShelfFlavors.map(f => f.id))
+    const flavorById = new Map(viewShelfFlavors.map(f => [f.id, f.name]))
     const byDate = {}
     filteredBucketLogs.filter(b => shelfIds.has(b.flavor_id)).forEach(b => {
       const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
@@ -354,7 +358,7 @@ export default function Analytics() {
       byDate[d][`Small ${fname}`] = (byDate[d][`Small ${fname}`] ?? 0) + (b.small_buckets_made ?? 0) - (b.small_buckets_sold ?? 0)
       byDate[d][`Large ${fname}`] = (byDate[d][`Large ${fname}`] ?? 0) + (b.large_buckets_made ?? 0) - (b.large_buckets_sold ?? 0)
     })
-    const keys = shelfFlavors.flatMap(f => [`Small ${f.name}`, `Large ${f.name}`])
+    const keys = viewShelfFlavors.flatMap(f => [`Small ${f.name}`, `Large ${f.name}`])
     const running = Object.fromEntries(keys.map(k => [k, 0]))
     const rows = Object.entries(byDate).sort()
       .map(([d, v]) => {
@@ -368,7 +372,7 @@ export default function Analytics() {
     }
     rows.forEach(r => delete r._dateStr)
     return rows
-  }, [filteredBucketLogs, shelfFlavors])
+  }, [filteredBucketLogs, viewShelfFlavors])
 
   const componentFlavorIds = useMemo(
     () => new Set(componentFlavors.map(f => f.id)),
@@ -773,7 +777,7 @@ export default function Analytics() {
                       <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
                       <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      {shelfFlavors.flatMap((f, fi) => [
+                      {viewShelfFlavors.flatMap((f, fi) => [
                         <Line key={`small-${f.id}`} type="monotone" dataKey={`Small ${f.name}`} stroke={POPCORN_COLORS[fi * 2 % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />,
                         <Line key={`large-${f.id}`} type="monotone" dataKey={`Large ${f.name}`} stroke={POPCORN_COLORS[(fi * 2 + 1) % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />,
                       ])}
@@ -793,7 +797,7 @@ export default function Analytics() {
                       <YAxis {...yProps} />
                       <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      {shelfFlavors.flatMap((f, fi) => [
+                      {viewShelfFlavors.flatMap((f, fi) => [
                         <Bar key={`small-${f.id}`} dataKey={`Small ${f.name}`} fill={POPCORN_COLORS[fi * 2 % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />,
                         <Bar key={`large-${f.id}`} dataKey={`Large ${f.name}`} fill={POPCORN_COLORS[(fi * 2 + 1) % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />,
                       ])}
