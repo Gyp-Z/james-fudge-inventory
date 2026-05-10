@@ -86,9 +86,10 @@ Charts and stats filtered by 7 Days / 30 Days / All Time.
 - Stock Trend line chart — starts at full peak on the first caramel batch date, drops each time SSC batches are logged; no data points plotted before the first caramel batch
 
 **Popcorn mode**
+- Barrels Made cumulative line chart
 - Barrels Sold bar chart
 - Wasted Batches bar chart
-- Shelves sub-view (Caramel Corn / Nut Caramel Corn only): Buckets Made line chart + Bucket Sales bar chart, both broken out into four series — Small Caramel Corn, Large Caramel Corn, Small Nut Caramel Corn, Large Nut Caramel Corn
+- **Buckets on Shelf** line chart + **Bucket Sales** bar chart — only shown when the selected flavor(s) track shelf buckets (Caramel Corn / Nut Caramel Corn). Selecting a non-shelf flavor like Cheddar Corn hides the bucket section entirely. Each chart breaks out into Small/Large series per shelf flavor. Clicking a flavor pill (e.g. Caramel Corn) filters both bucket charts to that flavor only; deselecting shows all shelf flavors.
 
 ---
 

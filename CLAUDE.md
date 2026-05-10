@@ -4,6 +4,50 @@ This file is for Claude / AI agents working on this codebase. Not user-facing.
 
 ---
 
+## What This App Is
+
+James' Fudge is a family-owned fudge and popcorn shop in Sea Isle City, NJ. It runs a tight summer operation — small staff, daily production, and a lot of product moving in and out. Before this app, everything was tracked by memory and whiteboard handoff between shifts.
+
+This app gives the owner and staff real-time visibility into stock, production, and ingredients without needing any technical knowledge. It runs on a tablet in the kitchen.
+
+---
+
+## Daily Workflow
+
+**Morning (staff)**
+1. Open Dashboard — check what's on the shelf from yesterday, what flavors are low
+2. See Caramel tray count to know if SSC can still be made
+3. Check Popcorn Shelves section to see how many small/large buckets of Caramel Corn and Nut Caramel Corn are out
+
+**During the day (staff)**
+- When a batch is made: open Shift Report → Products tab → log the batch. This auto-deducts recipe ingredients from stock.
+- When barrels of popcorn move to shelf: log barrel/bucket movements in the Products tab
+- When an order of supplies arrives: Shift Report → Ingredients tab → Order Received
+
+**End of shift (staff)**
+- Submit the Products report: trays sold, trays wasted (with reason), in-progress counts
+- The report is additive — staff can submit multiple times per day, each submission adds deltas
+
+**Admin (owner only)**
+- Analytics tab: review trends — what's selling, what's being wasted, how long stock lasts
+- Ingredients tab: adjust quantities after a physical recount, set thresholds, review auto-deduction log
+- Admin tab: add/deactivate flavors, set yield and alert thresholds, manage bucket alert thresholds for shelf-tracked popcorn flavors
+
+---
+
+## Jarvis Context
+
+When helping with this codebase, keep this business context in mind:
+
+- **Staff are non-technical.** The UI must be simple and forgiving. Large tap targets, clear labels, minimal steps.
+- **The owner wants numbers, not complexity.** Analytics should be readable at a glance — summaries first, charts second.
+- **Recipes and ingredient deductions are load-bearing.** A wrong deduction multiplier or unit conversion silently breaks ingredient stock counts. Be careful with recipe math.
+- **The season runs ~May–September.** `SEASON_START = '2026-04-22'` is the anchor for all running totals. Pre-season test data exists in the DB but is excluded from charts and caramel calculations.
+- **Caramel is not sold directly.** It's a component that feeds Sea Salt Caramel fudge. Its count is computed forward from batch logs, not read from `current_inventory` — because the stored value drifts if SSC deductions ever had wrong yields.
+- **Shelf buckets (Caramel Corn, Nut Caramel Corn) are separate from barrels.** Barrels are the production unit; buckets are the retail unit. `shelf_bucket_logs` tracks both the fill event and the sale event.
+
+---
+
 ## Stack
 
 React 19 + Vite + Tailwind CSS v4 + Supabase JS + Recharts. Deployed on Vercel.
