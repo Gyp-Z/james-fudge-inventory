@@ -224,12 +224,6 @@ export default function Admin() {
               <span className="text-xs text-store-brown-light shrink-0">{newType === 'popcorn' ? 'barrels' : 'trays'}</span>
             </div>
           </div>
-          {newType === 'popcorn' && (
-            <label className="flex items-center gap-3 px-4 py-2.5 border border-store-tan rounded-xl bg-store-cream cursor-pointer">
-              <input type="checkbox" checked={newTracksShelf} onChange={e => setNewTracksShelf(e.target.checked)} className="accent-store-green w-4 h-4" />
-              <span className="text-sm text-store-brown">Tracks shelf buckets (Caramel Corn, Nut Caramel Corn)</span>
-            </label>
-          )}
           <button type="submit" disabled={adding || !newName.trim()} className="w-full bg-store-green hover:bg-store-green-dark text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50">
             {adding ? 'Adding…' : 'Add Product'}
           </button>
@@ -250,19 +244,9 @@ function parseCaramelInput(s) {
 
 function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEditingThresholdId, setEditThreshold, saveThreshold, toggleActive, onSaveCount }) {
   const [showRecipe, setShowRecipe] = useState(false)
-  const [smallBucket, setSmallBucket] = useState(f.low_small_bucket_threshold ?? 0)
-  const [largeBucket, setLargeBucket] = useState(f.low_large_bucket_threshold ?? 0)
-  const [editingBucket, setEditingBucket] = useState(false)
   const [editingCount, setEditingCount] = useState(false)
   const [countInput, setCountInput] = useState('')
 
-  async function saveBucketThresholds() {
-    await supabase.from('flavors').update({
-      low_small_bucket_threshold: Math.max(0, smallBucket),
-      low_large_bucket_threshold: Math.max(0, largeBucket),
-    }).eq('id', f.id)
-    setEditingBucket(false)
-  }
   const isPopcorn = f.product_type === 'popcorn'
   const unit = isPopcorn ? 'barrel' : 'tray'
   const units = isPopcorn ? 'barrels' : 'trays'
@@ -350,35 +334,6 @@ function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEdi
             >
               Alert at {threshold} {units}
             </button>
-          )}
-          {f.tracks_shelf_buckets && (
-            editingBucket ? (
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-store-brown-light">S</span>
-                <input
-                  type="number" min="0" step="1" autoFocus
-                  value={smallBucket}
-                  onChange={e => setSmallBucket(Number(e.target.value))}
-                  className="w-12 border border-store-tan rounded-lg px-1.5 py-1 text-xs text-center focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
-                />
-                <span className="text-xs text-store-brown-light">L</span>
-                <input
-                  type="number" min="0" step="1"
-                  value={largeBucket}
-                  onChange={e => setLargeBucket(Number(e.target.value))}
-                  className="w-12 border border-store-tan rounded-lg px-1.5 py-1 text-xs text-center focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
-                />
-                <button onClick={saveBucketThresholds} className="text-xs bg-store-green text-white px-2 py-1 rounded-lg hover:bg-store-green-dark transition-colors">Save</button>
-                <button onClick={() => { setEditingBucket(false); setSmallBucket(f.low_small_bucket_threshold ?? 0); setLargeBucket(f.low_large_bucket_threshold ?? 0) }} className="text-xs text-store-brown-light hover:text-store-brown px-2 py-1 rounded-lg transition-colors">Cancel</button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setEditingBucket(true)}
-                className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
-              >
-                Bucket S {smallBucket} L {largeBucket}
-              </button>
-            )
           )}
           {recipe.length > 0 && (
             <button

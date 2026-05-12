@@ -30,9 +30,7 @@ export default function ShiftReport() {
   const [popcornEntries, setPopcornEntries] = useState({}) // flavor_id -> { barrels_added, barrels_sold, small/large buckets made/sold }
   const [currentBarrels, setCurrentBarrels] = useState({}) // flavor_id -> barrel_count
   const [currentInProgressBarrels, setCurrentInProgressBarrels] = useState({}) // flavor_id -> in_progress_barrel_count
-  const [currentShelfBuckets, setCurrentShelfBuckets] = useState({}) // flavor_id -> { small, large }
   const [barrelThresholds, setBarrelThresholds] = useState({}) // flavor_id -> low_tray_threshold
-  const [bucketThresholds, setBucketThresholds] = useState({}) // flavor_id -> { small, large }
 
   // Batches tab state
   const [batchCounts, setBatchCounts] = useState({})
@@ -59,12 +57,10 @@ export default function ShiftReport() {
         { data: allFlavorsData },
         { data: ingredientsData },
         { data: invData },
-        { data: bucketLogsData },
       ] = await Promise.all([
         supabase.from('flavors').select('*').eq('is_active', true).order('product_type').order('name'),
         supabase.from('ingredients').select('id, name, quantity, unit').eq('is_active', true).order('name'),
         supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count, barrel_count, in_progress_barrel_count'),
-        supabase.from('shelf_bucket_logs').select('flavor_id, small_buckets_made, large_buckets_made, small_buckets_sold, large_buckets_sold'),
       ])
 
       const all = allFlavorsData || []
@@ -97,10 +93,6 @@ export default function ShiftReport() {
           barrels_added: 0,
           barrels_sold: 0,
           in_progress_barrels: 0,
-          small_buckets_made: 0,
-          large_buckets_made: 0,
-          small_buckets_sold: 0,
-          large_buckets_sold: 0,
         }
       })
       setPopcornEntries(popcornInit)
@@ -108,10 +100,6 @@ export default function ShiftReport() {
       const thresholdInit = {}
       popcornOnly.forEach(f => { thresholdInit[f.id] = f.low_tray_threshold ?? 1 })
       setBarrelThresholds(thresholdInit)
-
-      const bucketThresholdInit = {}
-      popcornOnly.forEach(f => { bucketThresholdInit[f.id] = { small: f.low_small_bucket_threshold ?? 0, large: f.low_large_bucket_threshold ?? 0 } })
-      setBucketThresholds(bucketThresholdInit)
 
       // Init ingredient forms
       const ingInit = {}
@@ -135,16 +123,6 @@ export default function ShiftReport() {
       setCurrentInProgress(inProgMap)
       setCurrentBarrels(barrelMap)
       setCurrentInProgressBarrels(inProgBarrelMap)
-
-      const bucketMap = {}
-      ;(bucketLogsData || []).forEach(row => {
-        const prev = bucketMap[row.flavor_id] || { small: 0, large: 0 }
-        bucketMap[row.flavor_id] = {
-          small: prev.small + (row.small_buckets_made ?? 0) - (row.small_buckets_sold ?? 0),
-          large: prev.large + (row.large_buckets_made ?? 0) - (row.large_buckets_sold ?? 0),
-        }
-      })
-      setCurrentShelfBuckets(bucketMap)
 
       // Today's totals for products tab
       const { data: todayReports } = await supabase
@@ -307,10 +285,6 @@ export default function ShiftReport() {
       const barrelsAdded = pe.barrels_added || 0
       const barrelsSold = pe.barrels_sold || 0
       const newInProgBarrels = pe.in_progress_barrels || 0
-      const madSmall = pe.small_buckets_made || 0
-      const madLarge = pe.large_buckets_made || 0
-      const soldSmall = pe.small_buckets_sold || 0
-      const soldLarge = pe.large_buckets_sold || 0
 
       // Update barrel_count: +added −sold; in_progress_barrel_count: +new, topped by added
       const netBarrelChange = barrelsAdded - barrelsSold
@@ -323,15 +297,9 @@ export default function ShiftReport() {
           .upsert({ flavor_id: f.id, barrel_count: newBarrels, in_progress_barrel_count: newInProgBarrelCount }, { onConflict: 'flavor_id' })
       }
 
-      // Log bucket + barrel activity
-      if (barrelsAdded > 0 || madSmall > 0 || madLarge > 0 || soldSmall > 0 || soldLarge > 0 || barrelsSold > 0) {
-        const logEntry = {
-          flavor_id: f.id,
-          small_buckets_made: madSmall,
-          large_buckets_made: madLarge,
-          small_buckets_sold: soldSmall,
-          large_buckets_sold: soldLarge,
-        }
+      // Log barrel activity
+      if (barrelsAdded > 0 || barrelsSold > 0) {
+        const logEntry = { flavor_id: f.id }
         if (barrelsAdded > 0) logEntry.barrels_added = barrelsAdded
         if (barrelsSold > 0) logEntry.barrels_used = barrelsSold
         await supabase.from('shelf_bucket_logs').insert(logEntry)
@@ -627,7 +595,7 @@ export default function ShiftReport() {
                 <div className="space-y-3">
                   <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide">Popcorn</p>
                   {allFlavors.filter(f => f.product_type === 'popcorn').map(f => {
-                    const pe = popcornEntries[f.id] || { barrels_added: 0, barrels_sold: 0, small_buckets_made: 0, large_buckets_made: 0, small_buckets_sold: 0, large_buckets_sold: 0 }
+                    const pe = popcornEntries[f.id] || { barrels_added: 0, barrels_sold: 0, in_progress_barrels: 0 }
                     return (
                       <div key={f.id} className="bg-amber-50 rounded-xl border border-amber-200 p-4 shadow-sm space-y-4">
                         <div className="flex items-center justify-between">
@@ -676,59 +644,6 @@ export default function ShiftReport() {
                           <Stepper value={pe.barrels_sold} onChange={v => setPopcornField(f.id, 'barrels_sold', v)} />
                         </div>
 
-                        {f.tracks_shelf_buckets && (
-                          <>
-                            <div className="flex gap-4 bg-amber-100 rounded-lg px-3 py-2 text-xs text-amber-800">
-                              <span className="font-medium">On shelf now:</span>
-                              <span>Small: {Math.max(0, currentShelfBuckets[f.id]?.small ?? 0)}</span>
-                              <span>Large: {Math.max(0, currentShelfBuckets[f.id]?.large ?? 0)}</span>
-                            </div>
-                            <div className="flex items-center gap-4">
-                              <span className="text-sm text-amber-800 flex-1">Alert thresholds</span>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-xs text-amber-700">Small</span>
-                                <input
-                                  type="number" min="0" step="1"
-                                  value={bucketThresholds[f.id]?.small ?? 0}
-                                  onChange={e => setBucketThresholds(prev => ({ ...prev, [f.id]: { ...prev[f.id], small: Number(e.target.value) } }))}
-                                  onBlur={async e => {
-                                    const val = Math.max(0, Number(e.target.value))
-                                    await supabase.from('flavors').update({ low_small_bucket_threshold: val }).eq('id', f.id)
-                                  }}
-                                  className="w-14 text-center border border-amber-300 rounded-lg px-2 py-1 text-sm text-amber-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
-                                />
-                                <span className="text-xs text-amber-700">Large</span>
-                                <input
-                                  type="number" min="0" step="1"
-                                  value={bucketThresholds[f.id]?.large ?? 0}
-                                  onChange={e => setBucketThresholds(prev => ({ ...prev, [f.id]: { ...prev[f.id], large: Number(e.target.value) } }))}
-                                  onBlur={async e => {
-                                    const val = Math.max(0, Number(e.target.value))
-                                    await supabase.from('flavors').update({ low_large_bucket_threshold: val }).eq('id', f.id)
-                                  }}
-                                  className="w-14 text-center border border-amber-300 rounded-lg px-2 py-1 text-sm text-amber-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
-                                />
-                              </div>
-                            </div>
-                            <div className="h-px bg-amber-200 my-1" />
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-amber-800">Small buckets made</span>
-                              <Stepper value={pe.small_buckets_made} onChange={v => setPopcornField(f.id, 'small_buckets_made', v)} />
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-amber-800">Large buckets made</span>
-                              <Stepper value={pe.large_buckets_made} onChange={v => setPopcornField(f.id, 'large_buckets_made', v)} />
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-amber-800">Small buckets sold</span>
-                              <Stepper value={pe.small_buckets_sold} onChange={v => setPopcornField(f.id, 'small_buckets_sold', v)} />
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-amber-800">Large buckets sold</span>
-                              <Stepper value={pe.large_buckets_sold} onChange={v => setPopcornField(f.id, 'large_buckets_sold', v)} />
-                            </div>
-                          </>
-                        )}
                       </div>
                     )
                   })}

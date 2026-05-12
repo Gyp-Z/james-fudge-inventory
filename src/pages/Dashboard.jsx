@@ -9,7 +9,6 @@ export default function Dashboard() {
   const [ingredients, setIngredients] = useState([])
   const [ingredientsLoading, setIngredientsLoading] = useState(true)
   const [yesterdayEntries, setYesterdayEntries] = useState({})
-  const [todayBuckets, setTodayBuckets] = useState({})
 
   useEffect(() => {
     async function loadIngredients() {
@@ -54,24 +53,6 @@ export default function Dashboard() {
     loadYesterday()
   }, [])
 
-  useEffect(() => {
-    async function loadBuckets() {
-      const { data, error } = await supabase
-        .from('shelf_bucket_logs')
-        .select('flavor_id, small_buckets_made, large_buckets_made, small_buckets_sold, large_buckets_sold')
-      if (error) return
-      const map = {}
-      ;(data || []).forEach(row => {
-        const prev = map[row.flavor_id] || { small: 0, large: 0 }
-        map[row.flavor_id] = {
-          small: prev.small + (row.small_buckets_made ?? 0) - (row.small_buckets_sold ?? 0),
-          large: prev.large + (row.large_buckets_made ?? 0) - (row.large_buckets_sold ?? 0),
-        }
-      })
-      setTodayBuckets(map)
-    }
-    loadBuckets()
-  }, [])
 
   useEffect(() => {
     async function load() {
@@ -194,8 +175,6 @@ export default function Dashboard() {
     const threshold = flavor.low_tray_threshold ?? 1
     const isOut = barrels === 0
     const isLow = !isOut && barrels <= threshold
-    const buckets = todayBuckets[flavor.id]
-
     const pillClass = isOut
       ? 'bg-red-50 border-red-300 text-red-700'
       : isLow ? 'bg-amber-50 border-amber-300 text-amber-700'
@@ -205,10 +184,6 @@ export default function Dashboard() {
       : isLow ? 'bg-amber-200 text-amber-800'
         : 'bg-store-green text-white'
 
-    const bucketParts = []
-    if (buckets?.small > 0) bucketParts.push(`${buckets.small}S`)
-    if (buckets?.large > 0) bucketParts.push(`${buckets.large}L`)
-
     return (
       <div key={flavor.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${pillClass}`}>
         <span>{flavor.name}</span>
@@ -217,9 +192,6 @@ export default function Dashboard() {
         </span>
         {inProgressBarrels > 0 && (
           <span className="text-xs opacity-60">+{inProgressBarrels} in progress</span>
-        )}
-        {bucketParts.length > 0 && (
-          <span className="text-xs opacity-70">{bucketParts.join(' ')} on shelf</span>
         )}
       </div>
     )
@@ -346,45 +318,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {popcornFlavors.some(f => f.tracks_shelf_buckets) && (
-            <div>
-              <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">Popcorn Shelves</h3>
-              <div className="flex flex-wrap gap-2">
-                {popcornFlavors.filter(f => f.tracks_shelf_buckets).map(f => {
-                  const b = todayBuckets[f.id] || { small: 0, large: 0 }
-                  const smallThreshold = f.low_small_bucket_threshold ?? 0
-                  const largeThreshold = f.low_large_bucket_threshold ?? 0
-                  const smallOut = b.small === 0
-                  const largeOut = b.large === 0
-                  const smallLow = !smallOut && smallThreshold > 0 && b.small <= smallThreshold
-                  const largeLow = !largeOut && largeThreshold > 0 && b.large <= largeThreshold
-                  const isOut = smallOut && largeOut
-                  const isLow = !isOut && (smallLow || largeLow || (smallThreshold === 0 && largeThreshold === 0 && !isOut ? false : smallOut || largeOut))
-                  const pillClass = isOut
-                    ? 'bg-red-50 border-red-300 text-red-700'
-                    : (smallLow || largeLow || (smallThreshold > 0 && smallOut) || (largeThreshold > 0 && largeOut))
-                      ? 'bg-amber-50 border-amber-300 text-amber-700'
-                      : 'bg-store-green-light border-store-green text-store-green'
-                  const smallClass = smallOut
-                    ? 'text-red-600 font-bold'
-                    : smallLow ? 'text-amber-600 font-bold' : ''
-                  const largeClass = largeOut
-                    ? 'text-red-600 font-bold'
-                    : largeLow ? 'text-amber-600 font-bold' : ''
-                  return (
-                    <div key={f.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${pillClass}`}>
-                      <span>{f.name}</span>
-                      <span className="text-xs font-mono">
-                        <span className={smallClass}>{b.small}S</span>
-                        <span className="opacity-50"> / </span>
-                        <span className={largeClass}>{b.large}L</span>
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
         </div>
       )}
 

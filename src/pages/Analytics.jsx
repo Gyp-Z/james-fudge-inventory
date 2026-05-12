@@ -34,8 +34,6 @@ export default function Analytics() {
   const [groupFilter, setGroupFilter] = useState('fudge')
   // Set of flavor ids | null (null = all in group)
   const [selectedFlavors, setSelectedFlavors] = useState(null)
-  // Popcorn-only: narrow to shelf flavors (Caramel Corn, Nut Caramel Corn)
-  const [shelvesOnly, setShelvesOnly] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -93,17 +91,13 @@ export default function Analytics() {
     () => flavors.filter(f => f.is_component === true),
     [flavors]
   )
-  const shelfFlavors = useMemo(
-    () => popcornFlavors.filter(f => f.tracks_shelf_buckets),
-    [popcornFlavors]
-  )
 
   // Flavors shown in pills for the active group
   const groupFlavors = useMemo(() => {
-    if (groupFilter === 'popcorn') return shelvesOnly ? shelfFlavors : popcornFlavors
+    if (groupFilter === 'popcorn') return popcornFlavors
     if (groupFilter === 'caramel') return componentFlavors
     return fudgeFlavors
-  }, [groupFilter, fudgeFlavors, componentFlavors, popcornFlavors, shelfFlavors, shelvesOnly])
+  }, [groupFilter, fudgeFlavors, componentFlavors, popcornFlavors])
 
   // Flavors used by charts / summaries
   const visibleFlavors = useMemo(
@@ -122,21 +116,13 @@ export default function Analytics() {
     () => new Set(viewPopcornFlavors.map(f => f.id)),
     [viewPopcornFlavors]
   )
-  const viewShelfFlavors = useMemo(
-    () => selectedFlavors === null
-      ? shelfFlavors
-      : shelfFlavors.filter(f => selectedFlavors.has(f.id)),
-    [shelfFlavors, selectedFlavors]
-  )
 
   function handleGroupChange(g) {
     setGroupFilter(g)
     setSelectedFlavors(null)
-    setShelvesOnly(false)
   }
 
   function toggleFlavor(id) {
-    setShelvesOnly(false)
     setSelectedFlavors(prev => {
       if (prev === null) return new Set([id])
       const next = new Set(prev)
@@ -157,10 +143,7 @@ export default function Analytics() {
     fudgeTrays: fudgeFlavors.reduce((s, f) => s + (invMap[f.id]?.tray_count ?? 0), 0),
     popcornBarrels: popcornFlavors.reduce((s, f) => s + (invMap[f.id]?.barrel_count ?? 0), 0),
     caramelTrays: componentFlavors.reduce((s, f) => s + (invMap[f.id]?.tray_count ?? 0), 0),
-    totalBuckets: bucketLogs.reduce((s, b) =>
-      s + (b.small_buckets_made ?? 0) + (b.large_buckets_made ?? 0)
-        - (b.small_buckets_sold ?? 0) - (b.large_buckets_sold ?? 0), 0),
-  }), [invMap, fudgeFlavors, popcornFlavors, componentFlavors, bucketLogs])
+  }), [invMap, fudgeFlavors, popcornFlavors, componentFlavors])
 
   // In Stock for the mode-specific summary card
   const inStockValue = useMemo(() => {
@@ -175,13 +158,12 @@ export default function Analytics() {
         .reduce((s, f) => s + (invMap[f.id]?.tray_count ?? 0), 0)
     }
     if (groupFilter === 'popcorn') {
-      const base = shelvesOnly ? shelfFlavors : popcornFlavors
-      return base
+      return popcornFlavors
         .filter(f => selectedFlavors === null || selectedFlavors.has(f.id))
         .reduce((s, f) => s + (invMap[f.id]?.barrel_count ?? 0), 0)
     }
     return null
-  }, [groupFilter, selectedFlavors, fudgeFlavors, componentFlavors, popcornFlavors, shelfFlavors, shelvesOnly, invMap])
+  }, [groupFilter, selectedFlavors, fudgeFlavors, componentFlavors, popcornFlavors, invMap])
 
   // ── Date filtering ────────────────────────────────────────────────────────
   const cutoffStr = useMemo(() => {
@@ -330,51 +312,6 @@ export default function Analytics() {
     return Object.entries(byDate).sort().map(([d, v]) => ({ date: formatDate(d), ...v }))
   }, [filteredBucketLogs, viewPopcornIds, popcornFlavors])
 
-  const bucketSalesData = useMemo(() => {
-    const shelfIds = new Set(viewShelfFlavors.map(f => f.id))
-    const flavorById = new Map(viewShelfFlavors.map(f => [f.id, f.name]))
-    const byDate = {}
-    filteredBucketLogs.filter(b => shelfIds.has(b.flavor_id)).forEach(b => {
-      const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-      const fname = flavorById.get(b.flavor_id)
-      if (!fname) return
-      if (!byDate[d]) byDate[d] = {}
-      byDate[d][`Small ${fname}`] = (byDate[d][`Small ${fname}`] ?? 0) + (b.small_buckets_sold ?? 0)
-      byDate[d][`Large ${fname}`] = (byDate[d][`Large ${fname}`] ?? 0) + (b.large_buckets_sold ?? 0)
-    })
-    const keys = viewShelfFlavors.flatMap(f => [`Small ${f.name}`, `Large ${f.name}`])
-    return Object.entries(byDate).sort()
-      .map(([d, v]) => ({ date: formatDate(d), ...v }))
-      .filter(row => keys.some(k => (row[k] ?? 0) > 0))
-  }, [filteredBucketLogs, viewShelfFlavors])
-
-  const bucketsMadeData = useMemo(() => {
-    const shelfIds = new Set(viewShelfFlavors.map(f => f.id))
-    const flavorById = new Map(viewShelfFlavors.map(f => [f.id, f.name]))
-    const byDate = {}
-    filteredBucketLogs.filter(b => shelfIds.has(b.flavor_id)).forEach(b => {
-      const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-      const fname = flavorById.get(b.flavor_id)
-      if (!fname) return
-      if (!byDate[d]) byDate[d] = {}
-      byDate[d][`Small ${fname}`] = (byDate[d][`Small ${fname}`] ?? 0) + (b.small_buckets_made ?? 0) - (b.small_buckets_sold ?? 0)
-      byDate[d][`Large ${fname}`] = (byDate[d][`Large ${fname}`] ?? 0) + (b.large_buckets_made ?? 0) - (b.large_buckets_sold ?? 0)
-    })
-    const keys = viewShelfFlavors.flatMap(f => [`Small ${f.name}`, `Large ${f.name}`])
-    const running = Object.fromEntries(keys.map(k => [k, 0]))
-    const rows = Object.entries(byDate).sort()
-      .map(([d, v]) => {
-        keys.forEach(k => { running[k] += v[k] ?? 0 })
-        return { date: formatDate(d), _dateStr: d, ...running }
-      })
-      .filter(row => keys.some(k => (row[k] ?? 0) > 0))
-    const todayStr = getDateStr(new Date())
-    if (rows.length > 0 && rows[rows.length - 1]._dateStr < todayStr) {
-      rows.push({ date: formatDate(todayStr), _dateStr: todayStr, ...running })
-    }
-    rows.forEach(r => delete r._dateStr)
-    return rows
-  }, [filteredBucketLogs, viewShelfFlavors])
 
   const componentFlavorIds = useMemo(
     () => new Set(componentFlavors.map(f => f.id)),
@@ -529,8 +466,6 @@ export default function Analytics() {
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-amber-700">{stockSnapshot.popcornBarrels}</p>
           <p className="text-xs text-amber-800 mt-0.5">Popcorn barrels</p>
-          <p className="text-base font-semibold text-amber-600 mt-1">{stockSnapshot.totalBuckets}</p>
-          <p className="text-xs text-amber-700">Total buckets</p>
           <p className="text-base font-semibold text-amber-600 mt-1">{allPopcornTotals.barrelsSold}</p>
           <p className="text-xs text-amber-700">Barrels sold</p>
           <p className="text-base font-semibold text-amber-600 mt-1">{allPopcornTotals.batchesWasted}</p>
@@ -557,18 +492,10 @@ export default function Analytics() {
           { key: 'popcorn', label: 'All Popcorn', activeClass: 'bg-amber-700 text-white border-amber-700',         inactiveClass: 'bg-white text-amber-900 border-amber-200 hover:border-amber-500' },
         ].map(({ key, label, activeClass, inactiveClass }) => (
           <button key={key} onClick={() => handleGroupChange(key)}
-            className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors touch-manipulation border ${groupFilter === key && selectedFlavors === null && !shelvesOnly ? activeClass : inactiveClass}`}>
+            className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors touch-manipulation border ${groupFilter === key && selectedFlavors === null ? activeClass : inactiveClass}`}>
             {label}
           </button>
         ))}
-
-        {/* Shelves pill — popcorn only */}
-        {groupFilter === 'popcorn' && shelfFlavors.length > 0 && (
-          <button onClick={() => { setShelvesOnly(s => !s); setSelectedFlavors(null) }}
-            className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors touch-manipulation border ${shelvesOnly ? 'bg-amber-700 text-white border-amber-700' : 'bg-white text-amber-900 border-amber-200 hover:border-amber-500'}`}>
-            Shelves
-          </button>
-        )}
 
         {/* Individual flavor pills — hidden for Caramel (group button is the only selector needed) */}
         {groupFilter !== 'caramel' && groupFlavors.map((f, i) => {
@@ -709,106 +636,58 @@ export default function Analytics() {
       {/* ── Popcorn charts ── */}
       {showPopcorn && (
         <>
-          {!shelvesOnly && (
-            <>
-              <div>
-                <h3 className="font-semibold text-amber-900 mb-1">Barrels Made</h3>
-                <p className="text-xs text-amber-700 mb-3">Cumulative barrels produced over time</p>
-                {barrelsMadeData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                      <XAxis dataKey="date" {...xProps} />
-                      <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
-                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      {viewPopcornFlavors.filter(f => barrelsMadeData.some(row => (row[f.name] ?? 0) > 0)).map((f, i) => (
-                        <Line key={f.id} type="monotone" dataKey={f.name} stroke={POPCORN_COLORS[i % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
-                      ))}
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : empty('No popcorn batches logged yet.')}
-              </div>
+          <div>
+            <h3 className="font-semibold text-amber-900 mb-1">Barrels Made</h3>
+            <p className="text-xs text-amber-700 mb-3">Cumulative barrels produced over time</p>
+            {barrelsMadeData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                  <XAxis dataKey="date" {...xProps} />
+                  <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
+                  <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  {viewPopcornFlavors.filter(f => barrelsMadeData.some(row => (row[f.name] ?? 0) > 0)).map((f, i) => (
+                    <Line key={f.id} type="monotone" dataKey={f.name} stroke={POPCORN_COLORS[i % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            ) : empty('No popcorn batches logged yet.')}
+          </div>
 
-              <div>
-                <h3 className="font-semibold text-amber-900 mb-1">Barrels Sold</h3>
-                <p className="text-xs text-amber-700 mb-3">Barrels sold per day</p>
-                {barrelsSoldData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={barrelsSoldData} margin={{ left: 0, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                      <XAxis dataKey="date" {...xProps} />
-                      <YAxis {...yProps} />
-                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      {viewPopcornFlavors.map((f, i) => (
-                        <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
-                      ))}
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : empty('No barrels sold logged yet. Use the Products tab in Report.')}
-              </div>
+          <div>
+            <h3 className="font-semibold text-amber-900 mb-1">Barrels Sold</h3>
+            <p className="text-xs text-amber-700 mb-3">Barrels sold per day</p>
+            {barrelsSoldData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={barrelsSoldData} margin={{ left: 0, right: 16 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                  <XAxis dataKey="date" {...xProps} />
+                  <YAxis {...yProps} />
+                  <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  {viewPopcornFlavors.map((f, i) => (
+                    <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            ) : empty('No barrels sold logged yet. Use the Products tab in Report.')}
+          </div>
 
-              <div>
-                <h3 className="font-semibold text-amber-900 mb-1">Batches Wasted</h3>
-                <p className="text-xs text-amber-700 mb-3">Total wasted batches per flavor</p>
-                {popcornWasteTotals.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={Math.max(120, popcornWasteTotals.length * 52)}>
-                    <BarChart data={popcornWasteTotals} layout="vertical" margin={{ left: 16, right: 16 }}>
-                      <XAxis type="number" {...xProps} allowDecimals={false} />
-                      <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12, fill: '#4A2C17' }} />
-                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                      <Bar dataKey="batches" fill="#D97706" radius={[0, 4, 4, 0]} name="Batches wasted" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : empty('No wasted batches logged yet.')}
-              </div>
-            </>
-          )}
-
-          {viewShelfFlavors.length > 0 && (
-            <>
-              <div>
-                <h3 className="font-semibold text-amber-900 mb-1">Buckets on Shelf</h3>
-                <p className="text-xs text-amber-700 mb-3">Net buckets on shelf (made minus sold)</p>
-                {bucketsMadeData.length > 0 ? (
-                  <ResponsiveContainer key={viewShelfFlavors.map(f => f.id).join('-')} width="100%" height={300}>
-                    <LineChart data={bucketsMadeData} margin={{ left: 0, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                      <XAxis dataKey="date" {...xProps} />
-                      <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
-                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      {viewShelfFlavors.flatMap((f, fi) => [
-                        <Line key={`small-${f.id}`} type="monotone" dataKey={`Small ${f.name}`} stroke={POPCORN_COLORS[fi * 2 % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />,
-                        <Line key={`large-${f.id}`} type="monotone" dataKey={`Large ${f.name}`} stroke={POPCORN_COLORS[(fi * 2 + 1) % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />,
-                      ])}
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : empty('No buckets made logged yet. Use the Products tab in Report.')}
-              </div>
-
-              <div>
-                <h3 className="font-semibold text-amber-900 mb-1">Bucket Sales</h3>
-                <p className="text-xs text-amber-700 mb-3">Small and large buckets sold per day</p>
-                {bucketSalesData.length > 0 ? (
-                  <ResponsiveContainer key={viewShelfFlavors.map(f => f.id).join('-')} width="100%" height={300}>
-                    <BarChart data={bucketSalesData} margin={{ left: 0, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                      <XAxis dataKey="date" {...xProps} />
-                      <YAxis {...yProps} />
-                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      {viewShelfFlavors.flatMap((f, fi) => [
-                        <Bar key={`small-${f.id}`} dataKey={`Small ${f.name}`} fill={POPCORN_COLORS[fi * 2 % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />,
-                        <Bar key={`large-${f.id}`} dataKey={`Large ${f.name}`} fill={POPCORN_COLORS[(fi * 2 + 1) % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />,
-                      ])}
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : empty('No bucket sales logged yet. Use the Products tab in Report.')}
-              </div>
-            </>
-          )}
+          <div>
+            <h3 className="font-semibold text-amber-900 mb-1">Batches Wasted</h3>
+            <p className="text-xs text-amber-700 mb-3">Total wasted batches per flavor</p>
+            {popcornWasteTotals.length > 0 ? (
+              <ResponsiveContainer width="100%" height={Math.max(120, popcornWasteTotals.length * 52)}>
+                <BarChart data={popcornWasteTotals} layout="vertical" margin={{ left: 16, right: 16 }}>
+                  <XAxis type="number" {...xProps} allowDecimals={false} />
+                  <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12, fill: '#4A2C17' }} />
+                  <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                  <Bar dataKey="batches" fill="#D97706" radius={[0, 4, 4, 0]} name="Batches wasted" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : empty('No wasted batches logged yet.')}
+          </div>
         </>
       )}
 
