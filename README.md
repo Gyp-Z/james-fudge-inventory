@@ -49,7 +49,6 @@ Submitted any time stock changes — after making batches, after selling, or at 
 **Products tab**
 - Log fudge batches made (full trays + in-progress), trays sold, trays wasted (with reason)
 - Log popcorn batches and barrel movements
-- Log shelf bucket fill/sell events for Caramel Corn and Nut Caramel Corn
 - Submitting a batch automatically deducts recipe ingredients from stock
 
 **Ingredients tab**
@@ -74,7 +73,7 @@ Charts and stats filtered by 7 Days / 30 Days / All Time.
 
 **Summary cards (always visible, all three modes)**
 - **Fudge trays** — trays in stock + trays sold + trays wasted (for the selected time range)
-- **Popcorn barrels** — barrels in stock + total buckets on shelf + barrels sold + batches wasted
+- **Popcorn barrels** — barrels in stock + barrels sold + batches wasted
 - **Caramel trays** — trays in stock (computed from batch history, shown as e.g. `1 6/18`) + batches wasted
 
 **Fudge mode**
@@ -89,7 +88,6 @@ Charts and stats filtered by 7 Days / 30 Days / All Time.
 - Barrels Made cumulative line chart
 - Barrels Sold bar chart
 - Wasted Batches bar chart
-- **Buckets on Shelf** line chart + **Bucket Sales** bar chart — only shown when the selected flavor(s) track shelf buckets (Caramel Corn / Nut Caramel Corn). Selecting a non-shelf flavor like Cheddar Corn hides the bucket section entirely. Each chart breaks out into Small/Large series per shelf flavor. Clicking a flavor pill (e.g. Caramel Corn) filters both bucket charts to that flavor only; deselecting shows all shelf flavors.
 
 ---
 
@@ -105,11 +103,10 @@ Manage raw ingredient inventory:
 
 ### Admin / Products (`/admin`) — Admin only
 Manage flavors and component inventory:
-- **Add new product** with name, type (Fudge / Popcorn toggle), default yield, alert threshold, and optional "tracks shelf buckets" flag for popcorn — automatically creates the inventory row on add
+- **Add new product** with name, type (Fudge / Popcorn toggle), default yield, and alert threshold — automatically creates the inventory row on add
 - Click tray/barrel count to edit inline — supports `X Y/18` fraction format for Caramel
 - Toggle flavors active/inactive (inactive flavors disappear from reports and dashboard)
 - Restore archived flavors
-- Set bucket alert thresholds (small/large) per shelf-tracked flavor
 
 ---
 
