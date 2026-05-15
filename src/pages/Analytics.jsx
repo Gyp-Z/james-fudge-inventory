@@ -284,19 +284,21 @@ export default function Analytics() {
         if (!byDate[d]) byDate[d] = {}
         byDate[d][fname] = (byDate[d][fname] ?? 0) + (b.barrels_added ?? 0) - (b.barrels_used ?? 0)
       })
+    if (!Object.keys(byDate).length) return []
     const keys = [...new Set(popcornFlavors.map(f => f.name))]
     const running = Object.fromEntries(keys.map(k => [k, null]))
-    const rows = Object.entries(byDate).sort()
-      .map(([d, v]) => {
-        keys.forEach(k => { if (v[k] != null) running[k] = (running[k] ?? 0) + v[k] })
-        return { date: formatDate(d), _dateStr: d, ...running }
-      })
-      .filter(row => keys.some(k => (row[k] ?? 0) > 0))
     const todayStr = getDateStr(new Date())
-    if (rows.length > 0 && rows[rows.length - 1]._dateStr < todayStr) {
-      rows.push({ date: formatDate(todayStr), _dateStr: todayStr, ...running })
+    const startStr = Object.keys(byDate).sort()[0]
+    const rows = []
+    const cursor = new Date(startStr + 'T12:00:00')
+    while (cursor <= new Date(todayStr + 'T12:00:00')) {
+      const ds = getDateStr(cursor)
+      if (byDate[ds]) keys.forEach(k => {
+        if (byDate[ds][k] != null) running[k] = (running[k] ?? 0) + byDate[ds][k]
+      })
+      if (keys.some(k => running[k] !== null)) rows.push({ date: formatDate(ds), ...running })
+      cursor.setDate(cursor.getDate() + 1)
     }
-    rows.forEach(r => delete r._dateStr)
     return rows
   }, [filteredBucketLogs, viewPopcornIds, popcornFlavors])
 
