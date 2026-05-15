@@ -276,13 +276,13 @@ export default function Analytics() {
     const flavorById = new Map(popcornFlavors.map(f => [f.id, f.name]))
     const byDate = {}
     filteredBucketLogs
-      .filter(b => viewPopcornIds.has(b.flavor_id) && (b.barrels_added ?? 0) > 0)
+      .filter(b => viewPopcornIds.has(b.flavor_id) && ((b.barrels_added ?? 0) > 0 || (b.barrels_used ?? 0) > 0))
       .forEach(b => {
         const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
         const fname = flavorById.get(b.flavor_id)
         if (!fname) return
         if (!byDate[d]) byDate[d] = {}
-        byDate[d][fname] = (byDate[d][fname] ?? 0) + b.barrels_added
+        byDate[d][fname] = (byDate[d][fname] ?? 0) + (b.barrels_added ?? 0) - (b.barrels_used ?? 0)
       })
     const keys = [...new Set(popcornFlavors.map(f => f.name))]
     const running = Object.fromEntries(keys.map(k => [k, null]))
@@ -637,8 +637,8 @@ export default function Analytics() {
       {showPopcorn && (
         <>
           <div>
-            <h3 className="font-semibold text-amber-900 mb-1">Barrels Made</h3>
-            <p className="text-xs text-amber-700 mb-3">Cumulative barrels produced over time</p>
+            <h3 className="font-semibold text-amber-900 mb-1">Barrels on Shelf</h3>
+            <p className="text-xs text-amber-700 mb-3">Net barrels on shelf (added minus sold)</p>
             {barrelsMadeData.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
