@@ -247,7 +247,7 @@ export default function Ingredients() {
           <div className="space-y-1">
             {negativeIngredients.map(i => (
               <p key={i.id} className="text-sm font-medium text-red-800">
-                {i.name}: {i.quantity.toFixed(2)} {i.unit}
+                {i.name}: {parseFloat(i.quantity.toFixed(1))} {i.unit}
               </p>
             ))}
           </div>
@@ -437,10 +437,10 @@ function IngredientRow({
                   onClick={() => onEditStart(ing)}
                   className="text-sm text-store-brown-light font-mono hover:text-store-green transition-colors"
                 >
-                  {ing.quantity} {ing.unit}
+                  {parseFloat(ing.quantity.toFixed(1))} {ing.unit}
                 </button>
               ) : (
-                <span className="text-sm text-store-brown-light font-mono">{ing.quantity} {ing.unit}</span>
+                <span className="text-sm text-store-brown-light font-mono">{parseFloat(ing.quantity.toFixed(1))} {ing.unit}</span>
               )}
             </>
           )}

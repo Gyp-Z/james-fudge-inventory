@@ -178,11 +178,13 @@ export default function ShiftReport() {
 
         if (!inserted) continue
 
-        const { deductions, negatives, skipped } = await autoDeductIngredients(flavor.id, inserted.id)
-        allDeductions.push(...deductions)
-        allNegatives.push(...negatives)
-        allSkipped.push(...skipped)
-        await deductCaramelComponent(flavor.name, flavor.default_yield ?? 6)
+        if (!isWasted) {
+          const { deductions, negatives, skipped } = await autoDeductIngredients(flavor.id, inserted.id)
+          allDeductions.push(...deductions)
+          allNegatives.push(...negatives)
+          allSkipped.push(...skipped)
+          await deductCaramelComponent(flavor.name, flavor.default_yield ?? 6)
+        }
 
         // Component flavors (Caramel): 1 batch = 1 tray — increment inventory
         if (flavor.is_component && !isWasted) {
