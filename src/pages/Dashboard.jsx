@@ -210,7 +210,7 @@ export default function Dashboard() {
               : 'bg-store-green-light border-store-green text-store-green'
       }`}>
         <span>{ing.name}</span>
-        <span className="opacity-70">{ing.quantity} {ing.unit}</span>
+        <span className="opacity-70">{parseFloat(ing.quantity.toFixed(1))} {ing.unit}</span>
         {isNegative && <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold bg-red-300 text-red-900">⚠ Negative</span>}
         {isOut && !isNegative && <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold bg-red-200 text-red-800">Out</span>}
         {isLow && <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold bg-amber-200 text-amber-800">Low</span>}
@@ -335,7 +335,7 @@ export default function Dashboard() {
             <div className="mt-2 space-y-1">
               {negativeIngredients.map(i => (
                 <p key={i.id} className="text-sm font-semibold text-red-700">
-                  ⚠ {i.name} is negative ({i.quantity.toFixed(2)} {i.unit}) — manual count needed
+                  ⚠ {i.name} is negative ({parseFloat(i.quantity.toFixed(1))} {i.unit}) — manual count needed
                 </p>
               ))}
             </div>

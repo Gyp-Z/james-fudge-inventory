@@ -297,7 +297,7 @@ export default function Ingredients() {
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
                           <span className="font-mono text-store-brown-light text-xs">
-                            −{d.quantity_deducted} {d.unit}
+                            −{parseFloat(d.quantity_deducted.toFixed(1))} {d.unit}
                           </span>
                           <span className="text-store-brown-light text-xs">{when}</span>
                         </div>
