@@ -191,12 +191,15 @@ export default function Analytics() {
   // ── Fudge charts ──────────────────────────────────────────────────────────
   const chartSalesData = useMemo(() => {
     const byDate = {}
-    filteredReports.filter(r => r.shift_report_entries?.length).forEach(r => { byDate[r.report_date] = r })
-    return Object.entries(byDate).sort().map(([, r]) => {
-      const row = { date: formatDate(r.report_date) }
-      visibleFudgeFlavors.forEach(f => {
-        row[f.name] = r.shift_report_entries?.find(e => e.flavor_id === f.id)?.trays_sold ?? 0
+    filteredReports.filter(r => r.shift_report_entries?.length).forEach(r => {
+      if (!byDate[r.report_date]) byDate[r.report_date] = {}
+      r.shift_report_entries.forEach(e => {
+        byDate[r.report_date][e.flavor_id] = (byDate[r.report_date][e.flavor_id] ?? 0) + (e.trays_sold ?? 0)
       })
+    })
+    return Object.entries(byDate).sort().map(([date, salesById]) => {
+      const row = { date: formatDate(date) }
+      visibleFudgeFlavors.forEach(f => { row[f.name] = salesById[f.id] ?? 0 })
       return row
     }).filter(row => visibleFudgeFlavors.some(f => row[f.name] > 0))
   }, [filteredReports, visibleFudgeFlavors])
