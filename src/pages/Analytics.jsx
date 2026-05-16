@@ -91,6 +91,10 @@ export default function Analytics() {
     () => flavors.filter(f => f.is_component === true),
     [flavors]
   )
+  const shelfFlavors = useMemo(
+    () => popcornFlavors.filter(f => f.tracks_shelf_buckets),
+    [popcornFlavors]
+  )
 
   // Flavors shown in pills for the active group
   const groupFlavors = useMemo(() => {
