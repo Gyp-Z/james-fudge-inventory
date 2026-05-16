@@ -247,7 +247,7 @@ export default function Ingredients() {
           <div className="space-y-1">
             {negativeIngredients.map(i => (
               <p key={i.id} className="text-sm font-medium text-red-800">
-                {i.name}: {parseFloat(i.quantity.toFixed(1))} {i.unit}
+                {i.name}: {parseFloat((i.quantity ?? 0).toFixed(1))} {i.unit}
               </p>
             ))}
           </div>
@@ -297,7 +297,7 @@ export default function Ingredients() {
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
                           <span className="font-mono text-store-brown-light text-xs">
-                            −{parseFloat(d.quantity_deducted.toFixed(1))} {d.unit}
+                            −{parseFloat((d.quantity_deducted ?? 0).toFixed(1))} {d.unit}
                           </span>
                           <span className="text-store-brown-light text-xs">{when}</span>
                         </div>
@@ -437,10 +437,10 @@ function IngredientRow({
                   onClick={() => onEditStart(ing)}
                   className="text-sm text-store-brown-light font-mono hover:text-store-green transition-colors"
                 >
-                  {parseFloat(ing.quantity.toFixed(1))} {ing.unit}
+                  {parseFloat((ing.quantity ?? 0).toFixed(1))} {ing.unit}
                 </button>
               ) : (
-                <span className="text-sm text-store-brown-light font-mono">{parseFloat(ing.quantity.toFixed(1))} {ing.unit}</span>
+                <span className="text-sm text-store-brown-light font-mono">{parseFloat((ing.quantity ?? 0).toFixed(1))} {ing.unit}</span>
               )}
             </>
           )}
