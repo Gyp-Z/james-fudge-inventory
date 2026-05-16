@@ -9,6 +9,7 @@ export default function Dashboard() {
   const [ingredients, setIngredients] = useState([])
   const [ingredientsLoading, setIngredientsLoading] = useState(true)
   const [yesterdayEntries, setYesterdayEntries] = useState({})
+  const [yesterdayBarrels, setYesterdayBarrels] = useState({})
 
   useEffect(() => {
     async function loadIngredients() {
@@ -49,6 +50,26 @@ export default function Dashboard() {
         }
       })
       setYesterdayEntries(map)
+
+      // Popcorn: grab shelf_bucket_logs from last 3 days, filter by NY date
+      const threeDaysAgo = new Date()
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
+      const { data: barrelLogs } = await supabase
+        .from('shelf_bucket_logs')
+        .select('flavor_id, barrels_added, barrels_used, logged_at')
+        .gte('logged_at', threeDaysAgo.toISOString())
+
+      const barrelMap = {}
+      ;(barrelLogs || []).forEach((b) => {
+        const logDate = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+        if (logDate !== yesterdayStr) return
+        const prev = barrelMap[b.flavor_id] || { barrels_added: 0, barrels_used: 0 }
+        barrelMap[b.flavor_id] = {
+          barrels_added: prev.barrels_added + (b.barrels_added ?? 0),
+          barrels_used: prev.barrels_used + (b.barrels_used ?? 0),
+        }
+      })
+      setYesterdayBarrels(barrelMap)
     }
     loadYesterday()
   }, [])
@@ -244,7 +265,7 @@ export default function Dashboard() {
       </div>
 
       {/* Yesterday's Shelf */}
-      {Object.keys(yesterdayEntries).length > 0 && (
+      {(Object.keys(yesterdayEntries).length > 0 || Object.keys(yesterdayBarrels).length > 0) && (
         <div>
           <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">Yesterday's Shelf</h3>
           <div className="flex flex-wrap gap-2">
@@ -257,6 +278,17 @@ export default function Dashboard() {
                   {y.full_trays > 0 && <span className="text-xs bg-store-tan px-1.5 py-0.5 rounded-full font-bold">{y.full_trays}</span>}
                   {y.in_progress_trays > 0 && <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">{y.in_progress_trays} in progress</span>}
                   {y.trays_sold > 0 && <span className="text-xs opacity-60">{y.trays_sold} sold</span>}
+                </div>
+              )
+            }).filter(Boolean)}
+            {popcornFlavors.map((f) => {
+              const y = yesterdayBarrels[f.id]
+              if (!y || (y.barrels_added === 0 && y.barrels_used === 0)) return null
+              return (
+                <div key={f.id} className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border bg-store-cream border-store-tan text-store-brown">
+                  <span>{f.name}</span>
+                  {y.barrels_added > 0 && <span className="text-xs bg-store-tan px-1.5 py-0.5 rounded-full font-bold">{y.barrels_added} made</span>}
+                  {y.barrels_used > 0 && <span className="text-xs opacity-60">{y.barrels_used} sold</span>}
                 </div>
               )
             }).filter(Boolean)}
