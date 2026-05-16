@@ -59,7 +59,7 @@ export default function Analytics() {
         supabase.from('batch_logs').select('*').order('batch_date'),
         supabase
           .from('shelf_bucket_logs')
-          .select('flavor_id, barrels_added, barrels_used, small_buckets_made, large_buckets_made, small_buckets_sold, large_buckets_sold, logged_at')
+          .select('flavor_id, barrels_added, barrels_used, logged_at')
           .order('logged_at'),
         supabase.from('current_inventory').select('flavor_id, tray_count, barrel_count'),
       ])
@@ -91,11 +91,6 @@ export default function Analytics() {
     () => flavors.filter(f => f.is_component === true),
     [flavors]
   )
-  const shelfFlavors = useMemo(
-    () => popcornFlavors.filter(f => f.tracks_shelf_buckets),
-    [popcornFlavors]
-  )
-
   // Flavors shown in pills for the active group
   const groupFlavors = useMemo(() => {
     if (groupFilter === 'popcorn') return popcornFlavors
@@ -328,57 +323,6 @@ export default function Analytics() {
   }, [filteredBucketLogs, viewPopcornIds, popcornFlavors])
 
 
-  const bucketsMadeData = useMemo(() => {
-    const shelfIds = new Set(shelfFlavors.map(f => f.id))
-    const flavorById = new Map(shelfFlavors.map(f => [f.id, f.name]))
-    const byDate = {}
-    bucketLogs.filter(b => shelfIds.has(b.flavor_id)).forEach(b => {
-      const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-      const fname = flavorById.get(b.flavor_id)
-      if (!fname) return
-      if (!byDate[d]) byDate[d] = {}
-      byDate[d][`Small ${fname}`] = (byDate[d][`Small ${fname}`] ?? 0) + (b.small_buckets_made ?? 0) - (b.small_buckets_sold ?? 0)
-      byDate[d][`Large ${fname}`] = (byDate[d][`Large ${fname}`] ?? 0) + (b.large_buckets_made ?? 0) - (b.large_buckets_sold ?? 0)
-    })
-    const allDates = Object.keys(byDate).sort()
-    if (!allDates.length) return []
-    const keys = shelfFlavors.flatMap(f => [`Small ${f.name}`, `Large ${f.name}`])
-    const running = Object.fromEntries(keys.map(k => [k, 0]))
-    const todayStr = getDateStr(new Date())
-    const startStr = cutoffStr && cutoffStr > allDates[0] ? cutoffStr : allDates[0]
-    for (const d of allDates) {
-      if (d >= startStr) break
-      keys.forEach(k => { running[k] += byDate[d][k] ?? 0 })
-    }
-    const rows = []
-    const cursor = new Date(startStr + 'T12:00:00')
-    while (cursor <= new Date(todayStr + 'T12:00:00')) {
-      const ds = getDateStr(cursor)
-      if (byDate[ds]) keys.forEach(k => { running[k] += byDate[ds][k] ?? 0 })
-      if (keys.some(k => running[k] !== 0)) rows.push({ date: formatDate(ds), ...running })
-      cursor.setDate(cursor.getDate() + 1)
-    }
-    return rows
-  }, [bucketLogs, shelfFlavors, cutoffStr])
-
-  const bucketSalesData = useMemo(() => {
-    const shelfIds = new Set(shelfFlavors.map(f => f.id))
-    const flavorById = new Map(shelfFlavors.map(f => [f.id, f.name]))
-    const byDate = {}
-    filteredBucketLogs.filter(b => shelfIds.has(b.flavor_id)).forEach(b => {
-      const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-      const fname = flavorById.get(b.flavor_id)
-      if (!fname) return
-      if (!byDate[d]) byDate[d] = {}
-      byDate[d][`Small ${fname}`] = (byDate[d][`Small ${fname}`] ?? 0) + (b.small_buckets_sold ?? 0)
-      byDate[d][`Large ${fname}`] = (byDate[d][`Large ${fname}`] ?? 0) + (b.large_buckets_sold ?? 0)
-    })
-    const keys = shelfFlavors.flatMap(f => [`Small ${f.name}`, `Large ${f.name}`])
-    return Object.entries(byDate).sort()
-      .map(([d, v]) => ({ date: formatDate(d), ...v }))
-      .filter(row => keys.some(k => (row[k] ?? 0) > 0))
-  }, [filteredBucketLogs, shelfFlavors])
-
   const componentFlavorIds = useMemo(
     () => new Set(componentFlavors.map(f => f.id)),
     [componentFlavors]
@@ -481,7 +425,6 @@ export default function Analytics() {
     batchesMade: filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && !b.is_wasted).length,
     batchesWasted: filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && b.is_wasted).length,
     barrelsSold: filteredBucketLogs.filter(b => viewPopcornIds.has(b.flavor_id)).reduce((s, b) => s + (b.barrels_used ?? 0), 0),
-    bucketsSold: filteredBucketLogs.filter(b => viewPopcornIds.has(b.flavor_id)).reduce((s, b) => s + (b.small_buckets_sold ?? 0) + (b.large_buckets_sold ?? 0), 0),
   }), [filteredBatchLogs, filteredBucketLogs, viewPopcornIds])
 
   const allPopcornIds = useMemo(() => new Set(popcornFlavors.map(f => f.id)), [popcornFlavors])
@@ -739,50 +682,6 @@ export default function Analytics() {
               </ResponsiveContainer>
             ) : empty('No barrels sold logged yet. Use the Products tab in Report.')}
           </div>
-
-          {shelfFlavors.length > 0 && (
-            <>
-              <div>
-                <h3 className="font-semibold text-amber-900 mb-1">Buckets on Shelf</h3>
-                <p className="text-xs text-amber-700 mb-3">Net buckets on shelf (made minus sold)</p>
-                {bucketsMadeData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={bucketsMadeData} margin={{ left: 0, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                      <XAxis dataKey="date" {...xProps} />
-                      <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
-                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      {shelfFlavors.flatMap((f, fi) => [
-                        <Line key={`small-${f.id}`} type="monotone" dataKey={`Small ${f.name}`} stroke={POPCORN_COLORS[fi * 2 % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />,
-                        <Line key={`large-${f.id}`} type="monotone" dataKey={`Large ${f.name}`} stroke={POPCORN_COLORS[(fi * 2 + 1) % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />,
-                      ])}
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : empty('No bucket logs yet. Use the Products tab in Report.')}
-              </div>
-
-              <div>
-                <h3 className="font-semibold text-amber-900 mb-1">Bucket Sales</h3>
-                <p className="text-xs text-amber-700 mb-3">Small and large buckets sold per day</p>
-                {bucketSalesData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={bucketSalesData} margin={{ left: 0, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                      <XAxis dataKey="date" {...xProps} />
-                      <YAxis {...yProps} />
-                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      {shelfFlavors.flatMap((f, fi) => [
-                        <Bar key={`small-${f.id}`} dataKey={`Small ${f.name}`} fill={POPCORN_COLORS[fi * 2 % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />,
-                        <Bar key={`large-${f.id}`} dataKey={`Large ${f.name}`} fill={POPCORN_COLORS[(fi * 2 + 1) % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />,
-                      ])}
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : empty('No bucket sales logged yet.')}
-              </div>
-            </>
-          )}
 
           <div>
             <h3 className="font-semibold text-amber-900 mb-1">Batches Wasted</h3>
