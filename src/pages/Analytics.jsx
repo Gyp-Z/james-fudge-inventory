@@ -278,7 +278,7 @@ export default function Analytics() {
   const barrelsMadeData = useMemo(() => {
     const flavorById = new Map(popcornFlavors.map(f => [f.id, f.name]))
     const byDate = {}
-    filteredBucketLogs
+    bucketLogs
       .filter(b => viewPopcornIds.has(b.flavor_id) && ((b.barrels_added ?? 0) > 0 || (b.barrels_used ?? 0) > 0))
       .forEach(b => {
         const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
@@ -287,11 +287,17 @@ export default function Analytics() {
         if (!byDate[d]) byDate[d] = {}
         byDate[d][fname] = (byDate[d][fname] ?? 0) + (b.barrels_added ?? 0) - (b.barrels_used ?? 0)
       })
-    if (!Object.keys(byDate).length) return []
+    const allDates = Object.keys(byDate).sort()
+    if (!allDates.length) return []
     const keys = [...new Set(popcornFlavors.map(f => f.name))]
     const running = Object.fromEntries(keys.map(k => [k, null]))
     const todayStr = getDateStr(new Date())
-    const startStr = Object.keys(byDate).sort()[0]
+    const startStr = cutoffStr && cutoffStr > allDates[0] ? cutoffStr : allDates[0]
+    // seed running totals from data before the display window
+    for (const d of allDates) {
+      if (d >= startStr) break
+      keys.forEach(k => { if (byDate[d][k] != null) running[k] = (running[k] ?? 0) + byDate[d][k] })
+    }
     const rows = []
     const cursor = new Date(startStr + 'T12:00:00')
     while (cursor <= new Date(todayStr + 'T12:00:00')) {
@@ -303,7 +309,7 @@ export default function Analytics() {
       cursor.setDate(cursor.getDate() + 1)
     }
     return rows
-  }, [filteredBucketLogs, viewPopcornIds, popcornFlavors])
+  }, [bucketLogs, viewPopcornIds, popcornFlavors, cutoffStr])
 
   const barrelsSoldData = useMemo(() => {
     const byDate = {}
@@ -642,8 +648,8 @@ export default function Analytics() {
       {showPopcorn && (
         <>
           <div>
-            <h3 className="font-semibold text-amber-900 mb-1">Barrels on Shelf</h3>
-            <p className="text-xs text-amber-700 mb-3">Net barrels on shelf (added minus sold)</p>
+            <h3 className="font-semibold text-amber-900 mb-1">Barrels in Stock</h3>
+            <p className="text-xs text-amber-700 mb-3">Stock trend (barrels added minus sold)</p>
             {barrelsMadeData.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
