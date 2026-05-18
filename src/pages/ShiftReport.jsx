@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import Stepper from '../components/Stepper'
-import { autoDeductIngredients, deductCaramelComponent } from '../utils/autoDeduct'
+import { autoDeductIngredients, autoDeductTrayIngredients, deductCaramelComponent } from '../utils/autoDeduct'
 
 export default function ShiftReport() {
   const { session } = useAuth()
@@ -37,6 +37,7 @@ export default function ShiftReport() {
   const [batchWasted, setBatchWasted] = useState({})
   const [batchSubmitting, setBatchSubmitting] = useState(false)
   const [batchResult, setBatchResult] = useState(null)
+  const [todayBatchCounts, setTodayBatchCounts] = useState({}) // batches logged before this session
 
   // Ingredients tab — usage state
   const [ingList, setIngList] = useState([])
@@ -142,6 +143,18 @@ export default function ShiftReport() {
         setTodayTotals(totalsMap)
       }
 
+      // Load batch counts already logged today (before this session)
+      const { data: priorBatches } = await supabase
+        .from('batch_logs')
+        .select('flavor_id, is_wasted')
+        .gte('batch_date', todayStr + 'T00:00:00')
+        .lt('batch_date', todayStr + 'T23:59:59')
+      const priorCounts = {}
+      ;(priorBatches || []).forEach(b => {
+        if (!b.is_wasted) priorCounts[b.flavor_id] = (priorCounts[b.flavor_id] ?? 0) + 1
+      })
+      setTodayBatchCounts(priorCounts)
+
       setLoading(false)
     }
     load()
@@ -183,7 +196,7 @@ export default function ShiftReport() {
           allDeductions.push(...deductions)
           allNegatives.push(...negatives)
           allSkipped.push(...skipped)
-          await deductCaramelComponent(flavor.name, flavor.default_yield ?? 6)
+          // Note: caramel deduction for SSC has moved to handleProductSubmit (per full tray)
         }
 
         // Component flavors (Caramel): 1 batch = 1 tray — increment inventory
@@ -208,6 +221,14 @@ export default function ShiftReport() {
       skipped: allSkipped,
     })
     setBatchSubmitting(false)
+    setTodayBatchCounts(prev => {
+      const updated = { ...prev }
+      for (const flavor of toLog) {
+        const made = batchCounts[flavor.id] ?? 0
+        if (made > 0) updated[flavor.id] = (updated[flavor.id] ?? 0) + made
+      }
+      return updated
+    })
     setBatchCounts(prev => Object.fromEntries(Object.keys(prev).map(k => [k, 0])))
     setBatchWasted(prev => Object.fromEntries(Object.keys(prev).map(k => [k, 0])))
   }
@@ -276,6 +297,17 @@ export default function ShiftReport() {
 
     if (activeRows.length > 0) {
       await supabase.from('current_inventory').upsert(activeRows, { onConflict: 'flavor_id' })
+    }
+
+    // Per-tray ingredient deductions for fudge flavors
+    for (const f of flavors) {
+      const made = entries[f.id]?.full_trays ?? 0
+      if (made > 0) {
+        await autoDeductTrayIngredients(f.id, made)
+        if (f.name.toLowerCase().includes('sea salt')) {
+          await deductCaramelComponent(f.name, made)
+        }
+      }
     }
 
     // Popcorn: apply barrel adjustments and log bucket sales
@@ -433,12 +465,25 @@ export default function ShiftReport() {
             <div>
               <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide mb-2">Fudge</p>
               <div className="space-y-2">
-                {fudgeFlavors.map(f => (
-                  <div key={f.id} className="bg-white rounded-xl border border-store-tan px-4 py-3 flex items-center justify-between shadow-sm">
-                    <span className="text-sm font-medium text-store-brown">{f.name}</span>
-                    <Stepper value={batchCounts[f.id] ?? 0} onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))} />
-                  </div>
-                ))}
+                {fudgeFlavors.map(f => {
+                  const totalBatches = (todayBatchCounts[f.id] ?? 0) + (batchCounts[f.id] ?? 0)
+                  const showAmber = f.double_batch_reminder && totalBatches === 1
+                  const showGreen = f.double_batch_reminder && totalBatches >= 2
+                  return (
+                    <div key={f.id} className={`bg-white rounded-xl border px-4 py-3 shadow-sm space-y-2 ${showGreen ? 'border-store-green' : 'border-store-tan'}`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-store-brown">{f.name}</span>
+                        <Stepper value={batchCounts[f.id] ?? 0} onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))} />
+                      </div>
+                      {showAmber && (
+                        <p className="text-xs text-amber-600 font-medium">1 of 2 — log 2nd batch to top</p>
+                      )}
+                      {showGreen && (
+                        <p className="text-xs text-store-green font-medium">Both batches done ✓</p>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -560,6 +605,16 @@ export default function ShiftReport() {
                         <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                           <span className="text-amber-700 font-semibold text-sm">{liveInProg} in progress</span>
                           <span className="text-amber-600 text-xs">— marking trays made will top {liveInProg === 1 ? 'it' : 'them'}</span>
+                        </div>
+                      )}
+                      {f.double_batch_reminder && (todayBatchCounts[f.id] ?? 0) === 1 && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                          <span className="text-amber-700 text-xs">1st batch done — enter in-progress trays; log 2nd batch when you top</span>
+                        </div>
+                      )}
+                      {f.double_batch_reminder && (todayBatchCounts[f.id] ?? 0) >= 2 && (
+                        <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                          <span className="text-store-green text-xs font-medium">Both batches done — move in-progress to full trays</span>
                         </div>
                       )}
                       <div className="flex items-center justify-between">

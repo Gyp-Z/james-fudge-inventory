@@ -6,7 +6,8 @@ import { createClient } from '@supabase/supabase-js'
 // M&Ms: 25 lb box = 400 oz
 // Reeses Pieces: 25 lb box = 400 oz
 // Oreo Pieces: 25 lb box = 400 oz
-// Marshmallows: 12 oz bag
+// Chocolate Chips: (confirm delivery size with James)
+// Marshmallows: 40 pieces per bag (tracked in pieces, not oz)
 // Peanuts: 15 lb box
 // Cashews: 15 lb box
 // Almonds: 25 lb box
@@ -94,24 +95,28 @@ function mergeIngredients(arrays) {
 }
 
 // ---------------------------------------------------------------------------
-// FULL FLAVOR RECIPE TABLE
-// Each entry: { flavorName, ingredients: [{ name, unit, qty }] }
+// BATCH-PHASE RECIPES — deducted when a batch is logged.
+// For double-batch flavors (those requiring 2 physical pours), this contains
+// BASE INGREDIENTS ONLY. Per-tray toppings are in TRAY_RECIPES below and
+// deducted at shift-report-submit time based on completed tray counts.
 // ---------------------------------------------------------------------------
 
 const FLAVOR_RECIPES = [
   // ── VANILLA BASE FLAVORS ──────────────────────────────────────────────────
+  { flavorName: 'Vanilla',             ingredients: VANILLA_BASE },
+  { flavorName: 'Vanilla Chocolate Chip', ingredients: VANILLA_BASE }, // toppings → TRAY_RECIPES
+  { flavorName: 'Cookies & Cream',     ingredients: VANILLA_BASE },    // toppings → TRAY_RECIPES
+  { flavorName: 'Vanilla M&M',         ingredients: VANILLA_BASE },    // toppings → TRAY_RECIPES
+  { flavorName: 'Vanilla Marshmallow', ingredients: VANILLA_BASE },    // toppings → TRAY_RECIPES
+  { flavorName: 'Vanilla Walnut',      ingredients: VANILLA_BASE },    // toppings → TRAY_RECIPES
   {
-    flavorName: 'Vanilla',
-    ingredients: VANILLA_BASE,
-  },
-  {
-    flavorName: 'Vanilla Chocolate Chip',
-    // chocolate chips are toppings, quantity unknown — base only
+    flavorName: 'Vanilla Sea Salt Caramel',
+    // 1× vanilla base per batch (was 2× — now staff log 2 batches per complete make)
+    // Caramel deduction handled by deductCaramelComponent at tray-report time
     ingredients: VANILLA_BASE,
   },
   {
     flavorName: 'Key Lime',
-    // vanilla base but NO Vanilla Extract, add Key Lime Flavoring
     ingredients: [
       ...VANILLA_BASE.filter(i => i.name !== 'Vanilla Extract'),
       { name: 'Key Lime Flavoring', unit: 'cups', qty: 0.333 },
@@ -119,7 +124,6 @@ const FLAVOR_RECIPES = [
   },
   {
     flavorName: 'Pistachio',
-    // vanilla base but NO Vanilla Extract, add Pistachio Flavoring
     ingredients: [
       ...VANILLA_BASE.filter(i => i.name !== 'Vanilla Extract'),
       { name: 'Pistachio Flavoring', unit: 'cups', qty: 0.333 },
@@ -127,49 +131,23 @@ const FLAVOR_RECIPES = [
   },
   {
     flavorName: 'Snickerdoodle',
-    // vanilla base, Sugar bumped to 12 lbs (+1), add Cinnamon
     ingredients: [
       ...VANILLA_BASE.map(i => i.name === 'Sugar' ? { ...i, qty: 12 } : i),
       { name: 'Cinnamon', unit: 'lbs', qty: 0.5 },
     ],
   },
-  {
-    flavorName: 'Cookies & Cream',
-    ingredients: [
-      ...VANILLA_BASE,
-      { name: 'Oreo Pieces', unit: 'oz', qty: 6.4 },
-    ],
-  },
-  {
-    flavorName: 'Vanilla M&M',
-    ingredients: [
-      ...VANILLA_BASE,
-      { name: 'M&Ms', unit: 'oz', qty: 11.2 },
-    ],
-  },
-  {
-    flavorName: 'Vanilla Marshmallow',
-    ingredients: [
-      ...VANILLA_BASE,
-      { name: 'Marshmallows', unit: 'oz', qty: 31 },
-    ],
-  },
-  {
-    flavorName: 'Vanilla Walnut',
-    ingredients: [
-      ...VANILLA_BASE,
-      { name: 'Walnuts', unit: 'oz', qty: 8 },
-    ],
-  },
-  {
-    flavorName: 'Vanilla Sea Salt Caramel',
-    // 2× vanilla base (bottom + top layers); caramel itself tracked separately
-    ingredients: mergeIngredients([VANILLA_BASE, VANILLA_BASE]),
-  },
 
   // ── CHOCOLATE BASE FLAVORS ────────────────────────────────────────────────
+  { flavorName: 'Chocolate',           ingredients: CHOCOLATE_BASE },
+  { flavorName: 'Chocolate Walnut',    ingredients: CHOCOLATE_BASE }, // toppings → TRAY_RECIPES
+  { flavorName: 'Chocolate M&M',       ingredients: CHOCOLATE_BASE }, // toppings → TRAY_RECIPES
+  { flavorName: 'Chocolate Marshmallow', ingredients: CHOCOLATE_BASE }, // toppings → TRAY_RECIPES
+  { flavorName: "Chocolate Reese's",   ingredients: CHOCOLATE_BASE }, // toppings → TRAY_RECIPES
+  { flavorName: 'Dirt',                ingredients: CHOCOLATE_BASE }, // toppings → TRAY_RECIPES
+  { flavorName: 'Chocolate Rocky Road', ingredients: CHOCOLATE_BASE }, // toppings → TRAY_RECIPES
   {
-    flavorName: 'Chocolate',
+    flavorName: 'Chocolate Sea Salt Caramel',
+    // 1× chocolate base per batch (was 2× — now staff log 2 batches per complete make)
     ingredients: CHOCOLATE_BASE,
   },
   {
@@ -187,80 +165,22 @@ const FLAVOR_RECIPES = [
       { name: 'Coconut Flavoring',  unit: 'cups', qty: 0.167 },
     ],
   },
-  {
-    flavorName: 'Chocolate Walnut',
-    ingredients: [
-      ...CHOCOLATE_BASE,
-      { name: 'Walnuts', unit: 'oz', qty: 8 },
-    ],
-  },
-  {
-    flavorName: 'Chocolate M&M',
-    ingredients: [
-      ...CHOCOLATE_BASE,
-      { name: 'M&Ms', unit: 'oz', qty: 11.2 },
-    ],
-  },
-  {
-    flavorName: 'Chocolate Marshmallow',
-    ingredients: [
-      ...CHOCOLATE_BASE,
-      { name: 'Marshmallows', unit: 'oz', qty: 31 },
-    ],
-  },
-  {
-    flavorName: "Chocolate Reese's",
-    ingredients: [
-      ...CHOCOLATE_BASE,
-      { name: 'Reeses Pieces', unit: 'oz', qty: 11.2 },
-    ],
-  },
-  {
-    flavorName: 'Dirt',
-    // Chocolate base + Oreo Pieces (same qty as Cookies & Cream)
-    ingredients: [
-      ...CHOCOLATE_BASE,
-      { name: 'Oreo Pieces', unit: 'oz', qty: 6.4 },
-    ],
-  },
-  {
-    flavorName: 'Chocolate Rocky Road',
-    ingredients: [
-      ...CHOCOLATE_BASE,
-      { name: 'Marshmallows', unit: 'oz', qty: 31 },
-      { name: 'Walnuts',      unit: 'oz', qty: 8 },
-    ],
-  },
-  {
-    flavorName: 'Chocolate Sea Salt Caramel',
-    // 2× chocolate base; caramel tracked separately
-    ingredients: mergeIngredients([CHOCOLATE_BASE, CHOCOLATE_BASE]),
-  },
 
   // ── BROWN SUGAR BASE ──────────────────────────────────────────────────────
-  {
-    flavorName: 'Maple Walnut',
-    ingredients: [
-      ...BROWN_SUGAR_BASE,
-      { name: 'Walnuts', unit: 'oz', qty: 8 },
-    ],
-  },
+  { flavorName: 'Maple Walnut', ingredients: BROWN_SUGAR_BASE }, // toppings → TRAY_RECIPES
 
   // ── PEANUT BUTTER BASE ────────────────────────────────────────────────────
-  {
-    flavorName: 'Peanut Butter',
-    ingredients: PEANUT_BUTTER_BASE,
-  },
+  { flavorName: 'Peanut Butter', ingredients: PEANUT_BUTTER_BASE },
 
-  // ── MULTI-BASE SPECIALS ───────────────────────────────────────────────────
+  // ── MULTI-BASE SPECIALS (combined bases stay in batch recipe — no per-tray toppings) ──
   {
     flavorName: 'Chocolate Peanut Butter',
-    // 6 half-trays PB base + 6 half-trays chocolate base
+    // Pour 1: PB base, Pour 2: chocolate base — both deducted together per complete make
     ingredients: mergeIngredients([PEANUT_BUTTER_BASE, CHOCOLATE_BASE]),
   },
   {
     flavorName: 'Chocolate Raspberry',
-    // 6 half-trays raspberry (vanilla, no Vanilla Extract, + flavorings) + 6 half-trays chocolate
+    // Pour 1: raspberry base (vanilla + flavorings), Pour 2: chocolate base
     ingredients: mergeIngredients([
       [
         ...VANILLA_BASE.filter(i => i.name !== 'Vanilla Extract'),
@@ -272,10 +192,7 @@ const FLAVOR_RECIPES = [
   },
 
   // ── CARAMEL (TREY) ────────────────────────────────────────────────────────
-  {
-    flavorName: 'Caramel',
-    ingredients: CARAMEL_BASE,
-  },
+  { flavorName: 'Caramel', ingredients: CARAMEL_BASE },
 
   // ── POPCORN FLAVORS ───────────────────────────────────────────────────────
   {
@@ -328,6 +245,29 @@ const FLAVOR_RECIPES = [
     ],
   },
 ]
+
+// ---------------------------------------------------------------------------
+// TRAY-PHASE RECIPES — deducted per completed full tray at shift-report time.
+// Quantities are per 1 full tray. Key: flavor name → ingredient list.
+// ---------------------------------------------------------------------------
+
+const TRAY_RECIPES = {
+  'Vanilla M&M':           [{ name: 'M&Ms',           unit: 'oz',     qty: 11.2 }],
+  'Chocolate M&M':         [{ name: 'M&Ms',           unit: 'oz',     qty: 11.2 }],
+  'Vanilla Walnut':        [{ name: 'Walnuts',         unit: 'oz',     qty: 8    }],
+  'Chocolate Walnut':      [{ name: 'Walnuts',         unit: 'oz',     qty: 8    }],
+  'Maple Walnut':          [{ name: 'Walnuts',         unit: 'oz',     qty: 8    }],
+  'Cookies & Cream':       [{ name: 'Oreo Pieces',     unit: 'oz',     qty: 6.4  }],
+  'Dirt':                  [{ name: 'Oreo Pieces',     unit: 'oz',     qty: 6.4  }],
+  'Vanilla Chocolate Chip':[{ name: 'Chocolate Chips', unit: 'oz',     qty: 6.4  }],
+  "Chocolate Reese's":     [{ name: 'Reeses Pieces',   unit: 'oz',     qty: 11.2 }],
+  'Vanilla Marshmallow':   [{ name: 'Marshmallows',    unit: 'pieces', qty: 17   }],
+  'Chocolate Marshmallow': [{ name: 'Marshmallows',    unit: 'pieces', qty: 17   }],
+  'Chocolate Rocky Road':  [
+    { name: 'Walnuts',     unit: 'oz',     qty: 8  },
+    { name: 'Marshmallows', unit: 'pieces', qty: 17 },
+  ],
+}
 
 // ---------------------------------------------------------------------------
 // MAIN
@@ -385,37 +325,49 @@ async function main() {
       continue
     }
 
-    console.log(`\nProcessing: ${flavorName} (${ingredients.length} ingredients)`)
+    const trayIngs = TRAY_RECIPES[flavorName] || []
+    console.log(`\nProcessing: ${flavorName} (${ingredients.length} batch + ${trayIngs.length} tray ingredients)`)
 
-    const rows = []
+    const batchRows = []
     for (const ing of ingredients) {
       const ingredientId = await getOrCreateIngredient(ing.name, ing.unit)
-      if (!ingredientId) {
-        totalWarnings++
-        continue
-      }
-      rows.push({
+      if (!ingredientId) { totalWarnings++; continue }
+      batchRows.push({
         flavor_id: flavorId,
         ingredient_id: ingredientId,
         quantity_per_batch: ing.qty,
         unit: ing.unit,
+        deduction_phase: 'batch',
       })
     }
 
-    if (rows.length === 0) continue
+    const trayRows = []
+    for (const ing of trayIngs) {
+      const ingredientId = await getOrCreateIngredient(ing.name, ing.unit)
+      if (!ingredientId) { totalWarnings++; continue }
+      trayRows.push({
+        flavor_id: flavorId,
+        ingredient_id: ingredientId,
+        quantity_per_batch: ing.qty,
+        unit: ing.unit,
+        deduction_phase: 'tray',
+      })
+    }
+
+    const allRows = [...batchRows, ...trayRows]
+    if (allRows.length === 0) continue
 
     // Delete existing rows first so re-running always produces a clean state
-    // (avoids stale duplicates when ingredient IDs change between runs)
     await supabase.from('recipes').delete().eq('flavor_id', flavorId)
 
-    const { error } = await supabase.from('recipes').insert(rows)
+    const { error } = await supabase.from('recipes').insert(allRows)
 
     if (error) {
       console.error(`  ✗ Insert failed for ${flavorName}:`, error.message)
       totalWarnings++
     } else {
-      console.log(`  ✓ Inserted ${rows.length} recipe rows`)
-      totalUpserted += rows.length
+      console.log(`  ✓ Inserted ${batchRows.length} batch + ${trayRows.length} tray recipe rows`)
+      totalUpserted += allRows.length
     }
   }
 

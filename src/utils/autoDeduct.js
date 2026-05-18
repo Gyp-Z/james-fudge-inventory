@@ -18,6 +18,7 @@ export async function autoDeductIngredients(flavorId, batchLogId) {
     .from('recipes')
     .select('ingredient_id, quantity_per_batch, unit, ingredients(name)')
     .eq('flavor_id', flavorId)
+    .eq('deduction_phase', 'batch')
 
   if (error) {
     console.error('autoDeductIngredients: failed to fetch recipes', error.message)
@@ -114,8 +115,96 @@ export async function autoDeductIngredients(flavorId, batchLogId) {
   return { deductions, negatives, skipped }
 }
 
+/**
+ * Deducts per-tray topping ingredients when a shift report is submitted.
+ * Fetches 'tray' phase recipes for the flavor and multiplies each quantity by fullTrays.
+ * Follows the same container_size conversion as autoDeductIngredients.
+ */
+export async function autoDeductTrayIngredients(flavorId, fullTrays) {
+  if (!fullTrays || fullTrays <= 0) return { deductions: [], negatives: [], skipped: [] }
+
+  const { data: recipes, error } = await supabase
+    .from('recipes')
+    .select('ingredient_id, quantity_per_batch, unit, ingredients(name)')
+    .eq('flavor_id', flavorId)
+    .eq('deduction_phase', 'tray')
+
+  if (error) {
+    console.error('autoDeductTrayIngredients: failed to fetch recipes', error.message)
+    return { deductions: [], negatives: [], skipped: [] }
+  }
+
+  if (!recipes || recipes.length === 0) return { deductions: [], negatives: [], skipped: [] }
+
+  const names = [...new Set(recipes.map(r => r.ingredients?.name).filter(Boolean))]
+  if (names.length === 0) return { deductions: [], negatives: [], skipped: [] }
+
+  const { data: activeIngs, error: ingErr } = await supabase
+    .from('ingredients')
+    .select('id, name, quantity, unit, container_size, container_unit')
+    .in('name', names)
+    .eq('is_active', true)
+
+  if (ingErr) {
+    console.error('autoDeductTrayIngredients: failed to fetch active ingredients', ingErr.message)
+    return { deductions: [], negatives: [], skipped: [] }
+  }
+
+  const activeIngMap = new Map()
+  for (const ing of activeIngs ?? []) {
+    const existing = activeIngMap.get(ing.name)
+    if (!existing || (ing.container_size != null && existing.container_size == null)) {
+      activeIngMap.set(ing.name, ing)
+    }
+  }
+
+  const deductions = []
+  const negatives = []
+  const skipped = []
+
+  for (const r of recipes) {
+    const ingName = r.ingredients?.name
+    if (!ingName) continue
+
+    const activeIng = activeIngMap.get(ingName)
+    if (!activeIng) {
+      skipped.push({ name: ingName, reason: 'no active row' })
+      continue
+    }
+
+    if (activeIng.container_size == null) {
+      skipped.push({ name: ingName, reason: 'container_size not set' })
+      continue
+    }
+
+    const totalRecipeQty = r.quantity_per_batch * fullTrays
+    const deliveryQty = Math.round((totalRecipeQty / activeIng.container_size) * 10) / 10
+    const newQty = Math.round(((activeIng.quantity ?? 0) - deliveryQty) * 10) / 10
+
+    const [updateResult, insertResult] = await Promise.all([
+      supabase.from('ingredients').update({ quantity: newQty }).eq('id', activeIng.id),
+      supabase.from('ingredient_deductions').insert({
+        ingredient_id: activeIng.id,
+        quantity_deducted: deliveryQty,
+        unit: activeIng.unit,
+        notes: `${totalRecipeQty} ${r.unit} (${fullTrays} trays × ${r.quantity_per_batch}) ÷ ${activeIng.container_size} = ${deliveryQty.toFixed(4)} ${activeIng.unit}`,
+      }),
+    ])
+
+    if (updateResult.error) console.error(`autoDeductTrayIngredients: update failed for "${ingName}"`, updateResult.error.message)
+    if (insertResult.error) console.error(`autoDeductTrayIngredients: log insert failed for "${ingName}"`, insertResult.error.message)
+
+    const entry = { ingredient_id: activeIng.id, name: ingName, quantity_deducted: deliveryQty, unit: activeIng.unit, new_quantity: newQty }
+    deductions.push(entry)
+    if (newQty < 0) negatives.push(entry)
+    activeIngMap.set(ingName, { ...activeIng, quantity: newQty })
+  }
+
+  return { deductions, negatives, skipped }
+}
+
 // Sea Salt Caramel flavors use 1 Caramel tray per 18 trays produced.
-// Call this after logging a batch of any Sea Salt Caramel flavor.
+// Call this at shift-report-submit time (not batch-log time) for SSC flavors.
 const CARAMEL_TRAYS_PER_SSC_TRAY = 1 / 18
 
 export async function deductCaramelComponent(flavorName, batchYield) {
