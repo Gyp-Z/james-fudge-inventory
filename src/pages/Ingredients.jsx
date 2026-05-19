@@ -10,6 +10,13 @@ function getStatus(quantity, threshold) {
   return 'ok'
 }
 
+function singularize(u) {
+  if (!u) return 'container'
+  if (u === 'pieces') return 'piece'
+  if (u.endsWith('s') && u.length > 1) return u.slice(0, -1)
+  return u
+}
+
 // Returns e.g. "1.98 bags", "0.45 barrels", null if no container info
 function formatContainers(quantity, containerSize, containerUnit) {
   if (!containerSize || !containerUnit || containerSize <= 0) return null
@@ -458,7 +465,7 @@ function IngredientRow({
                   onClick={() => { setContainerSizeInput(String(ing.container_size)); setContainerUnitInput(ing.container_unit ?? ''); setEditingContainer(true) }}
                   className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
                 >
-                  {ing.container_size} {ing.unit} per {ing.container_unit || 'container'}
+                  {ing.container_size} {ing.container_unit} per {singularize(ing.unit)}
                 </button>
               ) : (
                 <button
@@ -531,14 +538,14 @@ function IngredientRow({
             placeholder="e.g. 50"
             className="w-24 border border-store-tan rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-white"
           />
-          <span className="text-sm text-store-brown-light">{ing.unit} per</span>
           <input
             type="text"
             value={containerUnitInput}
             onChange={e => setContainerUnitInput(e.target.value)}
-            placeholder="bag, box, jug…"
-            className="w-28 border border-store-tan rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-white"
+            placeholder="lbs, oz, cups…"
+            className="w-24 border border-store-tan rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-white"
           />
+          <span className="text-sm text-store-brown-light">per {singularize(ing.unit)}</span>
           <button
             onClick={saveContainer}
             className="bg-store-green text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-store-green-dark transition-colors"
