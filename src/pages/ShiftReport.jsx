@@ -439,9 +439,12 @@ export default function ShiftReport() {
   const popcornFlavors = allFlavors.filter(f => f.product_type === 'popcorn')
   const batchesReady = allFlavors.some(f => (batchCounts[f.id] ?? 0) > 0 || (batchWasted[f.id] ?? 0) > 0)
 
-  // Build base group map: group name → [flavor_ids]
+  // Build base group map: group name → [flavor_ids that are plain base triggers]
+  // Only Vanilla and Chocolate (is_base_trigger=true) count as cross-flavor triggers.
+  // Flavored variants like Chocolate Coconut or Key Lime are committed to their flavor at batch time.
   const baseGroupMap = {}
   allFlavors.forEach(f => {
+    if (!f.is_base_trigger) return
     ;(f.base_groups || []).forEach(g => {
       if (!baseGroupMap[g]) baseGroupMap[g] = []
       baseGroupMap[g].push(f.id)
