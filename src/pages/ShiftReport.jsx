@@ -679,12 +679,12 @@ export default function ShiftReport() {
                           </div>
                         </div>
 
-                        {(currentInProgressBarrels[f.id] ?? 0) > 0 && (
+                        {(() => { const liveInProgBarrels = Math.max(0, (currentInProgressBarrels[f.id] ?? 0) - (pe.barrels_added ?? 0)); return liveInProgBarrels > 0 && (
                           <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                            <span className="text-amber-700 font-semibold text-sm">{currentInProgressBarrels[f.id]} in progress</span>
-                            <span className="text-amber-600 text-xs">— adding barrels will top {currentInProgressBarrels[f.id] === 1 ? 'it' : 'them'}</span>
+                            <span className="text-amber-700 font-semibold text-sm">{liveInProgBarrels} in progress</span>
+                            <span className="text-amber-600 text-xs">— adding barrels will top {liveInProgBarrels === 1 ? 'it' : 'them'}</span>
                           </div>
-                        )}
+                        )})()}
 
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-amber-800">Barrels added</span>
