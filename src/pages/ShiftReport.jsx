@@ -630,6 +630,7 @@ export default function ShiftReport() {
                     (todayBatchCounts[f.id] ?? 0) === 0 &&
                     baseGroups.some(g => (baseGroupMap[g] || []).some(fid => (todayBatchCounts[fid] ?? 0) > 0))
                   const showSelfReminder = !(e.full_trays > 0) &&
+                    !(todayTotals[f.id]?.made > 0) &&
                     !f.double_batch_reminder &&
                     (todayBatchCounts[f.id] ?? 0) > 0
 
