@@ -405,6 +405,15 @@ export default function ShiftReport() {
   const popcornFlavors = allFlavors.filter(f => f.product_type === 'popcorn')
   const batchesReady = allFlavors.some(f => (batchCounts[f.id] ?? 0) > 0 || (batchWasted[f.id] ?? 0) > 0)
 
+  // Build base group map: group name → [flavor_ids]
+  const baseGroupMap = {}
+  allFlavors.forEach(f => {
+    ;(f.base_groups || []).forEach(g => {
+      if (!baseGroupMap[g]) baseGroupMap[g] = []
+      baseGroupMap[g].push(f.id)
+    })
+  })
+
   return (
     <div className="space-y-6">
       <div>
@@ -579,6 +588,11 @@ export default function ShiftReport() {
                   const defaultYield = f.default_yield ?? 3
                   const estimatedBatches = totalMadeToday > 0 ? Math.round(totalMadeToday / defaultYield) : 0
 
+                  const baseGroups = f.base_groups || []
+                  const showBaseReminder = !(e.full_trays > 0) &&
+                    (todayBatchCounts[f.id] ?? 0) === 0 &&
+                    baseGroups.some(g => (baseGroupMap[g] || []).some(fid => (todayBatchCounts[fid] ?? 0) > 0))
+
                   return (
                     <div key={f.id} className="bg-white rounded-xl border border-store-tan p-4 shadow-sm space-y-4">
                       <div className="flex items-center justify-between">
@@ -605,6 +619,11 @@ export default function ShiftReport() {
                         <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                           <span className="text-amber-700 font-semibold text-sm">{liveInProg} in progress</span>
                           <span className="text-amber-600 text-xs">— marking trays made will top {liveInProg === 1 ? 'it' : 'them'}</span>
+                        </div>
+                      )}
+                      {showBaseReminder && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                          <span className="text-amber-700 text-xs">Base batch made today — enter trays to deduct</span>
                         </div>
                       )}
                       {f.double_batch_reminder && (todayBatchCounts[f.id] ?? 0) === 1 && !(e.full_trays > 0) && (
