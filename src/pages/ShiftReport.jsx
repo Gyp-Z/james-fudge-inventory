@@ -174,6 +174,13 @@ export default function ShiftReport() {
             trayIngredients: data.trayIngredients,
           }
         })
+        // Caramel is not in the recipes table — inject per-tray display entry for SSC flavors
+        fudgeOnly.forEach(f => {
+          if (f.name.toLowerCase().includes('sea salt')) {
+            if (!finalMap[f.id]) finalMap[f.id] = { batchGroups: [], trayIngredients: [] }
+            finalMap[f.id].trayIngredients.push({ name: 'Caramel', qty: '1/18', unit: 'tray' })
+          }
+        })
         setFlavorRecipes(finalMap)
       }
 
