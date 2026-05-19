@@ -607,12 +607,12 @@ export default function ShiftReport() {
                           <span className="text-amber-600 text-xs">— marking trays made will top {liveInProg === 1 ? 'it' : 'them'}</span>
                         </div>
                       )}
-                      {f.double_batch_reminder && (todayBatchCounts[f.id] ?? 0) === 1 && (
+                      {f.double_batch_reminder && (todayBatchCounts[f.id] ?? 0) === 1 && !(e.full_trays > 0) && (
                         <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                           <span className="text-amber-700 text-xs">1st batch done — enter in-progress trays; log 2nd batch when you top</span>
                         </div>
                       )}
-                      {f.double_batch_reminder && (todayBatchCounts[f.id] ?? 0) >= 2 && (
+                      {f.double_batch_reminder && (todayBatchCounts[f.id] ?? 0) >= 2 && !(e.full_trays > 0) && (
                         <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2">
                           <span className="text-store-green text-xs font-medium">Both batches done — move in-progress to full trays</span>
                         </div>
