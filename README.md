@@ -25,7 +25,7 @@ Real-time stock status for everything in the store, split into sections:
 **Fudge**
 - **Make Soon** — flavors at or below `low_tray_threshold` (red/amber pills)
 - **In Stock** — flavors above threshold (green pills)
-- **Yesterday's Shelf** — what was on the shelf at end of yesterday so morning shift knows what dried overnight
+- **Yesterday's Shelf** — fudge trays and popcorn barrels that were on the shelf at end of yesterday, so morning shift knows what dried overnight
 
 **Caramel**
 - Shows the Caramel (component) flavor separately since it feeds Sea Salt Caramel production
@@ -34,7 +34,6 @@ Real-time stock status for everything in the store, split into sections:
 
 **Popcorn**
 - Barrel counts per flavor with low-stock alerts
-- **Popcorn Shelves** — live bucket counts (small/large) computed from shelf_bucket_logs for Caramel Corn and Nut Caramel Corn
 
 **Ingredients**
 - Negative-quantity warnings (manual recount needed) shown at the top
@@ -44,27 +43,41 @@ Real-time stock status for everything in the store, split into sections:
 ---
 
 ### Shift Report (`/report`)
-Submitted any time stock changes — after making batches, after selling, or at end of shift. Two tabs:
+Three tabs: Batches, Products, Ingredients.
+
+**Batches tab**
+- Log fudge and popcorn batches made (or wasted) for the day
+- Logging a batch auto-deducts base recipe ingredients from stock
+- **Double-batch reminder badges** — 16 flavors that require 2 physical pours show an amber "1 of 2" badge after the first batch is logged, turning green when both are done
+- **Base-group reminders** — logging a plain Vanilla or Chocolate batch triggers reminder badges on all flavors that use that base (e.g. logging Vanilla highlights Cookies & Cream, Vanilla Chocolate Chip, Vanilla M&M, etc.)
 
 **Products tab**
-- Log fudge batches made (full trays + in-progress), trays sold, trays wasted (with reason)
-- Log popcorn batches and barrel movements
-- Submitting a batch automatically deducts recipe ingredients from stock
+- Log trays made (full + in-progress), trays sold, and trays wasted (with reason) per fudge flavor
+- Log barrel movements for popcorn flavors
+- Each fudge flavor card has a collapsible **Recipe ▾** section showing per-batch ingredients and per-tray toppings
+- Submitting the report auto-deducts per-tray toppings (M&Ms, walnuts, oreos, etc.) based on full tray counts entered
+- SSC caramel deduction also fires at submit time (not batch time), based on full SSC trays reported
 
 **Ingredients tab**
-- **Used This Session** — manually log ingredient usage (subtracts from stock, inserts audit row)
 - **Order Received** — log incoming supply; adds to stock
+- **Manual Usage** — log ingredient usage outside of a batch (subtracts from stock, inserts audit row)
 
-**Auto-deduction on batch log:**
-Each batch logged triggers `autoDeductIngredients` which:
-1. Fetches the flavor's recipe from the `recipes` table
-2. Converts recipe quantities to delivery units using each ingredient's `container_size`
-3. Subtracts from `ingredients.quantity` and inserts a row into `ingredient_deductions`
-4. Allows quantities to go negative (triggers a warning on dashboard — manual recount needed)
+---
 
-For Sea Salt Caramel batches, `deductCaramelComponent` also runs:
-- 1 caramel tray = enough for 18 SSC trays
-- Each SSC batch yields 6 trays → deducts 6/18 of a caramel tray from `current_inventory`
+### Two-Phase Ingredient Deduction
+
+Recipes are split into two phases:
+
+| Phase | Trigger | What it deducts |
+|-------|---------|-----------------|
+| `batch` | When a batch is logged | Base ingredients only (sugar, butter, cream, etc.) |
+| `tray` | When shift report is submitted | Per-tray toppings (M&Ms, walnuts, oreo pieces, chocolate chips, reese's pieces, marshmallows) |
+
+This ensures toppings are deducted accurately based on how many trays of each flavor were actually produced — not just how many base batches were logged.
+
+**Multi-pour flavors** (Chocolate Peanut Butter, Chocolate Raspberry) have two labeled pour sections in the recipe display (e.g. "Per batch — Peanut Butter base" and "Per batch — Chocolate base").
+
+**SSC caramel:** 1 caramel tray = enough for 18 SSC trays. Deduction moves from batch time to tray-submit time so it reflects actual production, not estimated batches.
 
 ---
 
@@ -85,6 +98,7 @@ Charts and stats filtered by 7 Days / 30 Days / All Time.
 - Stock Trend line chart — starts at full peak on the first caramel batch date, drops each time SSC batches are logged; no data points plotted before the first caramel batch
 
 **Popcorn mode**
+- Barrels on Shelf trend line chart — stock level over time
 - Barrels Made cumulative line chart
 - Barrels Sold bar chart
 - Wasted Batches bar chart
@@ -96,7 +110,8 @@ Manage raw ingredient inventory:
 - Tap quantity to edit inline
 - Set low-stock threshold per ingredient
 - Set **container size** per ingredient inline (e.g. "50 lbs per bag") — required for auto-deduction to work; rows without it show an amber "Set container size" prompt
-- Archive / restore ingredients
+- Container size format: `{amount} {content unit} per {delivery unit}` — e.g. "400 oz per box", "40 pieces per bag"
+- Archive / restore ingredients (Archive button sits inline with the ingredient name)
 - **Recent Deductions** section — last 50 auto-deductions with date, flavor, ingredient, amount
 
 ---
@@ -107,6 +122,31 @@ Manage flavors and component inventory:
 - Click tray/barrel count to edit inline — supports `X Y/18` fraction format for Caramel
 - Toggle flavors active/inactive (inactive flavors disappear from reports and dashboard)
 - Restore archived flavors
+
+---
+
+## Flavor & Recipe System
+
+### Base Groups
+Each flavor is assigned one or more base groups in the `flavors.base_groups` column:
+
+| Base | Flavors |
+|------|---------|
+| `vanilla` | Vanilla, Vanilla M&M, Vanilla Walnut, Vanilla Marshmallow, Vanilla SSC, Vanilla Chocolate Chip, Cookies & Cream, Dirt, Key Lime, Pistachio, Snickerdoodle |
+| `chocolate` | Chocolate, Chocolate M&M, Chocolate Walnut, Chocolate Marshmallow, Chocolate SSC, Chocolate Rocky Road, Chocolate Reese's, Chocolate Raspberry, Chocolate Mint, Chocolate Coconut, Dirt |
+| `brown_sugar` | Maple Walnut |
+| `peanut_butter` | Peanut Butter |
+| Multi-base | Chocolate Peanut Butter `['chocolate','peanut_butter']`, Chocolate Raspberry `['chocolate']` |
+
+### Double-Batch Reminder Flavors
+These 16 flavors require 2 physical pours per complete make and show reminder badges in the Batches tab:
+Chocolate M&M, Chocolate SSC, Chocolate Walnut, Maple Walnut, Vanilla Chocolate Chip, Vanilla Marshmallow, Vanilla SSC, Vanilla Walnut, Chocolate Marshmallow, Chocolate Peanut Butter, Chocolate Raspberry, Chocolate Reese's, Chocolate Rocky Road, Cookies & Cream, Dirt, Vanilla M&M.
+
+### Seeding Recipes
+```bash
+node --env-file=.env scripts/seed-recipes.mjs
+```
+Safe to re-run — deletes and re-inserts per flavor each time. Supports `ingredients` (single-base) and `pours` (multi-base labeled sections) entries.
 
 ---
 
@@ -128,7 +168,7 @@ Manage flavors and component inventory:
 ### 1. Supabase
 
 1. Create a free project at [supabase.com](https://supabase.com)
-2. Run the migration SQL blocks in `supabase/migration_v2_popcorn_recipes.sql` via the SQL Editor
+2. Run migrations via the SQL Editor (see `supabase/` directory)
 3. Go to **Authentication > Users** and create an admin account
 4. Copy your Project URL and anon key from **Settings > API**
 
@@ -152,8 +192,6 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key   # seed script only
 node --env-file=.env scripts/seed-recipes.mjs
 ```
 
-This seeds per-batch ingredient quantities for all fudge and popcorn flavors. Safe to re-run — it deletes and re-inserts recipe rows cleanly each time.
-
 ### 4. Run Locally
 
 ```bash
@@ -167,6 +205,26 @@ npm run dev
 2. Import at [vercel.com](https://vercel.com)
 3. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as environment variables
 4. Deploy — Vercel auto-detects Vite
+
+---
+
+## Key Database Columns (common gotchas)
+
+| Column | Notes |
+|--------|-------|
+| `recipes.deduction_phase` | `'batch'` or `'tray'` — controls when deduction fires |
+| `recipes.pour_label` | Empty string for single-base flavors; named label (e.g. `'Chocolate base'`) for multi-pour flavors |
+| `flavors.double_batch_reminder` | Boolean — shows reminder badges in Batches tab |
+| `flavors.base_groups` | `text[]` — drives cross-flavor base reminders in Products tab |
+| `ingredients.container_unit` | The **content unit** (lbs, oz, cups) — NOT the container name |
+| `ingredients.unit` | The **delivery unit** (boxes, bags, sticks) — what stock is counted in |
+| `batch_logs.batch_date` | `timestamptz` — always `.slice(0, 10)` before comparing to date strings |
+
+---
+
+## Season
+
+Season start: **2026-04-22**. Pre-season test data is excluded from all charts and caramel calculations.
 
 ---
 
