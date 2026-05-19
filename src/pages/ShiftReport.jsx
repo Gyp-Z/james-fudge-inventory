@@ -679,7 +679,7 @@ export default function ShiftReport() {
                           <span className="text-amber-700 text-xs">Batch logged today — enter trays when ready</span>
                         </div>
                       )}
-                      {f.double_batch_reminder && (todayBatchCounts[f.id] ?? 0) === 1 && !(e.full_trays > 0) && (
+                      {f.double_batch_reminder && (todayBatchCounts[f.id] ?? 0) === 1 && !(e.full_trays > 0) && !(e.in_progress_trays > 0) && !(liveInProg > 0) && (
                         <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                           <span className="text-amber-700 text-xs">1st batch done — enter in-progress trays; log 2nd batch when you top</span>
                         </div>
