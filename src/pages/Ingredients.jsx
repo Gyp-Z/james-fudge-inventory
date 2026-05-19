@@ -13,6 +13,7 @@ function getStatus(quantity, threshold) {
 function singularize(u) {
   if (!u) return 'container'
   if (u === 'pieces') return 'piece'
+  if (u.endsWith('xes') || u.endsWith('zes') || u.endsWith('ses')) return u.slice(0, -2)
   if (u.endsWith('s') && u.length > 1) return u.slice(0, -1)
   return u
 }
@@ -406,11 +407,27 @@ function IngredientRow({
   return (
     <div className="bg-white rounded-xl border border-store-tan shadow-sm overflow-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-4 py-3 gap-2">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           <span className="text-sm font-medium text-store-brown truncate">{ing.name}</span>
           <StatusBadge quantity={ing.quantity} threshold={ing.low_stock_threshold} />
+          {!isEditing && !isEditingThreshold && isAdmin && ing.is_active && (
+            <button
+              onClick={() => onArchive(ing)}
+              className="ml-auto flex-shrink-0 text-xs text-store-brown-light hover:text-red-600 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
+            >
+              Archive
+            </button>
+          )}
+          {!isEditing && !isEditingThreshold && !ing.is_active && (
+            <button
+              onClick={() => onUnarchive(ing)}
+              className="ml-auto flex-shrink-0 text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
+            >
+              Unarchive
+            </button>
+          )}
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           {isEditing ? (
             <>
               <input
@@ -475,22 +492,7 @@ function IngredientRow({
                   Set container size
                 </button>
               )}
-              <button
-                onClick={() => onArchive(ing)}
-                className="text-xs text-store-brown-light hover:text-red-600 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
-              >
-                Archive
-              </button>
             </>
-          )}
-
-          {!isEditing && !isEditingThreshold && !ing.is_active && (
-            <button
-              onClick={() => onUnarchive(ing)}
-              className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
-            >
-              Unarchive
-            </button>
           )}
         </div>
       </div>
