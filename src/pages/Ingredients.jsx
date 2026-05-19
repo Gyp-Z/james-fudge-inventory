@@ -458,7 +458,7 @@ function IngredientRow({
                   onClick={() => { setContainerSizeInput(String(ing.container_size)); setContainerUnitInput(ing.container_unit ?? ''); setEditingContainer(true) }}
                   className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
                 >
-                  {ing.container_size} per {ing.container_unit || 'container'}
+                  {ing.container_size} {ing.unit} per {ing.container_unit || 'container'}
                 </button>
               ) : (
                 <button
