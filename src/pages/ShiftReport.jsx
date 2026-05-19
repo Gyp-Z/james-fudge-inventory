@@ -629,6 +629,9 @@ export default function ShiftReport() {
                   const showBaseReminder = !(e.full_trays > 0) &&
                     (todayBatchCounts[f.id] ?? 0) === 0 &&
                     baseGroups.some(g => (baseGroupMap[g] || []).some(fid => (todayBatchCounts[fid] ?? 0) > 0))
+                  const showSelfReminder = !(e.full_trays > 0) &&
+                    !f.double_batch_reminder &&
+                    (todayBatchCounts[f.id] ?? 0) > 0
 
                   return (
                     <div key={f.id} className="bg-white rounded-xl border border-store-tan p-4 shadow-sm space-y-4">
@@ -661,6 +664,11 @@ export default function ShiftReport() {
                       {showBaseReminder && (
                         <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                           <span className="text-amber-700 text-xs">Base batch made today — enter trays to deduct</span>
+                        </div>
+                      )}
+                      {showSelfReminder && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                          <span className="text-amber-700 text-xs">Batch logged today — enter trays when ready</span>
                         </div>
                       )}
                       {f.double_batch_reminder && (todayBatchCounts[f.id] ?? 0) === 1 && !(e.full_trays > 0) && (
