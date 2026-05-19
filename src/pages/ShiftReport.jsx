@@ -39,6 +39,9 @@ export default function ShiftReport() {
   const [batchResult, setBatchResult] = useState(null)
   const [todayBatchCounts, setTodayBatchCounts] = useState({}) // batches logged before this session
 
+  // Recipe display state
+  const [flavorRecipes, setFlavorRecipes] = useState({}) // flavor_id -> { batchGroups, trayIngredients }
+
   // Ingredients tab — usage state
   const [ingList, setIngList] = useState([])
   const [ingUsage, setIngUsage] = useState({})
@@ -141,6 +144,37 @@ export default function ShiftReport() {
           totalsMap[e.flavor_id] = t
         })
         setTodayTotals(totalsMap)
+      }
+
+      // Load recipes for fudge flavor cards
+      const fudgeIds = fudgeOnly.map(f => f.id)
+      if (fudgeIds.length > 0) {
+        const { data: recipeRows } = await supabase
+          .from('recipes')
+          .select('flavor_id, quantity_per_batch, unit, deduction_phase, pour_label, ingredients(name)')
+          .in('flavor_id', fudgeIds)
+          .order('pour_label')
+        const rawMap = {}
+        ;(recipeRows || []).forEach(r => {
+          if (!rawMap[r.flavor_id]) rawMap[r.flavor_id] = { batchGroups: {}, trayIngredients: [] }
+          const name = r.ingredients?.name
+          if (!name) return
+          if (r.deduction_phase === 'tray') {
+            rawMap[r.flavor_id].trayIngredients.push({ name, qty: r.quantity_per_batch, unit: r.unit })
+          } else {
+            const label = r.pour_label || ''
+            if (!rawMap[r.flavor_id].batchGroups[label]) rawMap[r.flavor_id].batchGroups[label] = []
+            rawMap[r.flavor_id].batchGroups[label].push({ name, qty: r.quantity_per_batch, unit: r.unit })
+          }
+        })
+        const finalMap = {}
+        Object.entries(rawMap).forEach(([fid, data]) => {
+          finalMap[fid] = {
+            batchGroups: Object.entries(data.batchGroups).map(([label, ingredients]) => ({ label, ingredients })),
+            trayIngredients: data.trayIngredients,
+          }
+        })
+        setFlavorRecipes(finalMap)
       }
 
       // Load batch counts already logged today (before this session)
@@ -635,6 +669,37 @@ export default function ShiftReport() {
                         <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2">
                           <span className="text-store-green text-xs font-medium">Both batches done — move in-progress to full trays</span>
                         </div>
+                      )}
+                      {flavorRecipes[f.id] && (
+                        <details className="group">
+                          <summary className="text-xs text-store-green font-medium cursor-pointer select-none list-none">
+                            Recipe ▾
+                          </summary>
+                          <div className="mt-2 space-y-3 bg-store-cream rounded-lg px-3 py-2">
+                            {flavorRecipes[f.id].batchGroups.map(group => (
+                              <div key={group.label}>
+                                <p className="text-xs font-semibold text-store-brown mb-1">
+                                  {group.label ? `Per batch — ${group.label}` : 'Per batch'}
+                                </p>
+                                <div className="space-y-0.5">
+                                  {group.ingredients.map(ing => (
+                                    <p key={ing.name} className="text-xs text-store-brown-light">{ing.name}: {ing.qty} {ing.unit}</p>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                            {flavorRecipes[f.id].trayIngredients.length > 0 && (
+                              <div>
+                                <p className="text-xs font-semibold text-store-brown mb-1">Per tray</p>
+                                <div className="space-y-0.5">
+                                  {flavorRecipes[f.id].trayIngredients.map(ing => (
+                                    <p key={ing.name} className="text-xs text-store-brown-light">{ing.name}: {ing.qty} {ing.unit}</p>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </details>
                       )}
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-store-brown-light">Trays made</span>

@@ -172,23 +172,27 @@ const FLAVOR_RECIPES = [
   // ── PEANUT BUTTER BASE ────────────────────────────────────────────────────
   { flavorName: 'Peanut Butter', ingredients: PEANUT_BUTTER_BASE },
 
-  // ── MULTI-BASE SPECIALS (combined bases stay in batch recipe — no per-tray toppings) ──
+  // ── MULTI-BASE SPECIALS — two separate pours, each with its own label ───────
   {
     flavorName: 'Chocolate Peanut Butter',
-    // Pour 1: PB base, Pour 2: chocolate base — both deducted together per complete make
-    ingredients: mergeIngredients([PEANUT_BUTTER_BASE, CHOCOLATE_BASE]),
+    pours: [
+      { label: 'Peanut Butter base', ingredients: PEANUT_BUTTER_BASE },
+      { label: 'Chocolate base',     ingredients: CHOCOLATE_BASE },
+    ],
   },
   {
     flavorName: 'Chocolate Raspberry',
-    // Pour 1: raspberry base (vanilla + flavorings), Pour 2: chocolate base
-    ingredients: mergeIngredients([
-      [
-        ...VANILLA_BASE.filter(i => i.name !== 'Vanilla Extract'),
-        { name: 'Raspberry Flavoring',    unit: 'cups', qty: 0.167 },
-        { name: 'Raspberry Food Coloring', unit: 'cups', qty: 0.167 },
-      ],
-      CHOCOLATE_BASE,
-    ]),
+    pours: [
+      {
+        label: 'Raspberry base',
+        ingredients: [
+          ...VANILLA_BASE.filter(i => i.name !== 'Vanilla Extract'),
+          { name: 'Raspberry Flavoring',     unit: 'cups', qty: 0.167 },
+          { name: 'Raspberry Food Coloring', unit: 'cups', qty: 0.167 },
+        ],
+      },
+      { label: 'Chocolate base', ingredients: CHOCOLATE_BASE },
+    ],
   },
 
   // ── CARAMEL (TREY) ────────────────────────────────────────────────────────
@@ -317,7 +321,8 @@ async function main() {
   let totalUpserted = 0
   let totalWarnings = 0
 
-  for (const { flavorName, ingredients } of FLAVOR_RECIPES) {
+  for (const flavorEntry of FLAVOR_RECIPES) {
+    const { flavorName, ingredients, pours } = flavorEntry
     const flavorId = flavorMap.get(flavorName)
     if (!flavorId) {
       console.warn(`⚠ Flavor not found in DB, skipping: "${flavorName}"`)
@@ -326,19 +331,39 @@ async function main() {
     }
 
     const trayIngs = TRAY_RECIPES[flavorName] || []
-    console.log(`\nProcessing: ${flavorName} (${ingredients.length} batch + ${trayIngs.length} tray ingredients)`)
+    const batchIngCount = pours ? pours.reduce((n, p) => n + p.ingredients.length, 0) : ingredients.length
+    console.log(`\nProcessing: ${flavorName} (${batchIngCount} batch + ${trayIngs.length} tray ingredients)`)
 
+    // Build batch rows — multi-pour flavors get a pour_label per section
     const batchRows = []
-    for (const ing of ingredients) {
-      const ingredientId = await getOrCreateIngredient(ing.name, ing.unit)
-      if (!ingredientId) { totalWarnings++; continue }
-      batchRows.push({
-        flavor_id: flavorId,
-        ingredient_id: ingredientId,
-        quantity_per_batch: ing.qty,
-        unit: ing.unit,
-        deduction_phase: 'batch',
-      })
+    if (pours) {
+      for (const pour of pours) {
+        for (const ing of pour.ingredients) {
+          const ingredientId = await getOrCreateIngredient(ing.name, ing.unit)
+          if (!ingredientId) { totalWarnings++; continue }
+          batchRows.push({
+            flavor_id: flavorId,
+            ingredient_id: ingredientId,
+            quantity_per_batch: ing.qty,
+            unit: ing.unit,
+            deduction_phase: 'batch',
+            pour_label: pour.label,
+          })
+        }
+      }
+    } else {
+      for (const ing of ingredients) {
+        const ingredientId = await getOrCreateIngredient(ing.name, ing.unit)
+        if (!ingredientId) { totalWarnings++; continue }
+        batchRows.push({
+          flavor_id: flavorId,
+          ingredient_id: ingredientId,
+          quantity_per_batch: ing.qty,
+          unit: ing.unit,
+          deduction_phase: 'batch',
+          pour_label: '',
+        })
+      }
     }
 
     const trayRows = []
@@ -351,6 +376,7 @@ async function main() {
         quantity_per_batch: ing.qty,
         unit: ing.unit,
         deduction_phase: 'tray',
+        pour_label: '',
       })
     }
 
