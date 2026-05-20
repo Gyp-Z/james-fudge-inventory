@@ -328,47 +328,39 @@ export default function Analytics() {
     [componentFlavors]
   )
 
-  // Compute caramel count from batch history (forward from season start, ?? 6 yield per SSC batch)
+  // Compute caramel count: batches made minus full SSC trays submitted (topped)
   const caramelComputedTotal = useMemo(() => {
     if (!componentFlavors.length) return 0
     const SEASON_START = '2026-04-22'
     const caramelFlavor = componentFlavors[0]
-    const sscIdToYield = new Map(
-      allFlavorsList
-        .filter(f => f.name.toLowerCase().includes('sea salt'))
-        .map(f => [f.id, f.default_yield ?? 6])
-    )
     let total = 0
     batchLogs.forEach(b => {
       if (b.is_wasted) return
       const bDate = (b.batch_date ?? '').slice(0, 10)
       if (bDate < SEASON_START) return
       if (b.flavor_id === caramelFlavor.id) total += 1
-      else if (sscIdToYield.has(b.flavor_id)) total -= sscIdToYield.get(b.flavor_id) / 18
+    })
+    // Deduct when SSC trays are topped (submitted as full trays)
+    reports.forEach(r => {
+      if ((r.report_date ?? '') < SEASON_START) return
+      r.shift_report_entries?.forEach(e => {
+        if (e.flavors?.name?.toLowerCase().includes('sea salt')) {
+          total -= (e.full_trays ?? 0) / 18
+        }
+      })
     })
     return Math.max(0, Math.round(total * 1000) / 1000)
-  }, [batchLogs, allFlavorsList, componentFlavors])
+  }, [batchLogs, reports, componentFlavors])
 
   const caramelStockData = useMemo(() => {
     if (!componentFlavors.length) return []
     const SEASON_START = '2026-04-22'
     const caramelFlavor = componentFlavors[0]
 
-    const sscIdToYield = new Map(
-      allFlavorsList
-        .filter(f => f.name.toLowerCase().includes('sea salt'))
-        .map(f => [f.id, f.default_yield ?? 6])
-    )
-
     const caramelBatches = batchLogs.filter(b => {
       if (b.is_wasted) return false
       const bDate = (b.batch_date ?? '').slice(0, 10)
       return bDate >= SEASON_START && b.flavor_id === caramelFlavor.id
-    })
-    const sscBatches = batchLogs.filter(b => {
-      if (b.is_wasted) return false
-      const bDate = (b.batch_date ?? '').slice(0, 10)
-      return bDate >= SEASON_START && sscIdToYield.has(b.flavor_id)
     })
 
     if (!caramelBatches.length) return []
@@ -376,11 +368,16 @@ export default function Analytics() {
     // Total caramel trays ever made — this is the peak the graph starts at
     const caramelPeak = caramelBatches.length
 
-    // SSC deductions grouped by date
+    // SSC deductions grouped by the report date trays were topped (submitted as full)
     const sscByDate = {}
-    sscBatches.forEach(b => {
-      const key = (b.batch_date ?? '').slice(0, 10)
-      sscByDate[key] = (sscByDate[key] ?? 0) - sscIdToYield.get(b.flavor_id) / 18
+    reports.forEach(r => {
+      const key = r.report_date ?? ''
+      if (!key || key < SEASON_START) return
+      r.shift_report_entries?.forEach(e => {
+        if (e.flavors?.name?.toLowerCase().includes('sea salt')) {
+          sscByDate[key] = (sscByDate[key] ?? 0) - (e.full_trays ?? 0) / 18
+        }
+      })
     })
 
     // Graph starts at the first caramel batch date showing the full peak —
@@ -409,7 +406,7 @@ export default function Analytics() {
       cursor.setDate(cursor.getDate() + 1)
     }
     return rows
-  }, [batchLogs, allFlavorsList, componentFlavors, cutoffStr])
+  }, [batchLogs, reports, componentFlavors, cutoffStr])
 
   const popcornWasteTotals = useMemo(() => {
     const totals = {}
