@@ -677,6 +677,10 @@ export default function ShiftReport() {
                     !f.double_batch_reminder &&
                     (todayBatchCounts[f.id] ?? 0) > 0
 
+                  // Same cross-day logic as Batches tab: if prev day had exactly 1 incomplete batch, count it toward the total
+                  const prevDayCount = prevDayBatchCounts[f.id] ?? 0
+                  const effectiveBatches = (prevDayCount === 1 && inProgCount > 0) ? prevDayCount + (todayBatchCounts[f.id] ?? 0) : (todayBatchCounts[f.id] ?? 0)
+
                   return (
                     <div key={f.id} className="bg-white rounded-xl border border-store-tan p-4 shadow-sm space-y-4">
                       <div className="flex items-center justify-between">
@@ -715,12 +719,12 @@ export default function ShiftReport() {
                           <span className="text-amber-700 text-xs">Batch logged today — enter trays when ready</span>
                         </div>
                       )}
-                      {f.double_batch_reminder && (todayBatchCounts[f.id] ?? 0) === 1 && !(e.full_trays > 0) && !(e.in_progress_trays > 0) && !(liveInProg > 0) && (
+                      {f.double_batch_reminder && effectiveBatches === 1 && !(e.full_trays > 0) && !(e.in_progress_trays > 0) && !(liveInProg > 0) && (
                         <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                           <span className="text-amber-700 text-xs">1st batch done — enter in-progress trays; log 2nd batch when you top</span>
                         </div>
                       )}
-                      {f.double_batch_reminder && (todayBatchCounts[f.id] ?? 0) >= 2 && !(e.full_trays > 0) && (
+                      {f.double_batch_reminder && effectiveBatches >= 2 && !(e.full_trays > 0) && (
                         <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2">
                           <span className="text-store-green text-xs font-medium">Both batches done — move in-progress to full trays</span>
                         </div>
