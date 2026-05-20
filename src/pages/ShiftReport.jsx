@@ -38,6 +38,7 @@ export default function ShiftReport() {
   const [batchSubmitting, setBatchSubmitting] = useState(false)
   const [batchResult, setBatchResult] = useState(null)
   const [todayBatchCounts, setTodayBatchCounts] = useState({}) // batches logged before this session
+  const [prevDayBatchCounts, setPrevDayBatchCounts] = useState({}) // most-recent prior-day batch count per double-batch flavor
 
   // Recipe display state
   const [flavorRecipes, setFlavorRecipes] = useState({}) // flavor_id -> { batchGroups, trayIngredients }
@@ -195,6 +196,37 @@ export default function ShiftReport() {
         if (!b.is_wasted) priorCounts[b.flavor_id] = (priorCounts[b.flavor_id] ?? 0) + 1
       })
       setTodayBatchCounts(priorCounts)
+
+      // For double-batch flavors: find batch count on the most recent prior day so we can
+      // distinguish an incomplete 1-of-2 pour (show reminder) from overflow after a completed double-batch (no reminder)
+      const doubleBatchIds = (allFlavorsData || []).filter(f => f.double_batch_reminder).map(f => f.id)
+      if (doubleBatchIds.length > 0) {
+        const sevenDaysAgoStr = (() => {
+          const d = new Date(); d.setDate(d.getDate() - 7)
+          return d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+        })()
+        const { data: recentBatches } = await supabase
+          .from('batch_logs')
+          .select('flavor_id, batch_date, is_wasted')
+          .in('flavor_id', doubleBatchIds)
+          .gte('batch_date', sevenDaysAgoStr + 'T00:00:00')
+          .lt('batch_date', todayStr + 'T00:00:00')
+          .order('batch_date', { ascending: false })
+        const prevDayCounts = {}
+        ;(recentBatches || []).forEach(b => {
+          if (b.is_wasted) return
+          const bDate = (b.batch_date ?? '').slice(0, 10)
+          const existing = prevDayCounts[b.flavor_id]
+          if (!existing) {
+            prevDayCounts[b.flavor_id] = { date: bDate, count: 1 }
+          } else if (existing.date === bDate) {
+            existing.count++
+          }
+        })
+        const finalPrevDay = {}
+        Object.entries(prevDayCounts).forEach(([fid, { count }]) => { finalPrevDay[fid] = count })
+        setPrevDayBatchCounts(finalPrevDay)
+      }
 
       setLoading(false)
     }
@@ -521,9 +553,10 @@ export default function ShiftReport() {
                 {fudgeFlavors.map(f => {
                   const totalBatches = (todayBatchCounts[f.id] ?? 0) + (batchCounts[f.id] ?? 0)
                   const prevInProg = currentInProgress[f.id] ?? 0
-                  const showAmber = f.double_batch_reminder && (totalBatches === 1 || (totalBatches === 0 && prevInProg > 0))
+                  const prevDayCount = prevDayBatchCounts[f.id] ?? 0
+                  // Show amber if 1 batch today, OR previous day had exactly 1 batch (incomplete pour) with in-progress trays
+                  const showAmber = f.double_batch_reminder && (totalBatches === 1 || (totalBatches === 0 && prevInProg > 0 && prevDayCount === 1))
                   const showGreen = f.double_batch_reminder && totalBatches >= 2
-                  const showPrevInProg = !f.double_batch_reminder && prevInProg > 0 && totalBatches === 0
                   return (
                     <div key={f.id} className={`bg-white rounded-xl border px-4 py-3 shadow-sm space-y-2 ${showGreen ? 'border-store-green' : 'border-store-tan'}`}>
                       <div className="flex items-center justify-between">
@@ -535,9 +568,6 @@ export default function ShiftReport() {
                       )}
                       {showGreen && (
                         <p className="text-xs text-store-green font-medium">Both batches done ✓</p>
-                      )}
-                      {showPrevInProg && (
-                        <p className="text-xs text-amber-600 font-medium">{prevInProg} tray{prevInProg !== 1 ? 's' : ''} in progress — top in Products when ready</p>
                       )}
                     </div>
                   )
