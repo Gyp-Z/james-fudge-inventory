@@ -554,9 +554,10 @@ export default function ShiftReport() {
                   const totalBatches = (todayBatchCounts[f.id] ?? 0) + (batchCounts[f.id] ?? 0)
                   const prevInProg = currentInProgress[f.id] ?? 0
                   const prevDayCount = prevDayBatchCounts[f.id] ?? 0
-                  // Show amber if 1 batch today, OR previous day had exactly 1 batch (incomplete pour) with in-progress trays
-                  const showAmber = f.double_batch_reminder && (totalBatches === 1 || (totalBatches === 0 && prevInProg > 0 && prevDayCount === 1))
-                  const showGreen = f.double_batch_reminder && totalBatches >= 2
+                  // If yesterday had exactly 1 incomplete batch (in-progress trays still exist), count it toward the total
+                  const effectiveTotal = (prevDayCount === 1 && prevInProg > 0) ? prevDayCount + totalBatches : totalBatches
+                  const showAmber = f.double_batch_reminder && effectiveTotal === 1
+                  const showGreen = f.double_batch_reminder && effectiveTotal >= 2
                   return (
                     <div key={f.id} className={`bg-white rounded-xl border px-4 py-3 shadow-sm space-y-2 ${showGreen ? 'border-store-green' : 'border-store-tan'}`}>
                       <div className="flex items-center justify-between">
