@@ -520,8 +520,10 @@ export default function ShiftReport() {
               <div className="space-y-2">
                 {fudgeFlavors.map(f => {
                   const totalBatches = (todayBatchCounts[f.id] ?? 0) + (batchCounts[f.id] ?? 0)
-                  const showAmber = f.double_batch_reminder && totalBatches === 1
+                  const prevInProg = currentInProgress[f.id] ?? 0
+                  const showAmber = f.double_batch_reminder && (totalBatches === 1 || (totalBatches === 0 && prevInProg > 0))
                   const showGreen = f.double_batch_reminder && totalBatches >= 2
+                  const showPrevInProg = !f.double_batch_reminder && prevInProg > 0 && totalBatches === 0
                   return (
                     <div key={f.id} className={`bg-white rounded-xl border px-4 py-3 shadow-sm space-y-2 ${showGreen ? 'border-store-green' : 'border-store-tan'}`}>
                       <div className="flex items-center justify-between">
@@ -533,6 +535,9 @@ export default function ShiftReport() {
                       )}
                       {showGreen && (
                         <p className="text-xs text-store-green font-medium">Both batches done ✓</p>
+                      )}
+                      {showPrevInProg && (
+                        <p className="text-xs text-amber-600 font-medium">{prevInProg} tray{prevInProg !== 1 ? 's' : ''} in progress — top in Products when ready</p>
                       )}
                     </div>
                   )
