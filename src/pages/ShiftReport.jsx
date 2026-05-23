@@ -567,16 +567,22 @@ export default function ShiftReport() {
                   const totalBatches = (todayBatchCounts[f.id] ?? 0) + (batchCounts[f.id] ?? 0)
                   const prevInProg = currentInProgress[f.id] ?? 0
                   const prevDayCount = prevDayBatchCounts[f.id] ?? 0
-                  // If yesterday had exactly 1 incomplete batch (in-progress trays still exist), count it toward the total
                   const effectiveTotal = (prevDayCount === 1 && (prevInProg > 0 || totalBatches > 0)) ? prevDayCount + totalBatches : totalBatches
                   const showAmber = f.double_batch_reminder && effectiveTotal === 1
                   const showGreen = f.double_batch_reminder && effectiveTotal >= 2
+                  const estimatedTrays = totalBatches > 0 ? totalBatches * (f.default_yield ?? 6) : 0
                   return (
                     <div key={f.id} className={`bg-white rounded-xl border px-4 py-3 shadow-sm space-y-2 ${showGreen ? 'border-store-green' : 'border-store-tan'}`}>
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium text-store-brown">{f.name}</span>
                         <Stepper value={batchCounts[f.id] ?? 0} onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))} />
                       </div>
+                      {totalBatches > 0 && (
+                        <p className="text-xs text-store-brown-light">
+                          {totalBatches} {totalBatches === 1 ? 'batch' : 'batches'} today
+                          <span className="text-store-green font-medium"> · ≈ {estimatedTrays} {estimatedTrays === 1 ? 'tray' : 'trays'}</span>
+                        </p>
+                      )}
                       {showAmber && (
                         <p className="text-xs text-amber-600 font-medium">1 of 2 — log 2nd batch to top</p>
                       )}
@@ -596,9 +602,10 @@ export default function ShiftReport() {
               <div className="space-y-2">
                 {popcornFlavors.map(f => {
                   const madeBatches = batchCounts[f.id] ?? 0
+                  const totalBatches = (todayBatchCounts[f.id] ?? 0) + madeBatches
                   const barrelsPerBatch = f.default_yield ?? 1
-                  const estimatedBarrels = madeBatches > 0
-                    ? Math.round(madeBatches * barrelsPerBatch * 10) / 10
+                  const estimatedBarrels = totalBatches > 0
+                    ? Math.round(totalBatches * barrelsPerBatch * 10) / 10
                     : 0
                   return (
                     <div key={f.id} className="bg-amber-50 rounded-xl border border-amber-200 px-4 py-3 shadow-sm space-y-3">
@@ -607,9 +614,10 @@ export default function ShiftReport() {
                         <span className="text-xs text-amber-700">Batches made</span>
                         <Stepper value={madeBatches} onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))} />
                       </div>
-                      {estimatedBarrels > 0 && (
-                        <p className="text-xs text-amber-600 text-right">
-                          ≈ {estimatedBarrels} {estimatedBarrels === 1 ? 'barrel' : 'barrels'} to log in Products
+                      {totalBatches > 0 && (
+                        <p className="text-xs text-amber-700">
+                          {totalBatches} {totalBatches === 1 ? 'batch' : 'batches'} today
+                          <span className="text-amber-600 font-medium"> · ≈ {estimatedBarrels} {estimatedBarrels === 1 ? 'barrel' : 'barrels'}</span>
                         </p>
                       )}
                       <div className="flex items-center justify-between">
