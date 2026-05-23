@@ -501,19 +501,29 @@ export default function ShiftReport() {
             <div>
               <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide mb-2">Caramel</p>
               <div className="space-y-2">
-                {componentBatchFlavors.map(f => (
-                  <div key={f.id} className="bg-store-cream rounded-xl border border-store-tan px-4 py-3 shadow-sm space-y-3">
-                    <span className="text-sm font-medium text-store-brown">{f.name}</span>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-store-brown-light">Batches made</span>
-                      <Stepper value={batchCounts[f.id] ?? 0} onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))} />
+                {componentBatchFlavors.map(f => {
+                  const madeBatches = batchCounts[f.id] ?? 0
+                  const totalBatches = (todayBatchCounts[f.id] ?? 0) + madeBatches
+                  return (
+                    <div key={f.id} className="bg-store-cream rounded-xl border border-store-tan px-4 py-3 shadow-sm space-y-3">
+                      <span className="text-sm font-medium text-store-brown">{f.name}</span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-store-brown-light">Batches made</span>
+                        <Stepper value={madeBatches} onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))} />
+                      </div>
+                      {totalBatches > 0 && (
+                        <p className="text-xs text-store-brown-light">
+                          {totalBatches} {totalBatches === 1 ? 'batch' : 'batches'} today
+                          <span className="text-store-green font-medium"> · {totalBatches} {totalBatches === 1 ? 'tray' : 'trays'} — 1 batch = 1 tray</span>
+                        </p>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-red-400">Batches wasted</span>
+                        <Stepper value={batchWasted[f.id] ?? 0} onChange={v => setBatchWasted(prev => ({ ...prev, [f.id]: v }))} />
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-red-400">Batches wasted</span>
-                      <Stepper value={batchWasted[f.id] ?? 0} onChange={v => setBatchWasted(prev => ({ ...prev, [f.id]: v }))} />
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
