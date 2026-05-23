@@ -24,6 +24,8 @@ export default function Batch() {
   const [lastResult, setLastResult] = useState(null) // { flavorName, deductions, negatives }
   const [showDeductions, setShowDeductions] = useState(false)
 
+  const [flavorRecipes, setFlavorRecipes] = useState({}) // flavor_id -> { batchGroups, trayIngredients }
+
   async function loadData() {
     const todayStr = new Date().toISOString().split('T')[0]
     const [{ data: flavorData }, { data: batchData }] = await Promise.all([
@@ -46,6 +48,44 @@ export default function Batch() {
       const first = flavorData[0]
       setQuantity(String(first.default_yield ?? 3))
     }
+
+    // Load recipes for all fudge flavors
+    const fudgeIds = (flavorData || []).filter(f => f.product_type !== 'popcorn').map(f => f.id)
+    if (fudgeIds.length > 0) {
+      const { data: recipeRows } = await supabase
+        .from('recipes')
+        .select('flavor_id, quantity_per_batch, unit, deduction_phase, pour_label, ingredients(name)')
+        .in('flavor_id', fudgeIds)
+        .order('pour_label')
+      const rawMap = {}
+      ;(recipeRows || []).forEach(r => {
+        if (!rawMap[r.flavor_id]) rawMap[r.flavor_id] = { batchGroups: {}, trayIngredients: [] }
+        const name = r.ingredients?.name
+        if (!name) return
+        if (r.deduction_phase === 'tray') {
+          rawMap[r.flavor_id].trayIngredients.push({ name, qty: r.quantity_per_batch, unit: r.unit })
+        } else {
+          const label = r.pour_label || ''
+          if (!rawMap[r.flavor_id].batchGroups[label]) rawMap[r.flavor_id].batchGroups[label] = []
+          rawMap[r.flavor_id].batchGroups[label].push({ name, qty: r.quantity_per_batch, unit: r.unit })
+        }
+      })
+      const finalMap = {}
+      Object.entries(rawMap).forEach(([fid, data]) => {
+        finalMap[fid] = {
+          batchGroups: Object.entries(data.batchGroups).map(([label, ingredients]) => ({ label, ingredients })),
+          trayIngredients: data.trayIngredients,
+        }
+      })
+      ;(flavorData || []).forEach(f => {
+        if (f.name.toLowerCase().includes('sea salt')) {
+          if (!finalMap[f.id]) finalMap[f.id] = { batchGroups: [], trayIngredients: [] }
+          finalMap[f.id].trayIngredients.push({ name: 'Caramel', qty: '1/18', unit: 'tray' })
+        }
+      })
+      setFlavorRecipes(finalMap)
+    }
+
     setLoading(false)
   }
 
@@ -179,6 +219,35 @@ export default function Batch() {
           </div>
         )}
       </div>
+
+      {/* Recipe for selected fudge flavor */}
+      {selectedFlavor && !isPopcorn && flavorRecipes[flavorId] && (
+        <div className="bg-store-cream rounded-xl border border-store-tan px-4 py-3 space-y-3">
+          <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide">Recipe</p>
+          {flavorRecipes[flavorId].batchGroups.map(group => (
+            <div key={group.label}>
+              <p className="text-xs font-semibold text-store-brown mb-1">
+                {group.label ? `Per batch — ${group.label}` : 'Per batch'}
+              </p>
+              <div className="space-y-0.5">
+                {group.ingredients.map(ing => (
+                  <p key={ing.name} className="text-xs text-store-brown-light">{ing.name}: {ing.qty} {ing.unit}</p>
+                ))}
+              </div>
+            </div>
+          ))}
+          {flavorRecipes[flavorId].trayIngredients.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-store-brown mb-1">Per tray (when topping)</p>
+              <div className="space-y-0.5">
+                {flavorRecipes[flavorId].trayIngredients.map(ing => (
+                  <p key={ing.name} className="text-xs text-store-brown-light">{ing.name}: {ing.qty} {ing.unit}</p>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Quantity */}
       <div>

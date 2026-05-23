@@ -41,9 +41,6 @@ export default function ShiftReport() {
   const [todayBatchCounts, setTodayBatchCounts] = useState({}) // batches logged before this session
   const [prevDayBatchCounts, setPrevDayBatchCounts] = useState({}) // most-recent prior-day batch count per double-batch flavor
 
-  // Recipe display state
-  const [flavorRecipes, setFlavorRecipes] = useState({}) // flavor_id -> { batchGroups, trayIngredients }
-
   // Ingredients tab — usage state
   const [ingList, setIngList] = useState([])
   const [ingUsage, setIngUsage] = useState({})
@@ -146,44 +143,6 @@ export default function ShiftReport() {
           totalsMap[e.flavor_id] = t
         })
         setTodayTotals(totalsMap)
-      }
-
-      // Load recipes for fudge flavor cards
-      const fudgeIds = fudgeOnly.map(f => f.id)
-      if (fudgeIds.length > 0) {
-        const { data: recipeRows } = await supabase
-          .from('recipes')
-          .select('flavor_id, quantity_per_batch, unit, deduction_phase, pour_label, ingredients(name)')
-          .in('flavor_id', fudgeIds)
-          .order('pour_label')
-        const rawMap = {}
-        ;(recipeRows || []).forEach(r => {
-          if (!rawMap[r.flavor_id]) rawMap[r.flavor_id] = { batchGroups: {}, trayIngredients: [] }
-          const name = r.ingredients?.name
-          if (!name) return
-          if (r.deduction_phase === 'tray') {
-            rawMap[r.flavor_id].trayIngredients.push({ name, qty: r.quantity_per_batch, unit: r.unit })
-          } else {
-            const label = r.pour_label || ''
-            if (!rawMap[r.flavor_id].batchGroups[label]) rawMap[r.flavor_id].batchGroups[label] = []
-            rawMap[r.flavor_id].batchGroups[label].push({ name, qty: r.quantity_per_batch, unit: r.unit })
-          }
-        })
-        const finalMap = {}
-        Object.entries(rawMap).forEach(([fid, data]) => {
-          finalMap[fid] = {
-            batchGroups: Object.entries(data.batchGroups).map(([label, ingredients]) => ({ label, ingredients })),
-            trayIngredients: data.trayIngredients,
-          }
-        })
-        // Caramel is not in the recipes table — inject per-tray display entry for SSC flavors
-        fudgeOnly.forEach(f => {
-          if (f.name.toLowerCase().includes('sea salt')) {
-            if (!finalMap[f.id]) finalMap[f.id] = { batchGroups: [], trayIngredients: [] }
-            finalMap[f.id].trayIngredients.push({ name: 'Caramel', qty: '1/18', unit: 'tray' })
-          }
-        })
-        setFlavorRecipes(finalMap)
       }
 
       // Load batch counts already logged today (before this session)
@@ -567,27 +526,27 @@ export default function ShiftReport() {
                   const totalBatches = (todayBatchCounts[f.id] ?? 0) + (batchCounts[f.id] ?? 0)
                   const prevInProg = currentInProgress[f.id] ?? 0
                   const prevDayCount = prevDayBatchCounts[f.id] ?? 0
-                  const effectiveTotal = (prevDayCount === 1 && (prevInProg > 0 || totalBatches > 0)) ? prevDayCount + totalBatches : totalBatches
+                  const effectiveTotal = (prevDayCount === 1 && prevInProg > 0) ? prevDayCount + totalBatches : totalBatches
                   const showAmber = f.double_batch_reminder && effectiveTotal === 1
                   const showGreen = f.double_batch_reminder && effectiveTotal >= 2
-                  const estimatedTrays = totalBatches > 0 ? totalBatches * (f.default_yield ?? 6) : 0
+                  const yield_ = f.default_yield ?? 3
                   return (
                     <div key={f.id} className={`bg-white rounded-xl border px-4 py-3 shadow-sm space-y-2 ${showGreen ? 'border-store-green' : 'border-store-tan'}`}>
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium text-store-brown">{f.name}</span>
                         <Stepper value={batchCounts[f.id] ?? 0} onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))} />
                       </div>
-                      {totalBatches > 0 && (
+                      {totalBatches > 0 && !f.double_batch_reminder && (
                         <p className="text-xs text-store-brown-light">
                           {totalBatches} {totalBatches === 1 ? 'batch' : 'batches'} today
-                          <span className="text-store-green font-medium"> · ≈ {estimatedTrays} {estimatedTrays === 1 ? 'tray' : 'trays'}</span>
+                          <span className="text-store-green font-medium"> · ≈ {totalBatches * yield_} full or {totalBatches * yield_ * 2} in-progress trays</span>
                         </p>
                       )}
                       {showAmber && (
-                        <p className="text-xs text-amber-600 font-medium">1 of 2 — log 2nd batch to top</p>
+                        <p className="text-xs text-amber-600 font-medium">1 of 2 — ≈ {yield_} in-progress trays</p>
                       )}
                       {showGreen && (
-                        <p className="text-xs text-store-green font-medium">Both batches done ✓</p>
+                        <p className="text-xs text-store-green font-medium">Both batches done ✓ — ≈ {yield_} full trays</p>
                       )}
                     </div>
                   )
@@ -712,7 +671,7 @@ export default function ShiftReport() {
 
                   // Same cross-day logic as Batches tab: if prev day had exactly 1 incomplete batch, count it toward the total
                   const prevDayCount = prevDayBatchCounts[f.id] ?? 0
-                  const effectiveBatches = (prevDayCount === 1 && (inProgCount > 0 || (todayBatchCounts[f.id] ?? 0) > 0)) ? prevDayCount + (todayBatchCounts[f.id] ?? 0) : (todayBatchCounts[f.id] ?? 0)
+                  const effectiveBatches = (prevDayCount === 1 && inProgCount > 0) ? prevDayCount + (todayBatchCounts[f.id] ?? 0) : (todayBatchCounts[f.id] ?? 0)
 
                   return (
                     <div key={f.id} className="bg-white rounded-xl border border-store-tan p-4 shadow-sm space-y-4">
@@ -761,37 +720,6 @@ export default function ShiftReport() {
                         <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2">
                           <span className="text-store-green text-xs font-medium">Both batches done — move in-progress to full trays</span>
                         </div>
-                      )}
-                      {flavorRecipes[f.id] && (
-                        <details className="group">
-                          <summary className="text-xs text-store-green font-medium cursor-pointer select-none list-none">
-                            Recipe ▾
-                          </summary>
-                          <div className="mt-2 space-y-3 bg-store-cream rounded-lg px-3 py-2">
-                            {flavorRecipes[f.id].batchGroups.map(group => (
-                              <div key={group.label}>
-                                <p className="text-xs font-semibold text-store-brown mb-1">
-                                  {group.label ? `Per batch — ${group.label}` : 'Per batch'}
-                                </p>
-                                <div className="space-y-0.5">
-                                  {group.ingredients.map(ing => (
-                                    <p key={ing.name} className="text-xs text-store-brown-light">{ing.name}: {ing.qty} {ing.unit}</p>
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
-                            {flavorRecipes[f.id].trayIngredients.length > 0 && (
-                              <div>
-                                <p className="text-xs font-semibold text-store-brown mb-1">Per tray</p>
-                                <div className="space-y-0.5">
-                                  {flavorRecipes[f.id].trayIngredients.map(ing => (
-                                    <p key={ing.name} className="text-xs text-store-brown-light">{ing.name}: {ing.qty} {ing.unit}</p>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </details>
                       )}
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-store-brown-light">Trays made</span>
