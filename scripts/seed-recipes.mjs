@@ -250,13 +250,12 @@ const FLAVOR_RECIPES = [
     ],
   },
   // ── KETTLE CORN ───────────────────────────────────────────────────────────
-  // Kernel qty: same 32 oz as Cheddar Corn. Kettle Mix qty per batch TBD.
-  // Set container_size on both ingredients once confirmed to enable auto-deduct.
+  // Uses same Cheddar Kernels and qty (32 oz) as both Cheddar Corn flavors.
+  // Kettle Mix: add { name: 'Kettle Mix', unit: 'cartons', qty: X } once qty per batch is confirmed.
   {
     flavorName: 'Kettle Corn',
     ingredients: [
-      { name: 'Kettle Kernels', unit: 'oz',     qty: 32 },
-      { name: 'Kettle Mix',     unit: 'cartons', qty: 0 }, // qty TBD — container_size left null until confirmed
+      { name: 'Cheddar Kernels', unit: 'oz', qty: 32 },
     ],
   },
 ]
