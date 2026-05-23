@@ -13,6 +13,7 @@ import { createClient } from '@supabase/supabase-js'
 // Almonds: 25 lb box
 // Corn Treats: box of 12 bags (16.5 lbs net per box)
 // Oreo Popcorn Kit: 1 box = 4 batches
+// Kettle Mix: comes in cartons — qty per batch TBD (confirm with staff)
 // ---------------------------------------------------------------------------
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL
@@ -246,6 +247,16 @@ const FLAVOR_RECIPES = [
     flavorName: 'Oreo Popcorn',
     ingredients: [
       { name: 'Oreo Popcorn Kit', unit: 'boxes', qty: 0.25 },
+    ],
+  },
+  // ── KETTLE CORN ───────────────────────────────────────────────────────────
+  // Kernel qty: same 32 oz as Cheddar Corn. Kettle Mix qty per batch TBD.
+  // Set container_size on both ingredients once confirmed to enable auto-deduct.
+  {
+    flavorName: 'Kettle Corn',
+    ingredients: [
+      { name: 'Kettle Kernels', unit: 'oz',     qty: 32 },
+      { name: 'Kettle Mix',     unit: 'cartons', qty: 0 }, // qty TBD — container_size left null until confirmed
     ],
   },
 ]
