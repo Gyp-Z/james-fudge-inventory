@@ -43,10 +43,12 @@ When helping with this codebase, keep this business context in mind:
 - **The owner wants numbers, not complexity.** Analytics should be readable at a glance — summaries first, charts second.
 - **Recipes and ingredient deductions are load-bearing.** A wrong deduction multiplier or unit conversion silently breaks ingredient stock counts. Be careful with recipe math.
 - **The season runs ~May–September.** `SEASON_START = '2026-04-22'` is the anchor for all running totals. Pre-season test data exists in the DB but is excluded from charts and caramel calculations.
-- **Caramel is not sold directly.** It's a component that feeds Sea Salt Caramel fudge. Its count is computed forward from batch logs, not read from `current_inventory` — because the stored value drifts if SSC deductions ever had wrong yields.
+- **Caramel is not sold directly.** It's a component that feeds Sea Salt Caramel fudge. Its count is computed forward from batch logs day-by-day, not read from `current_inventory` — because the stored value drifts if SSC deductions ever had wrong yields.
 - **Shelf bucket tracking (small/large bucket counts) has been removed from the app.** The `shelf_bucket_logs` table still exists and tracks barrel movements (barrels_added, barrels_used) but the bucket columns (small_buckets_made etc.) are set to 0 and no longer used. Do not rebuild bucket tracking unless explicitly asked.
 - **Two-phase deduction is live.** Batch phase fires at batch-log time (base ingredients). Tray phase fires at product-submit time (per-tray toppings). Don't collapse these back into one phase.
 - **SSC caramel deduction fires at tray-submit time**, not batch time. `deductCaramelComponent` is called in `handleProductSubmit`, not `handleBatchSubmit`.
+- **No rounding in deduction math.** `deliveryQty = recipe_qty / container_size` — full float, no rounding. Rounding is visual only (display). A prior bug using `Math.round(x * 10) / 10` caused small fractions to round to 0, silently skipping deductions all season. Fixed May 2026 via `scripts/fix-zero-deductions.mjs`. Do not re-introduce any rounding to calculation paths.
+- **`is_base_trigger = true`** on Vanilla, Chocolate, and Peanut Butter. These are plain bases that can produce a mix of full and in-progress trays (e.g. PB half-trays feed Choc PB). Used for two things: (1) cross-flavor "base batch made today" reminders in Products tab, and (2) showing the "≈ X full or Y in-progress trays" range estimate in Batches tab instead of a single full-tray count.
 
 ---
 
@@ -68,7 +70,8 @@ No backend — all DB access goes through `src/lib/supabase.js` (anon key, RLS-e
 - 1 caramel tray = enough for 18 SSC trays
 - Constant: `CARAMEL_TRAYS_PER_SSC_TRAY = 1/18` in `src/utils/autoDeduct.js`
 - SSC detection: `flavorName.toLowerCase().includes('sea salt')`
-- Caramel count in Dashboard and Analytics is computed **forward from batch logs** (season start Apr 22 2026), NOT from `current_inventory.tray_count`
+- Caramel count in Dashboard and Analytics is computed **forward from batch logs day-by-day** (season start Apr 22 2026), NOT from `current_inventory.tray_count`
+- Caramel Analytics graph: walks day-by-day adding +1 per caramel batch and subtracting full_trays/18 per SSC report entry. Does NOT back-fill from the total peak — new batches show as upward steps on the actual batch date.
 - Display format: `1 6/18` (whole + numerator/18). Admin page accepts `X Y/18`, `Y/18`, or decimal.
 
 ### Two-Phase Ingredient Deduction
@@ -97,19 +100,35 @@ Recipes have a `deduction_phase` column: `'batch'` or `'tray'`.
 ### Double-Batch Reminder System
 `flavors.double_batch_reminder = true` on 16 flavors that require 2 physical pours per complete make.
 
-In **Batches tab**: after 1 batch logged today, shows amber "1 of 2 — log 2nd batch to top" badge. After 2, shows green "Both batches done ✓". Badge disappears once trays are entered in Products.
+In **Batches tab**:
+- After 1st batch (amber): "1 of 2 — ≈ {yield×2} in-progress trays" — first pour fills double the tray count as half-trays
+- After 2nd batch (green): "Both batches done ✓ — ≈ {yield×2} full trays" — half-trays topped = same count as full trays
+- Badge disappears once trays are entered in Products tab
 
 `todayBatchCounts` state in ShiftReport tracks batches logged before the current session (loaded at mount) + batches logged during the session (updated after each submit).
+
+**Cross-day double-batch**: if a flavor had exactly 1 batch on the prior day AND still has in-progress trays (`currentInProgress > 0`), that prior batch counts toward the effectiveTotal. The `|| totalBatches > 0` guard was a bug (caused SSC to show green after 1 click) and has been removed — cross-day carry only applies when in-progress trays actually exist.
+
+### Batch Estimate Hints (Batches tab)
+Non-double-batch flavors show an estimate below the stepper when batches are logged:
+- **`is_base_trigger = true`** (Vanilla, Chocolate, Peanut Butter): "≈ X full or Y in-progress trays" where Y = X×2, because one batch can fill double the tray count as half-trays
+- **All other single-batch flavors** (Pistachio, Key Lime, Snickerdoodle, etc.): "≈ X full trays"
+- **Caramel**: "N batches today · N trays — 1 batch = 1 tray"
+- **Popcorn**: "≈ X barrels" based on `default_yield` (Caramel Corn/Nut Caramel Corn = 2.5 barrels/batch; Cheddar, White Cheddar, Oreo, Kettle Corn = 1 barrel/batch)
 
 ### Base-Group Reminder System
 `flavors.base_groups` is a `text[]` column. When ANY flavor in a base group has batches logged today, ALL other flavors in that group show a "Base batch made today — enter trays to deduct" reminder in the Products tab (disappears once `full_trays > 0`).
 
 Groups: `vanilla`, `chocolate`, `brown_sugar`, `peanut_butter`. Multi-base flavors: Chocolate PB `['chocolate','peanut_butter']`, Chocolate Raspberry `['chocolate']` only (raspberry base is its own flavor, not vanilla).
 
+Only `is_base_trigger = true` flavors (Vanilla, Chocolate, Peanut Butter) count as cross-flavor triggers. Committed flavors like Chocolate Coconut or Key Lime are not base triggers even if they share a base group.
+
 ### Pour Labels (Multi-Base Flavors)
-`recipes.pour_label` is a `text NOT NULL DEFAULT ''` column. Single-base flavors have `pour_label = ''`. Multi-pour flavors (Choc PB, Choc Raspberry) have ingredient rows labeled per pour (e.g. `'Peanut Butter base'`, `'Chocolate base'`). These show as separate sections in the collapsible Recipe display on Products tab cards.
+`recipes.pour_label` is a `text NOT NULL DEFAULT ''` column. Single-base flavors have `pour_label = ''`. Multi-pour flavors (Choc PB, Choc Raspberry) have ingredient rows labeled per pour (e.g. `'Peanut Butter base'`, `'Chocolate base'`). Deductions work correctly because `activeIngMap` updates between rows.
 
 Unique constraint: `UNIQUE (flavor_id, ingredient_id, deduction_phase, pour_label)`.
+
+Recipes are **not currently displayed in the UI**. They were removed from the ShiftReport Products tab. If a recipe view is needed in the future, add it as a dedicated admin page.
 
 ### Recipes
 - Seeded by `scripts/seed-recipes.mjs`
@@ -117,12 +136,16 @@ Unique constraint: `UNIQUE (flavor_id, ingredient_id, deduction_phase, pour_labe
 - SSC flavors = 1× base per batch (NOT 2×). Staff log 2 SSC batches per complete make.
 - Seed does delete-then-insert per flavor — safe to re-run
 
+### Kettle Corn
+Added as a popcorn flavor mid-season 2026. Uses Cheddar Kernels (same qty as Cheddar Corn / White Cheddar Corn). Also uses Kettle Mix (comes in cartons) — qty per batch TBD, `container_size` not yet set so Kettle Mix deduction is skipped until confirmed with staff. When ready: update `qty` in `scripts/seed-recipes.mjs` and set `container_size` on the Kettle Mix ingredient row, then re-run the seeder.
+
 ### Ingredient Container Schema
 - `ingredients.unit` = **delivery unit** (boxes, bags, sticks) — what stock is counted in
 - `ingredients.container_unit` = **content unit** (lbs, oz, cups, pieces) — what's inside one delivery unit
 - `ingredients.container_size` = how many content units per delivery unit
 - Display format: `{container_size} {container_unit} per {singularize(unit)}` e.g. "25 lbs per box"
-- Deduction formula: `deliveryQty = recipe_qty / container_size`
+- Deduction formula: `deliveryQty = recipe_qty / container_size` (no rounding)
+- Ingredients with `container_size = null` are skipped by auto-deduct — this is intentional for ingredients not yet configured (e.g. Kettle Mix)
 
 ### Shelf Bucket Logs
 `shelf_bucket_logs` now only used for barrel tracking. Columns `barrels_added` and `barrels_used` are active. Bucket columns (small_buckets_made, etc.) are set to 0 — do not write to them.
@@ -143,7 +166,7 @@ Unique constraint: `UNIQUE (flavor_id, ingredient_id, deduction_phase, pour_labe
 ### Key tables
 | Table | Purpose |
 |---|---|
-| `flavors` | Flavor catalog. `product_type`, `is_component`, `default_yield`, `double_batch_reminder`, `base_groups`. |
+| `flavors` | Flavor catalog. `product_type`, `is_component`, `default_yield`, `double_batch_reminder`, `base_groups`, `is_base_trigger`. |
 | `current_inventory` | Source of truth for tray/barrel counts. `tray_count` + `barrel_count`. |
 | `batch_logs` | One row per batch logged. `flavor_id`, `batch_date`, `is_wasted`. |
 | `shift_reports` | One per reporting session. `report_date`. |
@@ -160,13 +183,14 @@ Unique constraint: `UNIQUE (flavor_id, ingredient_id, deduction_phase, pour_labe
 | File | Role |
 |---|---|
 | `src/pages/Dashboard.jsx` | Main stock view. Loads inventory + batch logs + all flavors for caramel computation. Yesterday's shelf includes both fudge and popcorn. |
-| `src/pages/ShiftReport.jsx` | Staff report form. Batches tab logs batches + deducts batch-phase ingredients. Products tab deducts tray-phase ingredients + caramel on submit. |
-| `src/pages/Analytics.jsx` | Charts. Bucket charts removed. `caramelComputedTotal` + `caramelStockData` computed from batch logs forward. |
+| `src/pages/ShiftReport.jsx` | Staff report form. Batches tab logs batches + deducts batch-phase ingredients + shows tray/barrel estimates. Products tab deducts tray-phase ingredients + caramel on submit. |
+| `src/pages/Analytics.jsx` | Charts. Bucket charts removed. `caramelComputedTotal` + `caramelStockData` computed from batch logs day-by-day. |
 | `src/pages/Admin.jsx` | Flavor management + inline count editing. |
 | `src/pages/Ingredients.jsx` | Ingredient management + deduction log. Archive button is in the name row (not the data row). |
-| `src/utils/autoDeduct.js` | `autoDeductIngredients` (batch phase), `autoDeductTrayIngredients` (tray phase), `deductCaramelComponent` (SSC tray time), `incrementBarrelCount`. |
+| `src/utils/autoDeduct.js` | `autoDeductIngredients` (batch phase), `autoDeductTrayIngredients` (tray phase), `deductCaramelComponent` (SSC tray time), `incrementBarrelCount`. No rounding in any calculation path. |
 | `src/hooks/useFlavors.js` | Loads active flavors (`is_active = true`). Does NOT include inactive flavors. |
 | `scripts/seed-recipes.mjs` | Recipe seeder. Needs `SUPABASE_SERVICE_ROLE_KEY`. Run with `node --env-file=.env scripts/seed-recipes.mjs`. |
+| `scripts/fix-zero-deductions.mjs` | One-off season correction (May 2026). Parsed `ingredient_deductions.notes` to recover and apply deductions that were rounded to 0 by the old rounding bug. Keep for reference. |
 
 ---
 
@@ -192,19 +216,49 @@ Pre-season test data is excluded from all charts and caramel calculations.
 - SSC recipes are 1× base (NOT 2×). Staff log 2 batches for a complete SSC make.
 - `deductCaramelComponent` fires in `handleProductSubmit`, NOT `handleBatchSubmit`. Don't move it back.
 - `autoDeductIngredients` filters `deduction_phase = 'batch'`. Don't remove that filter.
+- **Never round deduction quantities.** `deliveryQty = recipe_qty / container_size` — full float. Rounding caused a silent zero-deduction bug all of early season 2026.
 - Multi-pour flavors (Choc PB, Choc Raspberry) have the same ingredient appearing in two recipe rows with different `pour_label`. This is intentional — both deduct correctly because `activeIngMap` updates between rows.
 - Seed script uses `pours` key for multi-base flavors and `ingredients` key for single-base. Main loop checks for both.
 - `container_unit` = content unit (lbs, oz) NOT the container name. `unit` = delivery container (boxes, bags).
+- The cross-day double-batch carry (`effectiveTotal`/`effectiveBatches`) only applies when `currentInProgress > 0`. Do NOT add `|| totalBatches > 0` back — that caused SSC to show "Both batches done" after a single click.
+- There is no standalone `/batch` route. `Batch.jsx` was deleted. All batch logging goes through ShiftReport Batches tab.
 
 ---
 
-## Next Season Roadmap (post-season features)
+## Phase 2 — Data Intelligence (In Progress)
 
-Ideas the owner wants to explore once a full season of data is collected:
+Phase 2 has already started. The season data being collected now is the foundation. The goal is to turn Jarvis into the brain for production and ordering decisions — replacing gut feel and memory with data-backed answers.
 
-1. **Predictive analytics** — forecast when to make each flavor based on historical daily sales velocity. Flag flavors that consistently undersell vs. oversell.
-2. **Ingredient cost tracking** — attach cost per delivery unit to ingredients; auto-calculate cost-per-tray per flavor and total spend by ingredient.
-3. **Reorder forecasting** — given current stock + average burn rate from deductions, surface "you'll run out of X in ~Y days."
-4. **Flavor rationalization** — identify flavors with low sales or high waste ratios that could be dropped or made less frequently.
-5. **Audit log UI** — admin page showing a timeline of all stock changes (batch logs, ingredient deductions, manual adjustments) so discrepancies can be traced.
-6. **AI assistant** — a chat interface that can answer questions like "what should I make today?", "what do I need to order this week?", and "which flavors are most profitable?" using the season's accumulated data. This would require a backend function (Supabase Edge Function or similar) to query the DB and pass context to a language model API.
+### What Phase 2 Covers
+
+**What to make next**
+- Which flavors are low relative to how fast they sell
+- What the current shift should prioritize finishing (e.g. flag flavors with in-progress trays that can be topped)
+- Factor in caramel tray count when recommending SSC production
+
+**What sells most**
+- Sales velocity per flavor (trays sold per day, by flavor)
+- Identify top sellers vs. slow movers by time of season
+- Spot flavors that consistently have waste vs. ones that always sell out
+
+**What to order**
+- Ingredient burn rate from `ingredient_deductions` → projected days of stock remaining
+- Flag ingredients approaching `low_stock_threshold`
+- Reorder recommendations based on deduction rate × remaining stock
+
+**Threshold tuning**
+- Use accumulated sales data to set smarter `low_tray_threshold` values per flavor
+- Surface flavors where the alert threshold is too high (crying wolf) or too low (always caught short)
+
+### Data Already Being Collected (Ready for Phase 2)
+- `batch_logs` — every batch made, with date and flavor
+- `shift_report_entries` — trays made, sold, wasted per flavor per session
+- `ingredient_deductions` — every auto-deduction with exact qty, ingredient, and timestamp
+- `shelf_bucket_logs` — barrel movements in and out for popcorn
+- `current_inventory` — live tray/barrel counts
+
+### Phase 2 Implementation Notes
+- All analysis should be scoped to `SEASON_START = '2026-04-22'` to exclude pre-season test data
+- The owner (Zach) will drive Phase 2 through Jarvis — expect questions like "what should I make today?", "what do I need to order?", "which flavors are underperforming?"
+- A Supabase Edge Function or similar backend will likely be needed to query the DB and pass structured context to a language model for natural-language answers
+- Analytics tab is the starting point for surfacing this data visually before any AI layer is added
