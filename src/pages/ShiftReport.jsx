@@ -539,7 +539,10 @@ export default function ShiftReport() {
                       {totalBatches > 0 && !f.double_batch_reminder && (
                         <p className="text-xs text-store-brown-light">
                           {totalBatches} {totalBatches === 1 ? 'batch' : 'batches'} today
-                          <span className="text-store-green font-medium"> · ≈ {totalBatches * yield_} full or {totalBatches * yield_ * 2} in-progress trays</span>
+                          {f.is_base_trigger
+                            ? <span className="text-store-green font-medium"> · ≈ {totalBatches * yield_} full or {totalBatches * yield_ * 2} in-progress trays</span>
+                            : <span className="text-store-green font-medium"> · ≈ {totalBatches * yield_} full trays</span>
+                          }
                         </p>
                       )}
                       {showAmber && (
