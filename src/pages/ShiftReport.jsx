@@ -543,7 +543,7 @@ export default function ShiftReport() {
                         </p>
                       )}
                       {showAmber && (
-                        <p className="text-xs text-amber-600 font-medium">1 of 2 — ≈ {yield_} in-progress trays</p>
+                        <p className="text-xs text-amber-600 font-medium">1 of 2 — ≈ {yield_ * 2} in-progress trays</p>
                       )}
                       {showGreen && (
                         <p className="text-xs text-store-green font-medium">Both batches done ✓ — ≈ {yield_} full trays</p>
