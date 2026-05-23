@@ -74,8 +74,8 @@ export async function autoDeductIngredients(flavorId, batchLogId) {
       continue
     }
 
-    const deliveryQty = Math.round((r.quantity_per_batch / activeIng.container_size) * 10) / 10
-    const newQty = Math.round(((activeIng.quantity ?? 0) - deliveryQty) * 10) / 10
+    const deliveryQty = r.quantity_per_batch / activeIng.container_size
+    const newQty = (activeIng.quantity ?? 0) - deliveryQty
 
     const [updateResult, insertResult] = await Promise.all([
       supabase
@@ -178,8 +178,8 @@ export async function autoDeductTrayIngredients(flavorId, fullTrays) {
     }
 
     const totalRecipeQty = r.quantity_per_batch * fullTrays
-    const deliveryQty = Math.round((totalRecipeQty / activeIng.container_size) * 10) / 10
-    const newQty = Math.round(((activeIng.quantity ?? 0) - deliveryQty) * 10) / 10
+    const deliveryQty = totalRecipeQty / activeIng.container_size
+    const newQty = (activeIng.quantity ?? 0) - deliveryQty
 
     const [updateResult, insertResult] = await Promise.all([
       supabase.from('ingredients').update({ quantity: newQty }).eq('id', activeIng.id),

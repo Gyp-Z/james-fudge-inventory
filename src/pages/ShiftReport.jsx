@@ -31,6 +31,7 @@ export default function ShiftReport() {
   const [currentBarrels, setCurrentBarrels] = useState({}) // flavor_id -> barrel_count
   const [currentInProgressBarrels, setCurrentInProgressBarrels] = useState({}) // flavor_id -> in_progress_barrel_count
   const [barrelThresholds, setBarrelThresholds] = useState({}) // flavor_id -> low_tray_threshold
+  const [todayBarrelTotals, setTodayBarrelTotals] = useState({}) // flavor_id -> barrels added today (from shelf_bucket_logs)
 
   // Batches tab state
   const [batchCounts, setBatchCounts] = useState({})
@@ -227,6 +228,18 @@ export default function ShiftReport() {
         Object.entries(prevDayCounts).forEach(([fid, { count }]) => { finalPrevDay[fid] = count })
         setPrevDayBatchCounts(finalPrevDay)
       }
+
+      // Today's barrel totals for popcorn batch estimate
+      const { data: todayBarrelLogs } = await supabase
+        .from('shelf_bucket_logs')
+        .select('flavor_id, barrels_added')
+        .gte('created_at', `${todayStr}T00:00:00`)
+        .lte('created_at', `${todayStr}T23:59:59`)
+      const barrelTotalsMap = {}
+      ;(todayBarrelLogs || []).forEach(row => {
+        barrelTotalsMap[row.flavor_id] = (barrelTotalsMap[row.flavor_id] ?? 0) + (row.barrels_added ?? 0)
+      })
+      setTodayBarrelTotals(barrelTotalsMap)
 
       setLoading(false)
     }
@@ -581,19 +594,31 @@ export default function ShiftReport() {
             <div>
               <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide mb-2">Popcorn</p>
               <div className="space-y-2">
-                {popcornFlavors.map(f => (
-                  <div key={f.id} className="bg-amber-50 rounded-xl border border-amber-200 px-4 py-3 shadow-sm space-y-3">
-                    <span className="text-sm font-medium text-amber-900">{f.name}</span>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-amber-700">Batches made</span>
-                      <Stepper value={batchCounts[f.id] ?? 0} onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))} />
+                {popcornFlavors.map(f => {
+                  const madeBatches = batchCounts[f.id] ?? 0
+                  const barrelsPerBatch = f.default_yield ?? 1
+                  const estimatedBarrels = madeBatches > 0
+                    ? Math.round(madeBatches * barrelsPerBatch * 10) / 10
+                    : 0
+                  return (
+                    <div key={f.id} className="bg-amber-50 rounded-xl border border-amber-200 px-4 py-3 shadow-sm space-y-3">
+                      <span className="text-sm font-medium text-amber-900">{f.name}</span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-amber-700">Batches made</span>
+                        <Stepper value={madeBatches} onChange={v => setBatchCounts(prev => ({ ...prev, [f.id]: v }))} />
+                      </div>
+                      {estimatedBarrels > 0 && (
+                        <p className="text-xs text-amber-600 text-right">
+                          ≈ {estimatedBarrels} {estimatedBarrels === 1 ? 'barrel' : 'barrels'} to log in Products
+                        </p>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-red-400">Batches wasted</span>
+                        <Stepper value={batchWasted[f.id] ?? 0} onChange={v => setBatchWasted(prev => ({ ...prev, [f.id]: v }))} />
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-red-400">Batches wasted</span>
-                      <Stepper value={batchWasted[f.id] ?? 0} onChange={v => setBatchWasted(prev => ({ ...prev, [f.id]: v }))} />
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
@@ -796,11 +821,24 @@ export default function ShiftReport() {
                   <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide">Popcorn</p>
                   {allFlavors.filter(f => f.product_type === 'popcorn').map(f => {
                     const pe = popcornEntries[f.id] || { barrels_added: 0, barrels_sold: 0, in_progress_barrels: 0 }
+                    const totalBarrelsToday = (todayBarrelTotals[f.id] ?? 0) + (pe.barrels_added || 0)
+                    const barrelsPerBatch = f.default_yield ?? 1
+                    const estimatedBatches = totalBarrelsToday > 0 ? Math.round(totalBarrelsToday / barrelsPerBatch) : 0
                     return (
                       <div key={f.id} className="bg-amber-50 rounded-xl border border-amber-200 p-4 shadow-sm space-y-4">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
                           <p className="font-semibold text-amber-900 text-lg">{f.name}</p>
-                          <span className="text-sm font-bold text-amber-700">{currentBarrels[f.id] ?? 0} barrels on hand</span>
+                          <div className="flex items-center gap-2 flex-wrap text-sm">
+                            <span className="font-bold text-amber-700">{currentBarrels[f.id] ?? 0} barrels on hand</span>
+                            {totalBarrelsToday > 0 && (
+                              <>
+                                <span className="text-amber-400">·</span>
+                                <span className="text-amber-700">{totalBarrelsToday} added today</span>
+                                <span className="text-amber-400">·</span>
+                                <span className="text-amber-600 font-medium">≈ {estimatedBatches} {estimatedBatches === 1 ? 'batch' : 'batches'}</span>
+                              </>
+                            )}
+                          </div>
                         </div>
 
                         <div className="flex items-center justify-between">
