@@ -365,10 +365,14 @@ export default function Analytics() {
 
     if (!caramelBatches.length) return []
 
-    // Total caramel trays ever made — this is the peak the graph starts at
-    const caramelPeak = caramelBatches.length
+    // Caramel batches grouped by date (+1 per batch)
+    const caramelByDate = {}
+    caramelBatches.forEach(b => {
+      const bDate = (b.batch_date ?? '').slice(0, 10)
+      caramelByDate[bDate] = (caramelByDate[bDate] ?? 0) + 1
+    })
 
-    // SSC deductions grouped by the report date trays were topped (submitted as full)
+    // SSC deductions grouped by report date (−full_trays/18 per SSC flavor entry)
     const sscByDate = {}
     reports.forEach(r => {
       const key = r.report_date ?? ''
@@ -380,18 +384,15 @@ export default function Analytics() {
       })
     })
 
-    // Graph starts at the first caramel batch date showing the full peak —
-    // no step-by-step buildup, just "fully stocked" from day one
-    const firstCaramelDate = caramelBatches
-      .map(b => (b.batch_date ?? '').slice(0, 10))
-      .sort()[0]
-
+    const firstCaramelDate = Object.keys(caramelByDate).sort()[0]
     const todayStr = getDateStr(new Date())
-    // Honor the range cutoff, but never start after firstCaramelDate
     const effectiveStart = cutoffStr && cutoffStr > firstCaramelDate ? cutoffStr : firstCaramelDate
 
-    // Account for any SSC deductions that occurred before the visible range
-    let runningAtStart = caramelPeak
+    // Accumulate batches and SSC deductions that happened before the visible range
+    let runningAtStart = 0
+    for (const [d, v] of Object.entries(caramelByDate)) {
+      if (d < effectiveStart) runningAtStart += v
+    }
     for (const [d, v] of Object.entries(sscByDate)) {
       if (d < effectiveStart) runningAtStart += v
     }
@@ -401,6 +402,7 @@ export default function Analytics() {
     let running = runningAtStart
     while (cursor <= new Date(todayStr + 'T12:00:00')) {
       const ds = getDateStr(cursor)
+      if (caramelByDate[ds]) running += caramelByDate[ds]
       if (sscByDate[ds]) running += sscByDate[ds]
       rows.push({ date: formatDate(ds), [caramelFlavor.name]: Math.max(0, Math.round(running * 1000) / 1000) })
       cursor.setDate(cursor.getDate() + 1)

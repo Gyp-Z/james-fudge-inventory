@@ -163,7 +163,7 @@ export default function Batch() {
     weekday: 'long', month: 'long', day: 'numeric',
   })
 
-  const fudgeFlavors = flavors.filter(f => f.product_type !== 'popcorn')
+  const fudgeFlavors = flavors.filter(f => f.product_type !== 'popcorn' && !f.is_component)
   const popcornFlavors = flavors.filter(f => f.product_type === 'popcorn')
 
   return (
