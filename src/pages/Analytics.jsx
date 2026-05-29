@@ -48,7 +48,7 @@ export default function Analytics() {
         supabase
           .from('shift_reports')
           .select(`id, report_date, created_at, shift_report_entries(
-            flavor_id, full_trays, trays_sold, trays_wasted, waste_reason, flavors(name)
+            flavor_id, full_trays, trays_sold, trays_wasted, in_progress_wasted, waste_reason, flavors(name)
           )`)
           .order('created_at'),
         supabase
@@ -210,12 +210,14 @@ export default function Analytics() {
     visibleFudgeFlavors.forEach(f => { totals[f.name] = 0 })
     filteredReports.forEach(r => {
       r.shift_report_entries?.forEach(e => {
-        if ((e.trays_wasted ?? 0) > 0) {
-          const name = e.flavors?.name || e.flavor_id
-          if (!names.has(name)) return
-          totals[name] = (totals[name] ?? 0) + e.trays_wasted
-          table.push({ date: formatDate(r.report_date), flavor: name, amount: e.trays_wasted, reason: e.waste_reason || '—' })
-        }
+        const fullWasted = e.trays_wasted ?? 0
+        const inProgWasted = e.in_progress_wasted ?? 0
+        const totalWasted = fullWasted + inProgWasted * 0.5
+        if (totalWasted <= 0) return
+        const name = e.flavors?.name || e.flavor_id
+        if (!names.has(name)) return
+        totals[name] = (totals[name] ?? 0) + totalWasted
+        table.push({ date: formatDate(r.report_date), flavor: name, amount: totalWasted, reason: e.waste_reason || '—' })
       })
     })
     return {
@@ -261,7 +263,7 @@ export default function Analytics() {
     filteredReports.forEach(r => {
       r.shift_report_entries?.forEach(e => {
         sold += e.trays_sold ?? 0
-        wasted += e.trays_wasted ?? 0
+        wasted += (e.trays_wasted ?? 0) + (e.in_progress_wasted ?? 0) * 0.5
         made += e.full_trays ?? 0
       })
     })
@@ -410,14 +412,19 @@ export default function Analytics() {
     return rows
   }, [batchLogs, reports, componentFlavors, cutoffStr])
 
-  const popcornWasteTotals = useMemo(() => {
+  const { popcornWasteTotals, popcornWasteTable } = useMemo(() => {
     const totals = {}
+    const table = []
     filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && b.is_wasted).forEach(b => {
       const f = popcornFlavors.find(f => f.id === b.flavor_id)
       if (!f) return
       totals[f.name] = (totals[f.name] ?? 0) + 1
+      table.push({ date: formatDate((b.batch_date ?? '').slice(0, 10)), flavor: f.name, reason: b.waste_reason || '—' })
     })
-    return Object.entries(totals).map(([name, batches]) => ({ name, batches })).sort((a, b) => b.batches - a.batches)
+    return {
+      popcornWasteTotals: Object.entries(totals).map(([name, batches]) => ({ name, batches })).sort((a, b) => b.batches - a.batches),
+      popcornWasteTable: table.sort((a, b) => a.date.localeCompare(b.date)),
+    }
   }, [filteredBatchLogs, viewPopcornIds, popcornFlavors])
 
   const popcornTotals = useMemo(() => ({
@@ -686,14 +693,40 @@ export default function Analytics() {
             <h3 className="font-semibold text-amber-900 mb-1">Batches Wasted</h3>
             <p className="text-xs text-amber-700 mb-3">Total wasted batches per flavor</p>
             {popcornWasteTotals.length > 0 ? (
-              <ResponsiveContainer width="100%" height={Math.max(120, popcornWasteTotals.length * 52)}>
-                <BarChart data={popcornWasteTotals} layout="vertical" margin={{ left: 16, right: 16 }}>
-                  <XAxis type="number" {...xProps} allowDecimals={false} />
-                  <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12, fill: '#4A2C17' }} />
-                  <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                  <Bar dataKey="batches" fill="#D97706" radius={[0, 4, 4, 0]} name="Batches wasted" />
-                </BarChart>
-              </ResponsiveContainer>
+              <>
+                <ResponsiveContainer width="100%" height={Math.max(120, popcornWasteTotals.length * 52)}>
+                  <BarChart data={popcornWasteTotals} layout="vertical" margin={{ left: 16, right: 16 }}>
+                    <XAxis type="number" {...xProps} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12, fill: '#4A2C17' }} />
+                    <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                    <Bar dataKey="batches" fill="#D97706" radius={[0, 4, 4, 0]} name="Batches wasted" />
+                  </BarChart>
+                </ResponsiveContainer>
+                {popcornWasteTable.length > 0 && (
+                  <div className="mt-4 overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-amber-200">
+                          <th className="text-left py-2 pr-4 text-amber-700 font-medium">Date</th>
+                          <th className="text-left py-2 pr-4 text-amber-700 font-medium">Flavor</th>
+                          <th className="text-left py-2 pr-4 text-amber-700 font-medium">Batches</th>
+                          <th className="text-left py-2 text-amber-700 font-medium">Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {popcornWasteTable.map((row, i) => (
+                          <tr key={i} className="border-b border-amber-100 last:border-0">
+                            <td className="py-2 pr-4 text-amber-700">{row.date}</td>
+                            <td className="py-2 pr-4 text-amber-900 font-medium">{row.flavor}</td>
+                            <td className="py-2 pr-4 text-amber-900">1</td>
+                            <td className="py-2 text-amber-700">{row.reason}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
             ) : empty('No wasted batches logged yet.')}
           </div>
         </>

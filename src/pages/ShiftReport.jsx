@@ -36,6 +36,7 @@ export default function ShiftReport() {
   // Batches tab state
   const [batchCounts, setBatchCounts] = useState({})
   const [batchWasted, setBatchWasted] = useState({})
+  const [batchWasteReason, setBatchWasteReason] = useState({})
   const [batchSubmitting, setBatchSubmitting] = useState(false)
   const [batchResult, setBatchResult] = useState(null)
   const [todayBatchCounts, setTodayBatchCounts] = useState({}) // batches logged before this session
@@ -85,7 +86,7 @@ export default function ShiftReport() {
       // Init fudge product entries
       const initial = {}
       fudgeOnly.forEach((f) => {
-        initial[f.id] = { full_trays: 0, in_progress_trays: 0, trays_sold: 0, trays_wasted: 0, waste_reason: '' }
+        initial[f.id] = { full_trays: 0, in_progress_trays: 0, in_progress_wasted: 0, trays_sold: 0, trays_wasted: 0, waste_reason: '' }
       })
       setEntries(initial)
 
@@ -226,11 +227,12 @@ export default function ShiftReport() {
     for (const flavor of toLog) {
       const madeCount = batchCounts[flavor.id] ?? 0
       const wastedCount = batchWasted[flavor.id] ?? 0
+      const flavorWasteReason = batchWasteReason[flavor.id]?.trim() || null
       for (let i = 0; i < madeCount + wastedCount; i++) {
         const isWasted = i >= madeCount
         const { data: inserted } = await supabase
           .from('batch_logs')
-          .insert({ flavor_id: flavor.id, batch_date: todayStr, is_wasted: isWasted })
+          .insert({ flavor_id: flavor.id, batch_date: todayStr, is_wasted: isWasted, ...(isWasted && flavorWasteReason ? { waste_reason: flavorWasteReason } : {}) })
           .select('id')
           .single()
 
@@ -276,6 +278,7 @@ export default function ShiftReport() {
     })
     setBatchCounts(prev => Object.fromEntries(Object.keys(prev).map(k => [k, 0])))
     setBatchWasted(prev => Object.fromEntries(Object.keys(prev).map(k => [k, 0])))
+    setBatchWasteReason(prev => Object.fromEntries(Object.keys(prev).map(k => [k, ''])))
   }
 
   // ── PRODUCTS TAB ─────────────────────────────────────────────────────────
@@ -300,13 +303,14 @@ export default function ShiftReport() {
     const entryRows = flavors
       .filter((f) => {
         const e = entries[f.id]
-        return (e?.full_trays ?? 0) > 0 || (e?.in_progress_trays ?? 0) > 0 || (e?.trays_sold ?? 0) > 0 || (e?.trays_wasted ?? 0) > 0
+        return (e?.full_trays ?? 0) > 0 || (e?.in_progress_trays ?? 0) > 0 || (e?.in_progress_wasted ?? 0) > 0 || (e?.trays_sold ?? 0) > 0 || (e?.trays_wasted ?? 0) > 0
       })
       .map((f) => ({
         report_id: report.id,
         flavor_id: f.id,
         full_trays: entries[f.id]?.full_trays ?? 0,
         in_progress_trays: entries[f.id]?.in_progress_trays ?? 0,
+        in_progress_wasted: entries[f.id]?.in_progress_wasted ?? 0,
         trays_sold: entries[f.id]?.trays_sold ?? 0,
         trays_wasted: entries[f.id]?.trays_wasted ?? 0,
         waste_reason: entries[f.id]?.waste_reason?.trim() || null,
@@ -322,20 +326,22 @@ export default function ShiftReport() {
     const activeRows = flavors
       .filter((f) => {
         const e = entries[f.id]
-        return (e?.full_trays ?? 0) !== 0 || (e?.in_progress_trays ?? 0) !== 0 || (e?.trays_sold ?? 0) !== 0 || (e?.trays_wasted ?? 0) !== 0
+        return (e?.full_trays ?? 0) !== 0 || (e?.in_progress_trays ?? 0) !== 0 || (e?.in_progress_wasted ?? 0) !== 0 || (e?.trays_sold ?? 0) !== 0 || (e?.trays_wasted ?? 0) !== 0
       })
       .map((f) => {
         const e = entries[f.id]
         const made = e?.full_trays ?? 0
         const newInProg = e?.in_progress_trays ?? 0
+        const inProgWasted = e?.in_progress_wasted ?? 0
         const sold = e?.trays_sold ?? 0
         const wasted = e?.trays_wasted ?? 0
         const existingInProg = currentInProgress[f.id] ?? 0
         const topped = Math.min(made, existingInProg)
         return {
           flavor_id: f.id,
+          // Sales only deduct from full-tray stock, not from in-progress
           tray_count: Math.max(0, (freshMap[f.id] ?? 0) + made - sold - wasted),
-          in_progress_count: Math.max(0, existingInProg + newInProg - topped),
+          in_progress_count: Math.max(0, existingInProg + newInProg - topped - inProgWasted),
           updated_at: new Date().toISOString(),
         }
       })
@@ -521,6 +527,15 @@ export default function ShiftReport() {
                         <span className="text-xs text-red-400">Batches wasted</span>
                         <Stepper value={batchWasted[f.id] ?? 0} onChange={v => setBatchWasted(prev => ({ ...prev, [f.id]: v }))} />
                       </div>
+                      {(batchWasted[f.id] ?? 0) > 0 && (
+                        <input
+                          type="text"
+                          value={batchWasteReason[f.id] ?? ''}
+                          onChange={ev => setBatchWasteReason(prev => ({ ...prev, [f.id]: ev.target.value }))}
+                          placeholder="Waste reason"
+                          className="w-full border border-store-tan rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+                        />
+                      )}
                     </div>
                   )
                 })}
@@ -596,6 +611,15 @@ export default function ShiftReport() {
                         <span className="text-xs text-red-400">Batches wasted</span>
                         <Stepper value={batchWasted[f.id] ?? 0} onChange={v => setBatchWasted(prev => ({ ...prev, [f.id]: v }))} />
                       </div>
+                      {(batchWasted[f.id] ?? 0) > 0 && (
+                        <input
+                          type="text"
+                          value={batchWasteReason[f.id] ?? ''}
+                          onChange={ev => setBatchWasteReason(prev => ({ ...prev, [f.id]: ev.target.value }))}
+                          placeholder="Waste reason"
+                          className="w-full border border-amber-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white text-amber-900"
+                        />
+                      )}
                     </div>
                   )
                 })}
@@ -750,7 +774,11 @@ export default function ShiftReport() {
                         <span className="text-sm text-store-brown-light">Trays wasted</span>
                         <Stepper value={e.trays_wasted} onChange={(v) => setField(f.id, 'trays_wasted', v)} />
                       </div>
-                      {e.trays_wasted > 0 && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-store-brown-light">In-progress trays wasted <span className="text-xs text-store-brown-light opacity-60">(½ tray each)</span></span>
+                        <Stepper value={e.in_progress_wasted} onChange={(v) => setField(f.id, 'in_progress_wasted', v)} />
+                      </div>
+                      {(e.trays_wasted > 0 || e.in_progress_wasted > 0) && (
                         <input
                           type="text"
                           value={e.waste_reason}
