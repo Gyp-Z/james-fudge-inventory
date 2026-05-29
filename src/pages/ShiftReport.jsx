@@ -698,7 +698,8 @@ export default function ShiftReport() {
                 {flavors.map((f) => {
                   const e = entries[f.id] || { full_trays: 0, in_progress_trays: 0, trays_sold: 0, trays_wasted: 0, waste_reason: '' }
                   const inProgCount = currentInProgress[f.id] ?? 0
-                  const liveInProg = Math.max(0, inProgCount - (e.full_trays ?? 0))
+                  const inProgWastedLive = (e.waste_is_in_progress && (e.trays_wasted ?? 0) > 0) ? (e.trays_wasted ?? 0) : 0
+                  const liveInProg = Math.max(0, inProgCount - (e.full_trays ?? 0) - inProgWastedLive)
 
                   const totalMadeToday = (todayTotals[f.id]?.made ?? 0) + (e.full_trays ?? 0)
                   const defaultYield = f.default_yield ?? 3
