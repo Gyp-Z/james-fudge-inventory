@@ -86,7 +86,7 @@ export default function ShiftReport() {
       // Init fudge product entries
       const initial = {}
       fudgeOnly.forEach((f) => {
-        initial[f.id] = { full_trays: 0, in_progress_trays: 0, in_progress_wasted: 0, trays_sold: 0, trays_wasted: 0, waste_reason: '' }
+        initial[f.id] = { full_trays: 0, in_progress_trays: 0, trays_sold: 0, trays_wasted: 0, waste_reason: '', waste_is_in_progress: false }
       })
       setEntries(initial)
 
@@ -303,18 +303,23 @@ export default function ShiftReport() {
     const entryRows = flavors
       .filter((f) => {
         const e = entries[f.id]
-        return (e?.full_trays ?? 0) > 0 || (e?.in_progress_trays ?? 0) > 0 || (e?.in_progress_wasted ?? 0) > 0 || (e?.trays_sold ?? 0) > 0 || (e?.trays_wasted ?? 0) > 0
+        return (e?.full_trays ?? 0) > 0 || (e?.in_progress_trays ?? 0) > 0 || (e?.trays_sold ?? 0) > 0 || (e?.trays_wasted ?? 0) > 0
       })
-      .map((f) => ({
-        report_id: report.id,
-        flavor_id: f.id,
-        full_trays: entries[f.id]?.full_trays ?? 0,
-        in_progress_trays: entries[f.id]?.in_progress_trays ?? 0,
-        in_progress_wasted: entries[f.id]?.in_progress_wasted ?? 0,
-        trays_sold: entries[f.id]?.trays_sold ?? 0,
-        trays_wasted: entries[f.id]?.trays_wasted ?? 0,
-        waste_reason: entries[f.id]?.waste_reason?.trim() || null,
-      }))
+      .map((f) => {
+        const e = entries[f.id]
+        const isInProg = e?.waste_is_in_progress ?? false
+        const wastedCount = e?.trays_wasted ?? 0
+        return {
+          report_id: report.id,
+          flavor_id: f.id,
+          full_trays: e?.full_trays ?? 0,
+          in_progress_trays: e?.in_progress_trays ?? 0,
+          in_progress_wasted: isInProg ? wastedCount : 0,
+          trays_wasted: isInProg ? 0 : wastedCount,
+          trays_sold: e?.trays_sold ?? 0,
+          waste_reason: e?.waste_reason?.trim() || null,
+        }
+      })
     if (entryRows.length > 0) {
       await supabase.from('shift_report_entries').insert(entryRows)
     }
@@ -326,21 +331,23 @@ export default function ShiftReport() {
     const activeRows = flavors
       .filter((f) => {
         const e = entries[f.id]
-        return (e?.full_trays ?? 0) !== 0 || (e?.in_progress_trays ?? 0) !== 0 || (e?.in_progress_wasted ?? 0) !== 0 || (e?.trays_sold ?? 0) !== 0 || (e?.trays_wasted ?? 0) !== 0
+        return (e?.full_trays ?? 0) !== 0 || (e?.in_progress_trays ?? 0) !== 0 || (e?.trays_sold ?? 0) !== 0 || (e?.trays_wasted ?? 0) !== 0
       })
       .map((f) => {
         const e = entries[f.id]
         const made = e?.full_trays ?? 0
         const newInProg = e?.in_progress_trays ?? 0
-        const inProgWasted = e?.in_progress_wasted ?? 0
         const sold = e?.trays_sold ?? 0
-        const wasted = e?.trays_wasted ?? 0
+        const wastedCount = e?.trays_wasted ?? 0
+        const isInProg = e?.waste_is_in_progress ?? false
+        const fullWasted = isInProg ? 0 : wastedCount
+        const inProgWasted = isInProg ? wastedCount : 0
         const existingInProg = currentInProgress[f.id] ?? 0
         const topped = Math.min(made, existingInProg)
         return {
           flavor_id: f.id,
           // Sales only deduct from full-tray stock, not from in-progress
-          tray_count: Math.max(0, (freshMap[f.id] ?? 0) + made - sold - wasted),
+          tray_count: Math.max(0, (freshMap[f.id] ?? 0) + made - sold - fullWasted),
           in_progress_count: Math.max(0, existingInProg + newInProg - topped - inProgWasted),
           updated_at: new Date().toISOString(),
         }
@@ -774,18 +781,25 @@ export default function ShiftReport() {
                         <span className="text-sm text-store-brown-light">Trays wasted</span>
                         <Stepper value={e.trays_wasted} onChange={(v) => setField(f.id, 'trays_wasted', v)} />
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-store-brown-light">In-progress trays wasted <span className="text-xs text-store-brown-light opacity-60">(½ tray each)</span></span>
-                        <Stepper value={e.in_progress_wasted} onChange={(v) => setField(f.id, 'in_progress_wasted', v)} />
-                      </div>
-                      {(e.trays_wasted > 0 || e.in_progress_wasted > 0) && (
-                        <input
-                          type="text"
-                          value={e.waste_reason}
-                          onChange={(ev) => setField(f.id, 'waste_reason', ev.target.value)}
-                          placeholder="Waste reason"
-                          className="w-full border border-store-tan rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
-                        />
+                      {e.trays_wasted > 0 && (
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            value={e.waste_reason}
+                            onChange={(ev) => setField(f.id, 'waste_reason', ev.target.value)}
+                            placeholder="Waste reason"
+                            className="w-full border border-store-tan rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
+                          />
+                          <label className="flex items-center gap-2 text-sm text-store-brown-light cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={e.waste_is_in_progress ?? false}
+                              onChange={(ev) => setField(f.id, 'waste_is_in_progress', ev.target.checked)}
+                              className="w-4 h-4 accent-store-green"
+                            />
+                            In-progress tray? <span className="text-xs opacity-60">(counts as ½)</span>
+                          </label>
+                        </div>
                       )}
                     </div>
                   )
