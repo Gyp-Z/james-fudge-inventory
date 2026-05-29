@@ -134,13 +134,14 @@ export default function ShiftReport() {
       if (todayReports && todayReports.length > 0) {
         const ids = todayReports.map((r) => r.id)
         const { data: todayEntries } = await supabase
-          .from('shift_report_entries').select('flavor_id, full_trays, trays_sold, trays_wasted').in('report_id', ids)
+          .from('shift_report_entries').select('flavor_id, full_trays, trays_sold, trays_wasted, in_progress_trays').in('report_id', ids)
         const totalsMap = {}
         ;(todayEntries || []).forEach((e) => {
-          const t = totalsMap[e.flavor_id] || { sold: 0, wasted: 0, made: 0 }
+          const t = totalsMap[e.flavor_id] || { sold: 0, wasted: 0, made: 0, in_progress: 0 }
           t.sold += e.trays_sold ?? 0
           t.wasted += e.trays_wasted ?? 0
           t.made += e.full_trays ?? 0
+          t.in_progress += e.in_progress_trays ?? 0
           totalsMap[e.flavor_id] = t
         })
         setTodayTotals(totalsMap)
@@ -475,6 +476,27 @@ export default function ShiftReport() {
     })
   })
 
+  // For each base group: has the user entered enough tray-equivalents to account for today's batches?
+  // Full trays count as 1, in-progress count as 0.5 (they are half-trays).
+  // Checks both prior-session submissions (todayTotals) and the current form (entries).
+  const groupAccountedFor = {}
+  Object.entries(baseGroupMap).forEach(([g, triggerIds]) => {
+    const totalBatches = triggerIds.reduce((sum, fid) => sum + (todayBatchCounts[fid] ?? 0), 0)
+    if (totalBatches === 0) { groupAccountedFor[g] = true; return }
+    const triggerFlavor = allFlavors.find(f => triggerIds.includes(f.id))
+    const yieldPerBatch = triggerFlavor?.default_yield ?? 3
+    const expectedTrays = totalBatches * yieldPerBatch
+    let actualTrays = 0
+    allFlavors.forEach(f => {
+      if (!(f.base_groups || []).includes(g)) return
+      actualTrays += (todayTotals[f.id]?.made ?? 0)
+      actualTrays += (todayTotals[f.id]?.in_progress ?? 0) * 0.5
+      actualTrays += (entries[f.id]?.full_trays ?? 0)
+      actualTrays += (entries[f.id]?.in_progress_trays ?? 0) * 0.5
+    })
+    groupAccountedFor[g] = actualTrays >= expectedTrays
+  })
+
   return (
     <div className="space-y-6">
       <div>
@@ -706,13 +728,25 @@ export default function ShiftReport() {
                   const estimatedBatches = totalMadeToday > 0 ? Math.round(totalMadeToday / defaultYield) : 0
 
                   const baseGroups = f.base_groups || []
-                  const showBaseReminder = !(e.full_trays > 0) &&
+                  // A group is "active" if any base trigger in it has batches today
+                  const groupHasBatch = baseGroups.some(g => (baseGroupMap[g] || []).some(fid => (todayBatchCounts[fid] ?? 0) > 0))
+                  // The group is fully accounted for when every active group's tray total covers its batch yield
+                  const groupFullyAccounted = !groupHasBatch || baseGroups.every(g =>
+                    !((baseGroupMap[g] || []).some(fid => (todayBatchCounts[fid] ?? 0) > 0)) || groupAccountedFor[g]
+                  )
+                  // Cross-flavor reminder: base trigger batch was made but this flavor hasn't contributed trays yet
+                  const showBaseReminder =
                     (todayBatchCounts[f.id] ?? 0) === 0 &&
-                    baseGroups.some(g => (baseGroupMap[g] || []).some(fid => (todayBatchCounts[fid] ?? 0) > 0))
-                  const showSelfReminder = !(e.full_trays > 0) &&
-                    !(todayTotals[f.id]?.made > 0) &&
+                    groupHasBatch &&
+                    !groupFullyAccounted
+                  // Self reminder: this flavor has its own batch logged; for base triggers use group accounting,
+                  // for committed flavors (SSC, Pistachio, etc.) use per-flavor tray check
+                  const showSelfReminder =
+                    (todayBatchCounts[f.id] ?? 0) > 0 &&
                     !f.double_batch_reminder &&
-                    (todayBatchCounts[f.id] ?? 0) > 0
+                    (f.is_base_trigger
+                      ? !groupFullyAccounted
+                      : !(e.full_trays > 0) && !(todayTotals[f.id]?.made > 0))
 
                   // Same cross-day logic as Batches tab: if prev day had exactly 1 incomplete batch, count it toward the total
                   const prevDayCount = prevDayBatchCounts[f.id] ?? 0
@@ -858,6 +892,19 @@ export default function ShiftReport() {
                             <span className="text-amber-600 text-xs">— adding barrels will top {liveInProgBarrels === 1 ? 'it' : 'them'}</span>
                           </div>
                         )})()}
+
+                        {(() => {
+                          const popcornBatches = todayBatchCounts[f.id] ?? 0
+                          if (popcornBatches === 0) return null
+                          const yieldPerBatch = f.default_yield ?? 1
+                          const expectedBarrels = popcornBatches * yieldPerBatch
+                          const totalLogged = (todayBarrelTotals[f.id] ?? 0) + (pe.barrels_added ?? 0) + (pe.in_progress_barrels ?? 0) * 0.5
+                          return totalLogged < expectedBarrels && (
+                            <div className="bg-amber-100 border border-amber-300 rounded-lg px-3 py-2">
+                              <span className="text-amber-800 text-xs">Batch logged today — add barrels when ready</span>
+                            </div>
+                          )
+                        })()}
 
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-amber-800">Barrels added</span>
