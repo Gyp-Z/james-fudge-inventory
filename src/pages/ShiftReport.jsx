@@ -737,6 +737,41 @@ export default function ShiftReport() {
             <>
               <p className="text-store-brown-light text-xs -mt-3">Log what's on the shelf — trays made, sold, or wasted this session.</p>
 
+              {/* Caramels hand-wrapped section */}
+              <div className="space-y-3">
+                <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide">Caramels</p>
+                <div className="bg-store-cream rounded-xl border border-store-tan p-4 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold text-store-brown">Caramels Hand Wrapped</p>
+                      {caramelsHandWrapped > 0 && (
+                        <p className="text-xs text-store-brown-light mt-0.5">
+                          = {formatQuarterTrays(caramelsHandWrapped)} tray{caramelsHandWrapped !== 4 ? 's' : ''} of caramel
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCaramelsHandWrapped(v => Math.max(0, v - 1))}
+                        className="w-12 h-12 rounded-xl bg-store-tan text-store-brown text-2xl font-bold flex items-center justify-center active:scale-95 transition-transform select-none touch-manipulation"
+                        aria-label="Decrease"
+                      >−</button>
+                      <span className="w-10 text-center text-2xl font-bold text-store-brown tabular-nums select-none">
+                        {formatQuarterTrays(caramelsHandWrapped)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setCaramelsHandWrapped(v => v + 1)}
+                        className="w-12 h-12 rounded-xl bg-store-tan text-store-brown text-2xl font-bold flex items-center justify-center active:scale-95 transition-transform select-none touch-manipulation"
+                        aria-label="Increase"
+                      >+</button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-store-brown-light">Each step = ¼ tray of caramel used for hand wrapping.</p>
+                </div>
+              </div>
+
               <div className="space-y-3">
                 <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide">Fudge</p>
                 {flavors.map((f) => {
@@ -861,41 +896,6 @@ export default function ShiftReport() {
                     </div>
                   )
                 })}
-              </div>
-
-              {/* Caramels hand-wrapped section */}
-              <div className="space-y-3">
-                <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide">Caramels</p>
-                <div className="bg-store-cream rounded-xl border border-store-tan p-4 shadow-sm space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-semibold text-store-brown">Caramels Hand Wrapped</p>
-                      {caramelsHandWrapped > 0 && (
-                        <p className="text-xs text-store-brown-light mt-0.5">
-                          = {formatQuarterTrays(caramelsHandWrapped)} tray{caramelsHandWrapped !== 4 ? 's' : ''} of caramel
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setCaramelsHandWrapped(v => Math.max(0, v - 1))}
-                        className="w-12 h-12 rounded-xl bg-store-tan text-store-brown text-2xl font-bold flex items-center justify-center active:scale-95 transition-transform select-none touch-manipulation"
-                        aria-label="Decrease"
-                      >−</button>
-                      <span className="w-10 text-center text-2xl font-bold text-store-brown tabular-nums select-none">
-                        {formatQuarterTrays(caramelsHandWrapped)}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setCaramelsHandWrapped(v => v + 1)}
-                        className="w-12 h-12 rounded-xl bg-store-tan text-store-brown text-2xl font-bold flex items-center justify-center active:scale-95 transition-transform select-none touch-manipulation"
-                        aria-label="Increase"
-                      >+</button>
-                    </div>
-                  </div>
-                  <p className="text-xs text-store-brown-light">Each step = ¼ tray of caramel used for hand wrapping.</p>
-                </div>
               </div>
 
               {/* Popcorn section */}
