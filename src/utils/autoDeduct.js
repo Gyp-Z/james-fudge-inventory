@@ -257,3 +257,153 @@ export async function incrementBarrelCount(flavorId, amount) {
     .from('current_inventory')
     .upsert({ flavor_id: flavorId, barrel_count: newCount }, { onConflict: 'flavor_id' })
 }
+
+/**
+ * Reverts a batch log:
+ *   1. Fetches the batch log to get the flavor and wasted status.
+ *   2. Fetches the ingredient deductions for this batch.
+ *   3. For each deduction, adds the quantity back to the active ingredient.
+ *   4. If flavor is popcorn:
+ *      - Decrements barrel_count in current_inventory by the batch yield.
+ *      - Deletes the corresponding shelf_bucket_logs entry.
+ *   5. If flavor is component (Caramel) and not wasted:
+ *      - Decrements tray_count in current_inventory by 1.
+ *   6. Deletes the ingredient deductions.
+ *   7. Deletes the batch log.
+ */
+export async function revertBatchLog(batchLogId) {
+  // 1. Fetch batch log
+  const { data: batch, error: bErr } = await supabase
+    .from('batch_logs')
+    .select('flavor_id, is_wasted, created_at, tray_count, batch_quantity, flavors(name, product_type, is_component, default_yield)')
+    .eq('id', batchLogId)
+    .single()
+
+  if (bErr || !batch) {
+    console.error('revertBatchLog: failed to fetch batch log', bErr?.message)
+    return { success: false, error: bErr?.message || 'Batch not found' }
+  }
+
+  const flavor = batch.flavors
+  const flavorId = batch.flavor_id
+  const isPopcorn = flavor?.product_type === 'popcorn'
+  const isComponent = flavor?.is_component
+  const isWasted = batch.is_wasted
+
+  // Determine batch quantity/yield
+  // Popcorn uses batch_quantity if set, else defaults to default_yield, else 1
+  const batchQty = batch.batch_quantity ?? batch.tray_count ?? flavor?.default_yield ?? (isPopcorn ? 1 : 3)
+
+  // 2. Fetch deductions
+  const { data: deductions, error: dErr } = await supabase
+    .from('ingredient_deductions')
+    .select('*')
+    .eq('batch_log_id', batchLogId)
+
+  if (dErr) {
+    console.error('revertBatchLog: failed to fetch deductions', dErr.message)
+    return { success: false, error: dErr.message }
+  }
+
+  // 3. Refund ingredients
+  if (deductions && deductions.length > 0) {
+    // Get all active ingredients matching deduction ingredient_ids
+    const ingIds = deductions.map(d => d.ingredient_id)
+    const { data: activeIngs, error: ingErr } = await supabase
+      .from('ingredients')
+      .select('id, name, quantity')
+      .in('id', ingIds)
+      .eq('is_active', true)
+
+    if (!ingErr && activeIngs) {
+      for (const d of deductions) {
+        const activeIng = activeIngs.find(i => i.id === d.ingredient_id)
+        if (activeIng) {
+          const newQty = Math.round(((activeIng.quantity ?? 0) + d.quantity_deducted) * 10000) / 10000
+          await supabase
+            .from('ingredients')
+            .update({ quantity: newQty })
+            .eq('id', activeIng.id)
+        }
+      }
+    }
+  }
+
+  // 4. If popcorn, decrement barrel count and delete matching shelf_bucket_log
+  if (isPopcorn && !isWasted) {
+    // Decrement barrel count
+    const { data: inv } = await supabase
+      .from('current_inventory')
+      .select('barrel_count')
+      .eq('flavor_id', flavorId)
+      .single()
+
+    if (inv) {
+      const newCount = Math.max(0, (inv.barrel_count ?? 0) - batchQty)
+      await supabase
+        .from('current_inventory')
+        .update({ barrel_count: newCount })
+        .eq('flavor_id', flavorId)
+    }
+
+    // Try to find and delete matching shelf_bucket_log
+    // Created around the same time as batch (within 2 minutes)
+    const batchCreatedAt = new Date(batch.created_at)
+    const twoMinutesBefore = new Date(batchCreatedAt.getTime() - 2 * 60 * 1000).toISOString()
+    const twoMinutesAfter = new Date(batchCreatedAt.getTime() + 2 * 60 * 1000).toISOString()
+
+    const { data: shelfLog } = await supabase
+      .from('shelf_bucket_logs')
+      .select('id')
+      .eq('flavor_id', flavorId)
+      .eq('barrels_added', batchQty)
+      .gte('logged_at', twoMinutesBefore)
+      .lte('logged_at', twoMinutesAfter)
+      .limit(1)
+      .single()
+
+    if (shelfLog) {
+      await supabase
+        .from('shelf_bucket_logs')
+        .delete()
+        .eq('id', shelfLog.id)
+    }
+  }
+
+  // 5. If component (Caramel), decrement tray count
+  if (isComponent && !isWasted) {
+    const { data: inv } = await supabase
+      .from('current_inventory')
+      .select('tray_count')
+      .eq('flavor_id', flavorId)
+      .single()
+
+    if (inv) {
+      const newCount = Math.max(0, (inv.tray_count ?? 0) - 1)
+      await supabase
+        .from('current_inventory')
+        .update({ tray_count: newCount })
+        .eq('flavor_id', flavorId)
+    }
+  }
+
+  // 6. Delete ingredient deductions
+  await supabase
+    .from('ingredient_deductions')
+    .delete()
+    .eq('batch_log_id', batchLogId)
+
+  // 7. Delete batch log
+  const { error: delErr } = await supabase
+    .from('batch_logs')
+    .delete()
+    .eq('id', batchLogId)
+
+  if (delErr) {
+    console.error('revertBatchLog: failed to delete batch log', delErr.message)
+    return { success: false, error: delErr.message }
+  }
+
+  return { success: true }
+}
+

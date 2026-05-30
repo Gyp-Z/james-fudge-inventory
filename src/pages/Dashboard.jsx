@@ -82,11 +82,13 @@ export default function Dashboard() {
         { data: batchData },
         { data: allFlavorsData },
         { data: sscEntries },
+        { data: handwrapData },
       ] = await Promise.all([
         supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count, barrel_count, in_progress_barrel_count'),
         supabase.from('batch_logs').select('flavor_id, batch_date, is_wasted'),
         supabase.from('flavors').select('id, name, default_yield, is_component'),
         supabase.from('shift_report_entries').select('flavor_id, full_trays, shift_reports!inner(report_date)'),
+        supabase.from('caramel_handwrap_logs').select('trays_used, report_date'),
       ])
 
       if (inventory && inventory.length > 0) {
@@ -119,6 +121,11 @@ export default function Dashboard() {
               const rDate = e.shift_reports?.report_date ?? ''
               if (rDate < SEASON_START) return
               total -= (e.full_trays ?? 0) / 18
+            })
+            // Deduct caramel used for hand-wrapped caramels
+            ;(handwrapData || []).forEach(h => {
+              if ((h.report_date ?? '') < SEASON_START) return
+              total -= h.trays_used ?? 0
             })
             map[flavorId] = {
               ...(map[flavorId] ?? { in_progress_trays: 0, barrel_count: 0 }),

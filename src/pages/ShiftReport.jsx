@@ -53,6 +53,9 @@ export default function ShiftReport() {
   const [recSubmitting, setRecSubmitting] = useState(false)
   const [recSubmitted, setRecSubmitted] = useState(false)
 
+  // Products tab — caramel hand-wrapping (integer quarter-tray units; 1 = ¼ tray)
+  const [caramelsHandWrapped, setCaramelsHandWrapped] = useState(0)
+
   useEffect(() => {
     async function load() {
       const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
@@ -399,6 +402,14 @@ export default function ShiftReport() {
       }
     }
 
+    // Log hand-wrapped caramel usage (in quarter-tray increments → decimal trays)
+    if (caramelsHandWrapped > 0) {
+      await supabase.from('caramel_handwrap_logs').insert({
+        trays_used: caramelsHandWrapped * 0.25,
+        report_date: todayStr,
+      })
+    }
+
     setSubmitted(true)
     setSubmitting(false)
     setTimeout(() => navigate('/'), 1500)
@@ -454,6 +465,17 @@ export default function ShiftReport() {
   // ─────────────────────────────────────────────────────────────────────────
 
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
+
+  // Formats an integer quarter-tray count as a fraction string: 0→"0", 1→"¼", 2→"½", 3→"¾", 4→"1", 5→"1¼" …
+  function formatQuarterTrays(q) {
+    if (q === 0) return '0'
+    const whole = Math.floor(q / 4)
+    const rem = q % 4
+    const frac = ['', '¼', '½', '¾'][rem]
+    if (whole === 0) return frac
+    if (rem === 0) return `${whole}`
+    return `${whole}${frac}`
+  }
 
   const todayLabel = new Date().toLocaleDateString('en-US', {
     timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric',
@@ -839,6 +861,41 @@ export default function ShiftReport() {
                     </div>
                   )
                 })}
+              </div>
+
+              {/* Caramels hand-wrapped section */}
+              <div className="space-y-3">
+                <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide">Caramels</p>
+                <div className="bg-store-cream rounded-xl border border-store-tan p-4 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold text-store-brown">Caramels Hand Wrapped</p>
+                      {caramelsHandWrapped > 0 && (
+                        <p className="text-xs text-store-brown-light mt-0.5">
+                          = {formatQuarterTrays(caramelsHandWrapped)} tray{caramelsHandWrapped !== 4 ? 's' : ''} of caramel
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCaramelsHandWrapped(v => Math.max(0, v - 1))}
+                        className="w-12 h-12 rounded-xl bg-store-tan text-store-brown text-2xl font-bold flex items-center justify-center active:scale-95 transition-transform select-none touch-manipulation"
+                        aria-label="Decrease"
+                      >−</button>
+                      <span className="w-10 text-center text-2xl font-bold text-store-brown tabular-nums select-none">
+                        {formatQuarterTrays(caramelsHandWrapped)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setCaramelsHandWrapped(v => v + 1)}
+                        className="w-12 h-12 rounded-xl bg-store-tan text-store-brown text-2xl font-bold flex items-center justify-center active:scale-95 transition-transform select-none touch-manipulation"
+                        aria-label="Increase"
+                      >+</button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-store-brown-light">Each step = ¼ tray of caramel used for hand wrapping.</p>
+                </div>
               </div>
 
               {/* Popcorn section */}

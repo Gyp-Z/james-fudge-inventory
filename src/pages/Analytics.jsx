@@ -29,6 +29,7 @@ export default function Analytics() {
   const [batchLogs, setBatchLogs] = useState([])
   const [bucketLogs, setBucketLogs] = useState([])
   const [currentInventory, setCurrentInventory] = useState([])
+  const [handwrapLogs, setHandwrapLogs] = useState([])
   const [range, setRange] = useState(7)
   // 'fudge' | 'popcorn'
   const [groupFilter, setGroupFilter] = useState('fudge')
@@ -44,6 +45,7 @@ export default function Analytics() {
         { data: batchData },
         { data: bucketData },
         { data: invData },
+        { data: handwrapData },
       ] = await Promise.all([
         supabase
           .from('shift_reports')
@@ -62,6 +64,7 @@ export default function Analytics() {
           .select('flavor_id, barrels_added, barrels_used, logged_at')
           .order('logged_at'),
         supabase.from('current_inventory').select('flavor_id, tray_count, barrel_count'),
+        supabase.from('caramel_handwrap_logs').select('trays_used, report_date').order('report_date'),
       ])
       // Load ALL flavors (including inactive) so inactive SSC flavors are still detected
       const { data: allFlavorsData } = await supabase
@@ -73,6 +76,7 @@ export default function Analytics() {
       setBatchLogs(batchData || [])
       setBucketLogs(bucketData || [])
       setCurrentInventory(invData || [])
+      setHandwrapLogs(handwrapData || [])
       setLoading(false)
     }
     load()
@@ -351,8 +355,13 @@ export default function Analytics() {
         }
       })
     })
+    // Deduct caramel used for hand-wrapped caramels
+    handwrapLogs.forEach(h => {
+      if ((h.report_date ?? '') < SEASON_START) return
+      total -= h.trays_used ?? 0
+    })
     return Math.max(0, Math.round(total * 1000) / 1000)
-  }, [batchLogs, reports, componentFlavors])
+  }, [batchLogs, reports, componentFlavors, handwrapLogs])
 
   const caramelStockData = useMemo(() => {
     if (!componentFlavors.length) return []
@@ -386,6 +395,13 @@ export default function Analytics() {
       })
     })
 
+    // Hand-wrapped caramel deductions grouped by report date
+    handwrapLogs.forEach(h => {
+      const key = h.report_date ?? ''
+      if (!key || key < SEASON_START) return
+      sscByDate[key] = (sscByDate[key] ?? 0) - (h.trays_used ?? 0)
+    })
+
     const firstCaramelDate = Object.keys(caramelByDate).sort()[0]
     const todayStr = getDateStr(new Date())
     const effectiveStart = cutoffStr && cutoffStr > firstCaramelDate ? cutoffStr : firstCaramelDate
@@ -410,7 +426,7 @@ export default function Analytics() {
       cursor.setDate(cursor.getDate() + 1)
     }
     return rows
-  }, [batchLogs, reports, componentFlavors, cutoffStr])
+  }, [batchLogs, reports, componentFlavors, cutoffStr, handwrapLogs])
 
   const { popcornWasteTotals, popcornWasteTable } = useMemo(() => {
     const totals = {}
