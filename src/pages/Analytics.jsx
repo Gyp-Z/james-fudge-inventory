@@ -141,37 +141,12 @@ export default function Analytics() {
     })
   }
 
-  // ── Inventory snapshot ────────────────────────────────────────────────────
+  // ── Inventory map (live) ──────────────────────────────────────────────────
   const invMap = useMemo(() => {
     const m = {}
     currentInventory.forEach(r => { m[r.flavor_id] = r })
     return m
   }, [currentInventory])
-
-  const stockSnapshot = useMemo(() => ({
-    fudgeTrays: fudgeFlavors.reduce((s, f) => s + (invMap[f.id]?.tray_count ?? 0), 0),
-    popcornBarrels: popcornFlavors.reduce((s, f) => s + (invMap[f.id]?.barrel_count ?? 0), 0),
-    caramelTrays: componentFlavors.reduce((s, f) => s + (invMap[f.id]?.tray_count ?? 0), 0),
-  }), [invMap, fudgeFlavors, popcornFlavors, componentFlavors])
-
-  const inStockValue = useMemo(() => {
-    if (groupFilter === 'fudge') {
-      return fudgeFlavors
-        .filter(f => selectedFlavors === null || selectedFlavors.has(f.id))
-        .reduce((s, f) => s + (invMap[f.id]?.tray_count ?? 0), 0)
-    }
-    if (groupFilter === 'caramel') {
-      return componentFlavors
-        .filter(f => selectedFlavors === null || selectedFlavors.has(f.id))
-        .reduce((s, f) => s + (invMap[f.id]?.tray_count ?? 0), 0)
-    }
-    if (groupFilter === 'popcorn') {
-      return popcornFlavors
-        .filter(f => selectedFlavors === null || selectedFlavors.has(f.id))
-        .reduce((s, f) => s + (invMap[f.id]?.barrel_count ?? 0), 0)
-    }
-    return null
-  }, [groupFilter, selectedFlavors, fudgeFlavors, componentFlavors, popcornFlavors, invMap])
 
   // ── Date filtering ────────────────────────────────────────────────────────
   const { cutoffStr, cutoffEndStr } = useMemo(() => {
@@ -229,6 +204,146 @@ export default function Analytics() {
     const dates = [...new Set(reports.map(r => r.report_date).filter(d => d && d >= SEASON_START))]
     return dates.sort().reverse()
   }, [reports])
+
+  // ── Historical stock (for specific week/day views) ────────────────────────
+  // Walks all reports up through cutoffEndStr and returns running tray counts per flavor id
+  const historicalFudgeStock = useMemo(() => {
+    if (!specificWeek && !specificDay) return null
+    const endDate = cutoffEndStr
+    const running = {}
+    ;[...reports]
+      .filter(r => r.report_date >= SEASON_START && r.report_date <= endDate)
+      .sort((a, b) => a.report_date.localeCompare(b.report_date))
+      .forEach(r => {
+        r.shift_report_entries?.forEach(e => {
+          const delta = (e.full_trays ?? 0) - (e.trays_sold ?? 0) - (e.trays_wasted ?? 0)
+          running[e.flavor_id] = Math.max(0, (running[e.flavor_id] ?? 0) + delta)
+        })
+      })
+    return running
+  }, [reports, specificWeek, specificDay, cutoffEndStr])
+
+  // Walks all bucket logs up through cutoffEndStr and returns running barrel counts per flavor id
+  const historicalPopcornStock = useMemo(() => {
+    if (!specificWeek && !specificDay) return null
+    const endDate = cutoffEndStr
+    const running = {}
+    bucketLogs.forEach(b => {
+      const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+      if (d > endDate) return
+      running[b.flavor_id] = Math.max(0, (running[b.flavor_id] ?? 0) + (b.barrels_added ?? 0) - (b.barrels_used ?? 0))
+    })
+    return running
+  }, [bucketLogs, specificWeek, specificDay, cutoffEndStr])
+
+  // ── Caramel totals ────────────────────────────────────────────────────────
+  // Full-season computed total (always current)
+  const caramelComputedTotal = useMemo(() => {
+    if (!componentFlavors.length) return 0
+    const caramelFlavor = componentFlavors[0]
+    let total = 0
+    batchLogs.forEach(b => {
+      if (b.is_wasted) return
+      const bDate = (b.batch_date ?? '').slice(0, 10)
+      if (bDate < SEASON_START) return
+      if (b.flavor_id === caramelFlavor.id) total += 1
+    })
+    reports.forEach(r => {
+      if ((r.report_date ?? '') < SEASON_START) return
+      r.shift_report_entries?.forEach(e => {
+        if (e.flavors?.name?.toLowerCase().includes('sea salt')) {
+          total -= (e.full_trays ?? 0) / 18
+        }
+      })
+    })
+    handwrapLogs.forEach(h => {
+      if ((h.report_date ?? '') < SEASON_START) return
+      total -= h.trays_used ?? 0
+    })
+    return Math.max(0, Math.round(total * 1000) / 1000)
+  }, [batchLogs, reports, componentFlavors, handwrapLogs])
+
+  // Historical caramel total at end of a specific week/day
+  const historicalCaramelTotal = useMemo(() => {
+    if (!specificWeek && !specificDay) return null
+    if (!componentFlavors.length) return 0
+    const caramelFlavor = componentFlavors[0]
+    const endDate = cutoffEndStr
+    let total = 0
+    batchLogs.forEach(b => {
+      if (b.is_wasted) return
+      const bDate = (b.batch_date ?? '').slice(0, 10)
+      if (bDate < SEASON_START || bDate > endDate) return
+      if (b.flavor_id === caramelFlavor.id) total += 1
+    })
+    reports.forEach(r => {
+      const d = r.report_date ?? ''
+      if (d < SEASON_START || d > endDate) return
+      r.shift_report_entries?.forEach(e => {
+        if (e.flavors?.name?.toLowerCase().includes('sea salt')) {
+          total -= (e.full_trays ?? 0) / 18
+        }
+      })
+    })
+    handwrapLogs.forEach(h => {
+      const d = h.report_date ?? ''
+      if (d < SEASON_START || d > endDate) return
+      total -= h.trays_used ?? 0
+    })
+    return Math.max(0, Math.round(total * 1000) / 1000)
+  }, [batchLogs, reports, componentFlavors, handwrapLogs, specificWeek, specificDay, cutoffEndStr])
+
+  // Displayed caramel total — historical for week/day, live otherwise
+  const displayCaramelTotal = historicalCaramelTotal ?? caramelComputedTotal
+
+  // ── Summary card stock values ─────────────────────────────────────────────
+  // Use historical end-of-period stock for week/day, live inventory for rolling ranges
+  const stockSnapshot = useMemo(() => ({
+    fudgeTrays: historicalFudgeStock
+      ? fudgeFlavors.reduce((s, f) => s + (historicalFudgeStock[f.id] ?? 0), 0)
+      : fudgeFlavors.reduce((s, f) => s + (invMap[f.id]?.tray_count ?? 0), 0),
+    popcornBarrels: historicalPopcornStock
+      ? popcornFlavors.reduce((s, f) => s + (historicalPopcornStock[f.id] ?? 0), 0)
+      : popcornFlavors.reduce((s, f) => s + (invMap[f.id]?.barrel_count ?? 0), 0),
+  }), [invMap, fudgeFlavors, popcornFlavors, historicalFudgeStock, historicalPopcornStock])
+
+  // ── Fudge totals (period) ─────────────────────────────────────────────────
+  const fudgeTotals = useMemo(() => {
+    let sold = 0, wasted = 0, made = 0
+    filteredReports.forEach(r => {
+      r.shift_report_entries?.forEach(e => {
+        sold += e.trays_sold ?? 0
+        wasted += (e.trays_wasted ?? 0) + (e.in_progress_wasted ?? 0) * 0.5
+        made += e.full_trays ?? 0
+      })
+    })
+    return { sold, wasted, made }
+  }, [filteredReports])
+
+  const caramelWasted = useMemo(() => {
+    const componentIds = new Set(componentFlavors.map(f => f.id))
+    return filteredBatchLogs.filter(b => componentIds.has(b.flavor_id) && b.is_wasted).length
+  }, [filteredBatchLogs, componentFlavors])
+
+  // Per-flavor fudge totals — stock uses historical for week/day, live otherwise
+  const fudgeFlavorTotals = useMemo(() => {
+    const map = {}
+    visibleFudgeFlavors.forEach(f => {
+      const stock = historicalFudgeStock
+        ? (historicalFudgeStock[f.id] ?? 0)
+        : (invMap[f.id]?.tray_count ?? 0)
+      map[f.id] = { name: f.name, sold: 0, made: 0, wasted: 0, stock }
+    })
+    filteredReports.forEach(r => {
+      r.shift_report_entries?.forEach(e => {
+        if (!map[e.flavor_id]) return
+        map[e.flavor_id].sold += e.trays_sold ?? 0
+        map[e.flavor_id].made += e.full_trays ?? 0
+        map[e.flavor_id].wasted += (e.trays_wasted ?? 0) + (e.in_progress_wasted ?? 0) * 0.5
+      })
+    })
+    return Object.values(map)
+  }, [filteredReports, visibleFudgeFlavors, invMap, historicalFudgeStock])
 
   // ── Fudge charts ──────────────────────────────────────────────────────────
   const chartSalesData = useMemo(() => {
@@ -301,40 +416,6 @@ export default function Analytics() {
     return rows
   }, [reports, visibleFudgeFlavors, cutoffStr, cutoffEndStr])
 
-  const fudgeTotals = useMemo(() => {
-    let sold = 0, wasted = 0, made = 0
-    filteredReports.forEach(r => {
-      r.shift_report_entries?.forEach(e => {
-        sold += e.trays_sold ?? 0
-        wasted += (e.trays_wasted ?? 0) + (e.in_progress_wasted ?? 0) * 0.5
-        made += e.full_trays ?? 0
-      })
-    })
-    return { sold, wasted, made }
-  }, [filteredReports])
-
-  const caramelWasted = useMemo(() => {
-    const componentIds = new Set(componentFlavors.map(f => f.id))
-    return filteredBatchLogs.filter(b => componentIds.has(b.flavor_id) && b.is_wasted).length
-  }, [filteredBatchLogs, componentFlavors])
-
-  // Per-flavor totals for fudge (sold + made in period, current stock live)
-  const fudgeFlavorTotals = useMemo(() => {
-    const map = {}
-    visibleFudgeFlavors.forEach(f => {
-      map[f.id] = { name: f.name, sold: 0, made: 0, wasted: 0, stock: invMap[f.id]?.tray_count ?? 0 }
-    })
-    filteredReports.forEach(r => {
-      r.shift_report_entries?.forEach(e => {
-        if (!map[e.flavor_id]) return
-        map[e.flavor_id].sold += e.trays_sold ?? 0
-        map[e.flavor_id].made += e.full_trays ?? 0
-        map[e.flavor_id].wasted += (e.trays_wasted ?? 0) + (e.in_progress_wasted ?? 0) * 0.5
-      })
-    })
-    return Object.values(map)
-  }, [filteredReports, visibleFudgeFlavors, invMap])
-
   // ── Popcorn charts ────────────────────────────────────────────────────────
   const barrelsMadeData = useMemo(() => {
     const flavorById = new Map(popcornFlavors.map(f => [f.id, f.name]))
@@ -384,48 +465,42 @@ export default function Analytics() {
     return Object.entries(byDate).sort().map(([d, v]) => ({ date: formatDate(d), ...v }))
   }, [filteredBucketLogs, viewPopcornIds, popcornFlavors])
 
-  const componentFlavorIds = useMemo(
-    () => new Set(componentFlavors.map(f => f.id)),
-    [componentFlavors]
-  )
-
-  // Per-flavor totals for popcorn (sold in period, current stock live)
+  // Per-flavor popcorn totals — stock uses historical for week/day, live otherwise
   const popcornFlavorTotals = useMemo(() => {
     const map = {}
     viewPopcornFlavors.forEach(f => {
-      map[f.id] = { name: f.name, sold: 0, stock: invMap[f.id]?.barrel_count ?? 0 }
+      const stock = historicalPopcornStock
+        ? (historicalPopcornStock[f.id] ?? 0)
+        : (invMap[f.id]?.barrel_count ?? 0)
+      map[f.id] = { name: f.name, sold: 0, stock }
     })
     filteredBucketLogs.filter(b => viewPopcornIds.has(b.flavor_id)).forEach(b => {
       if (!map[b.flavor_id]) return
       map[b.flavor_id].sold += b.barrels_used ?? 0
     })
     return Object.values(map)
-  }, [filteredBucketLogs, viewPopcornFlavors, viewPopcornIds, invMap])
+  }, [filteredBucketLogs, viewPopcornFlavors, viewPopcornIds, invMap, historicalPopcornStock])
 
-  const caramelComputedTotal = useMemo(() => {
-    if (!componentFlavors.length) return 0
-    const caramelFlavor = componentFlavors[0]
-    let total = 0
-    batchLogs.forEach(b => {
-      if (b.is_wasted) return
-      const bDate = (b.batch_date ?? '').slice(0, 10)
-      if (bDate < SEASON_START) return
-      if (b.flavor_id === caramelFlavor.id) total += 1
+  const { popcornWasteTotals, popcornWasteTable } = useMemo(() => {
+    const totals = {}
+    const table = []
+    filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && b.is_wasted).forEach(b => {
+      const f = popcornFlavors.find(f => f.id === b.flavor_id)
+      if (!f) return
+      totals[f.name] = (totals[f.name] ?? 0) + 1
+      table.push({ date: formatDate((b.batch_date ?? '').slice(0, 10)), flavor: f.name, reason: b.waste_reason || '—' })
     })
-    reports.forEach(r => {
-      if ((r.report_date ?? '') < SEASON_START) return
-      r.shift_report_entries?.forEach(e => {
-        if (e.flavors?.name?.toLowerCase().includes('sea salt')) {
-          total -= (e.full_trays ?? 0) / 18
-        }
-      })
-    })
-    handwrapLogs.forEach(h => {
-      if ((h.report_date ?? '') < SEASON_START) return
-      total -= h.trays_used ?? 0
-    })
-    return Math.max(0, Math.round(total * 1000) / 1000)
-  }, [batchLogs, reports, componentFlavors, handwrapLogs])
+    return {
+      popcornWasteTotals: Object.entries(totals).map(([name, batches]) => ({ name, batches })).sort((a, b) => b.batches - a.batches),
+      popcornWasteTable: table.sort((a, b) => a.date.localeCompare(b.date)),
+    }
+  }, [filteredBatchLogs, viewPopcornIds, popcornFlavors])
+
+  const allPopcornIds = useMemo(() => new Set(popcornFlavors.map(f => f.id)), [popcornFlavors])
+  const allPopcornTotals = useMemo(() => ({
+    barrelsSold: filteredBucketLogs.filter(b => allPopcornIds.has(b.flavor_id)).reduce((s, b) => s + (b.barrels_used ?? 0), 0),
+    batchesWasted: filteredBatchLogs.filter(b => allPopcornIds.has(b.flavor_id) && b.is_wasted).length,
+  }), [filteredBatchLogs, filteredBucketLogs, allPopcornIds])
 
   const caramelStockData = useMemo(() => {
     if (!componentFlavors.length) return []
@@ -476,33 +551,6 @@ export default function Analytics() {
     return rows
   }, [batchLogs, reports, componentFlavors, cutoffStr, cutoffEndStr, handwrapLogs])
 
-  const { popcornWasteTotals, popcornWasteTable } = useMemo(() => {
-    const totals = {}
-    const table = []
-    filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && b.is_wasted).forEach(b => {
-      const f = popcornFlavors.find(f => f.id === b.flavor_id)
-      if (!f) return
-      totals[f.name] = (totals[f.name] ?? 0) + 1
-      table.push({ date: formatDate((b.batch_date ?? '').slice(0, 10)), flavor: f.name, reason: b.waste_reason || '—' })
-    })
-    return {
-      popcornWasteTotals: Object.entries(totals).map(([name, batches]) => ({ name, batches })).sort((a, b) => b.batches - a.batches),
-      popcornWasteTable: table.sort((a, b) => a.date.localeCompare(b.date)),
-    }
-  }, [filteredBatchLogs, viewPopcornIds, popcornFlavors])
-
-  const popcornTotals = useMemo(() => ({
-    batchesMade: filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && !b.is_wasted).length,
-    batchesWasted: filteredBatchLogs.filter(b => viewPopcornIds.has(b.flavor_id) && b.is_wasted).length,
-    barrelsSold: filteredBucketLogs.filter(b => viewPopcornIds.has(b.flavor_id)).reduce((s, b) => s + (b.barrels_used ?? 0), 0),
-  }), [filteredBatchLogs, filteredBucketLogs, viewPopcornIds])
-
-  const allPopcornIds = useMemo(() => new Set(popcornFlavors.map(f => f.id)), [popcornFlavors])
-  const allPopcornTotals = useMemo(() => ({
-    barrelsSold: filteredBucketLogs.filter(b => allPopcornIds.has(b.flavor_id)).reduce((s, b) => s + (b.barrels_used ?? 0), 0),
-    batchesWasted: filteredBatchLogs.filter(b => allPopcornIds.has(b.flavor_id) && b.is_wasted).length,
-  }), [filteredBatchLogs, filteredBucketLogs, allPopcornIds])
-
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading analytics...</p>
 
@@ -516,6 +564,7 @@ export default function Analytics() {
   const showPopcorn = groupFilter === 'popcorn'
   const showCaramel = groupFilter === 'caramel'
   const isRolling = !specificWeek && !specificDay
+  const isSpecificPeriod = specificWeek || specificDay
 
   function setRollingRange(days) {
     setRange(days)
@@ -523,11 +572,17 @@ export default function Analytics() {
     setSpecificDay(null)
   }
 
-  // Compact totals table used below charts
+  function fmtCaramel(n) {
+    const w = Math.floor(n), num = Math.round((n - w) * 18)
+    return num === 0 ? String(w) : w === 0 ? `${num}/18` : `${w} ${num}/18`
+  }
+
+  // Compact totals table used below charts and in day-view
   function TotalsTable({ rows, cols, borderColor = 'store-tan' }) {
     const borderClass = borderColor === 'amber' ? 'border-amber-200' : 'border-store-tan'
     const subBorderClass = borderColor === 'amber' ? 'border-amber-100' : 'border-store-tan'
     const headClass = borderColor === 'amber' ? 'text-amber-700' : 'text-store-brown-light'
+    const nameClass = borderColor === 'amber' ? 'text-amber-900' : 'text-store-brown'
     return (
       <div className="mt-3 overflow-x-auto">
         <table className="w-full text-sm">
@@ -542,9 +597,9 @@ export default function Analytics() {
           <tbody>
             {rows.map(row => (
               <tr key={row.name} className={`border-b ${subBorderClass} last:border-0`}>
-                <td className={`py-2 pr-4 font-medium ${borderColor === 'amber' ? 'text-amber-900' : 'text-store-brown'}`}>{row.name}</td>
+                <td className={`py-2 pr-4 font-medium ${nameClass}`}>{row.name}</td>
                 {cols.map(c => (
-                  <td key={c.label} className={`py-2 pr-4 last:pr-0 text-right font-semibold ${c.color ? c.color(row[c.key]) : (borderColor === 'amber' ? 'text-amber-900' : 'text-store-brown')}`}>
+                  <td key={c.label} className={`py-2 pr-4 last:pr-0 text-right font-semibold ${c.color ? c.color(row[c.key]) : nameClass}`}>
                     {row[c.key]}{c.unit ? ` ${c.unit}` : ''}
                   </td>
                 ))}
@@ -555,6 +610,8 @@ export default function Analytics() {
       </div>
     )
   }
+
+  const stockLabel = isSpecificPeriod ? 'End of period' : 'In stock now'
 
   return (
     <div className="space-y-8">
@@ -592,11 +649,11 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* Current stock — always visible */}
+      {/* Summary cards */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white border border-store-tan rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-store-brown">{stockSnapshot.fudgeTrays}</p>
-          <p className="text-xs text-store-brown-light mt-0.5">Fudge trays</p>
+          <p className="text-xs text-store-brown-light mt-0.5">Fudge trays{isSpecificPeriod ? ' (end of period)' : ''}</p>
           <p className="text-base font-semibold text-store-green mt-1">{fudgeTotals.sold}</p>
           <p className="text-xs text-store-brown-light">Trays sold</p>
           <p className="text-base font-semibold text-amber-600 mt-1">{fudgeTotals.wasted}</p>
@@ -604,19 +661,15 @@ export default function Analytics() {
         </div>
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-amber-700">{stockSnapshot.popcornBarrels}</p>
-          <p className="text-xs text-amber-800 mt-0.5">Popcorn barrels</p>
+          <p className="text-xs text-amber-800 mt-0.5">Popcorn barrels{isSpecificPeriod ? ' (end of period)' : ''}</p>
           <p className="text-base font-semibold text-amber-600 mt-1">{allPopcornTotals.barrelsSold}</p>
           <p className="text-xs text-amber-700">Barrels sold</p>
           <p className="text-base font-semibold text-amber-600 mt-1">{allPopcornTotals.batchesWasted}</p>
           <p className="text-xs text-amber-700">Batches wasted</p>
         </div>
         <div className="bg-store-cream border border-store-tan rounded-xl p-3 shadow-sm text-center">
-          <p className="text-2xl font-bold text-store-brown">{(() => {
-            const n = caramelComputedTotal
-            const w = Math.floor(n), num = Math.round((n - w) * 18)
-            return num === 0 ? w : w === 0 ? `${num}/18` : `${w} ${num}/18`
-          })()}</p>
-          <p className="text-xs text-store-brown-light mt-0.5">Caramel trays</p>
+          <p className="text-2xl font-bold text-store-brown">{fmtCaramel(displayCaramelTotal)}</p>
+          <p className="text-xs text-store-brown-light mt-0.5">Caramel trays{isSpecificPeriod ? ' (end of period)' : ''}</p>
           <p className="text-base font-semibold text-amber-600 mt-1">{caramelWasted}</p>
           <p className="text-xs text-store-brown-light">Batches wasted</p>
         </div>
@@ -650,260 +703,287 @@ export default function Analytics() {
         })}
       </div>
 
-      {/* ── Fudge charts ── */}
+      {/* ── Fudge section ── */}
       {showFudge && (
-        <>
+        specificDay ? (
+          // Day view: no charts, one combined table
           <div>
-            <h3 className="font-semibold text-store-brown mb-1">Sales</h3>
-            <p className="text-xs text-store-brown-light mb-3">Trays sold per day, grouped by flavor</p>
-            {chartSalesData.length > 0 ? (
-              <>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={chartSalesData} margin={{ left: 0, right: 16 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                    <XAxis dataKey="date" {...xProps} />
-                    <YAxis {...yProps} />
-                    <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    {visibleFudgeFlavors.map((f, i) => (
-                      <Bar key={f.id} dataKey={f.name} fill={FUDGE_COLORS[i % FUDGE_COLORS.length]} radius={[4, 4, 0, 0]} />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
-                {fudgeFlavorTotals.some(t => t.sold > 0) && (
-                  <TotalsTable
-                    rows={fudgeFlavorTotals.filter(t => t.sold > 0).slice().sort((a, b) => b.sold - a.sold)}
-                    cols={[
-                      { label: 'Sold', key: 'sold', unit: 'trays', color: () => 'text-store-green' },
-                      { label: 'Made', key: 'made', unit: 'trays' },
-                    ]}
-                  />
-                )}
-              </>
-            ) : empty('No sales logged in this range yet.')}
+            <h3 className="font-semibold text-store-brown mb-1">Summary for {formatDate(specificDay)}</h3>
+            {fudgeFlavorTotals.some(t => t.sold > 0 || t.made > 0 || t.stock > 0) ? (
+              <TotalsTable
+                rows={fudgeFlavorTotals.slice().sort((a, b) => b.sold - a.sold || b.stock - a.stock)}
+                cols={[
+                  { label: 'In Stock', key: 'stock', unit: 'trays', color: v => v > 0 ? 'text-store-brown' : 'text-red-400' },
+                  { label: 'Sold', key: 'sold', unit: 'trays', color: () => 'text-store-green' },
+                  { label: 'Made', key: 'made', unit: 'trays' },
+                ]}
+              />
+            ) : empty('No fudge data for this day.')}
           </div>
+        ) : (
+          // Week / rolling view: full charts + totals
+          <>
+            <div>
+              <h3 className="font-semibold text-store-brown mb-1">Sales</h3>
+              <p className="text-xs text-store-brown-light mb-3">Trays sold per day, grouped by flavor</p>
+              {chartSalesData.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={chartSalesData} margin={{ left: 0, right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                      <XAxis dataKey="date" {...xProps} />
+                      <YAxis {...yProps} />
+                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      {visibleFudgeFlavors.map((f, i) => (
+                        <Bar key={f.id} dataKey={f.name} fill={FUDGE_COLORS[i % FUDGE_COLORS.length]} radius={[4, 4, 0, 0]} />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                  {fudgeFlavorTotals.some(t => t.sold > 0) && (
+                    <TotalsTable
+                      rows={fudgeFlavorTotals.filter(t => t.sold > 0).slice().sort((a, b) => b.sold - a.sold)}
+                      cols={[
+                        { label: 'Sold', key: 'sold', unit: 'trays', color: () => 'text-store-green' },
+                        { label: 'Made', key: 'made', unit: 'trays' },
+                      ]}
+                    />
+                  )}
+                </>
+              ) : empty('No sales logged in this range yet.')}
+            </div>
 
-          <div>
-            <h3 className="font-semibold text-store-brown mb-1">Waste</h3>
-            <p className="text-xs text-store-brown-light mb-3">Total trays wasted per flavor</p>
-            {chartWasteData.length > 0 ? (
-              <>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={chartWasteData} layout="vertical" margin={{ left: 16, right: 16 }}>
-                    <XAxis type="number" {...xProps} />
-                    <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 12, fill: '#4A2C17' }} />
-                    <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                    <Bar dataKey="trays" fill="#C4843A" radius={[0, 4, 4, 0]} name="Trays wasted" />
-                  </BarChart>
-                </ResponsiveContainer>
-                {wasteTable.length > 0 && (
-                  <div className="mt-4 overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-store-tan">
-                          <th className="text-left py-2 pr-4 text-store-brown-light font-medium">Date</th>
-                          <th className="text-left py-2 pr-4 text-store-brown-light font-medium">Flavor</th>
-                          <th className="text-left py-2 pr-4 text-store-brown-light font-medium">Trays</th>
-                          <th className="text-left py-2 text-store-brown-light font-medium">Reason</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {wasteTable.map((row, i) => (
-                          <tr key={i} className="border-b border-store-tan last:border-0">
-                            <td className="py-2 pr-4 text-store-brown-light">{row.date}</td>
-                            <td className="py-2 pr-4 text-store-brown font-medium">{row.flavor}</td>
-                            <td className="py-2 pr-4 text-store-brown">{row.amount}</td>
-                            <td className="py-2 text-store-brown-light">{row.reason}</td>
+            <div>
+              <h3 className="font-semibold text-store-brown mb-1">Waste</h3>
+              <p className="text-xs text-store-brown-light mb-3">Total trays wasted per flavor</p>
+              {chartWasteData.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={chartWasteData} layout="vertical" margin={{ left: 16, right: 16 }}>
+                      <XAxis type="number" {...xProps} />
+                      <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 12, fill: '#4A2C17' }} />
+                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                      <Bar dataKey="trays" fill="#C4843A" radius={[0, 4, 4, 0]} name="Trays wasted" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                  {wasteTable.length > 0 && (
+                    <div className="mt-4 overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-store-tan">
+                            <th className="text-left py-2 pr-4 text-store-brown-light font-medium">Date</th>
+                            <th className="text-left py-2 pr-4 text-store-brown-light font-medium">Flavor</th>
+                            <th className="text-left py-2 pr-4 text-store-brown-light font-medium">Trays</th>
+                            <th className="text-left py-2 text-store-brown-light font-medium">Reason</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </>
-            ) : empty('No waste logged in this range.')}
-          </div>
+                        </thead>
+                        <tbody>
+                          {wasteTable.map((row, i) => (
+                            <tr key={i} className="border-b border-store-tan last:border-0">
+                              <td className="py-2 pr-4 text-store-brown-light">{row.date}</td>
+                              <td className="py-2 pr-4 text-store-brown font-medium">{row.flavor}</td>
+                              <td className="py-2 pr-4 text-store-brown">{row.amount}</td>
+                              <td className="py-2 text-store-brown-light">{row.reason}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              ) : empty('No waste logged in this range.')}
+            </div>
 
+            <div>
+              <h3 className="font-semibold text-store-brown mb-1">Stock Trend</h3>
+              <p className="text-xs text-store-brown-light mb-3">Inventory level at end of each reporting day</p>
+              {chartStockData.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={chartStockData} margin={{ left: 0, right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                      <XAxis dataKey="date" {...xProps} />
+                      <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
+                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      {visibleFudgeFlavors.map((f, i) => (
+                        <Line key={f.id} type="monotone" dataKey={f.name} stroke={FUDGE_COLORS[i % FUDGE_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                  {fudgeFlavorTotals.length > 0 && (
+                    <TotalsTable
+                      rows={fudgeFlavorTotals.slice().sort((a, b) => b.stock - a.stock)}
+                      cols={[
+                        { label: stockLabel, key: 'stock', unit: 'trays', color: v => v > 0 ? 'text-store-brown' : 'text-red-400' },
+                      ]}
+                    />
+                  )}
+                </>
+              ) : empty('No stock data in this range yet.')}
+            </div>
+          </>
+        )
+      )}
+
+      {/* ── Caramel section ── */}
+      {showCaramel && (
+        specificDay ? (
+          <div>
+            <h3 className="font-semibold text-store-brown mb-1">Summary for {formatDate(specificDay)}</h3>
+            <p className="text-sm text-store-brown-light">Caramel stock at end of day: <span className="font-semibold text-store-brown">{fmtCaramel(displayCaramelTotal)} trays</span></p>
+          </div>
+        ) : (
           <div>
             <h3 className="font-semibold text-store-brown mb-1">Stock Trend</h3>
-            <p className="text-xs text-store-brown-light mb-3">Inventory level at end of each reporting day</p>
-            {chartStockData.length > 0 ? (
-              <>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={chartStockData} margin={{ left: 0, right: 16 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                    <XAxis dataKey="date" {...xProps} />
-                    <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
-                    <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    {visibleFudgeFlavors.map((f, i) => (
-                      <Line key={f.id} type="monotone" dataKey={f.name} stroke={FUDGE_COLORS[i % FUDGE_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
-                {fudgeFlavorTotals.length > 0 && (
-                  <TotalsTable
-                    rows={fudgeFlavorTotals.slice().sort((a, b) => b.stock - a.stock)}
-                    cols={[
-                      {
-                        label: 'In Stock',
-                        key: 'stock',
-                        unit: 'trays',
-                        color: v => v > 0 ? 'text-store-brown' : 'text-red-400',
-                      },
-                    ]}
+            <p className="text-xs text-store-brown-light mb-3">Caramel tray count over time (based on batches made vs. used in SSC)</p>
+            {caramelStockData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={caramelStockData} margin={{ left: 16, right: 16 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                  <XAxis dataKey="date" {...xProps} />
+                  <YAxis {...yProps}
+                    domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]}
+                    tickFormatter={v => fmtCaramel(v)}
                   />
-                )}
-              </>
-            ) : empty('No stock data in this range yet.')}
+                  <Tooltip
+                    contentStyle={tooltipStyle}
+                    wrapperStyle={wrapperStyle}
+                    formatter={v => [fmtCaramel(v), 'trays']}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  {componentFlavors.map((f, i) => (
+                    <Line key={f.id} type="monotone" dataKey={f.name} stroke={FUDGE_COLORS[i % FUDGE_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            ) : empty('No caramel or SSC batches logged yet.')}
           </div>
-        </>
+        )
       )}
 
-      {/* ── Caramel chart ── */}
-      {showCaramel && (
-        <div>
-          <h3 className="font-semibold text-store-brown mb-1">Stock Trend</h3>
-          <p className="text-xs text-store-brown-light mb-3">Caramel tray count over time (based on batches made vs. used in SSC)</p>
-          {caramelStockData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={caramelStockData} margin={{ left: 16, right: 16 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                <XAxis dataKey="date" {...xProps} />
-                <YAxis {...yProps}
-                  domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]}
-                  tickFormatter={v => {
-                    const w = Math.floor(v), num = Math.round((v - w) * 18)
-                    return num === 0 ? `${w}` : w === 0 ? `${num}/18` : `${w} ${num}/18`
-                  }}
-                />
-                <Tooltip
-                  contentStyle={tooltipStyle}
-                  wrapperStyle={wrapperStyle}
-                  formatter={v => {
-                    const w = Math.floor(v), num = Math.round((v - w) * 18)
-                    return [num === 0 ? `${w}` : w === 0 ? `${num}/18` : `${w} ${num}/18`, 'trays']
-                  }}
-                />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                {componentFlavors.map((f, i) => (
-                  <Line key={f.id} type="monotone" dataKey={f.name} stroke={FUDGE_COLORS[i % FUDGE_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
-          ) : empty('No caramel or SSC batches logged yet.')}
-        </div>
-      )}
-
-      {/* ── Popcorn charts ── */}
+      {/* ── Popcorn section ── */}
       {showPopcorn && (
-        <>
+        specificDay ? (
+          // Day view: no charts, one combined table
           <div>
-            <h3 className="font-semibold text-amber-900 mb-1">Barrels in Stock</h3>
-            <p className="text-xs text-amber-700 mb-3">Stock trend (barrels added minus sold)</p>
-            {barrelsMadeData.length > 0 ? (
-              <>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                    <XAxis dataKey="date" {...xProps} />
-                    <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
-                    <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    {viewPopcornFlavors.filter(f => barrelsMadeData.some(row => (row[f.name] ?? 0) > 0)).map((f, i) => (
-                      <Line key={f.id} type="monotone" dataKey={f.name} stroke={POPCORN_COLORS[i % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
-                {popcornFlavorTotals.length > 0 && (
-                  <TotalsTable
-                    borderColor="amber"
-                    rows={popcornFlavorTotals.slice().sort((a, b) => b.stock - a.stock)}
-                    cols={[
-                      {
-                        label: 'In Stock',
-                        key: 'stock',
-                        unit: 'barrels',
-                        color: v => v > 0 ? 'text-amber-900' : 'text-red-400',
-                      },
-                    ]}
-                  />
-                )}
-              </>
-            ) : empty('No popcorn batches logged yet.')}
+            <h3 className="font-semibold text-amber-900 mb-1">Summary for {formatDate(specificDay)}</h3>
+            {popcornFlavorTotals.some(t => t.sold > 0 || t.stock > 0) ? (
+              <TotalsTable
+                borderColor="amber"
+                rows={popcornFlavorTotals.slice().sort((a, b) => b.sold - a.sold || b.stock - a.stock)}
+                cols={[
+                  { label: 'In Stock', key: 'stock', unit: 'barrels', color: v => v > 0 ? 'text-amber-900' : 'text-red-400' },
+                  { label: 'Sold', key: 'sold', unit: 'barrels', color: () => 'text-amber-700' },
+                ]}
+              />
+            ) : empty('No popcorn data for this day.')}
           </div>
+        ) : (
+          // Week / rolling view: full charts + totals
+          <>
+            <div>
+              <h3 className="font-semibold text-amber-900 mb-1">Barrels in Stock</h3>
+              <p className="text-xs text-amber-700 mb-3">Stock trend (barrels added minus sold)</p>
+              {barrelsMadeData.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                      <XAxis dataKey="date" {...xProps} />
+                      <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
+                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      {viewPopcornFlavors.filter(f => barrelsMadeData.some(row => (row[f.name] ?? 0) > 0)).map((f, i) => (
+                        <Line key={f.id} type="monotone" dataKey={f.name} stroke={POPCORN_COLORS[i % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                  {popcornFlavorTotals.length > 0 && (
+                    <TotalsTable
+                      borderColor="amber"
+                      rows={popcornFlavorTotals.slice().sort((a, b) => b.stock - a.stock)}
+                      cols={[
+                        { label: stockLabel, key: 'stock', unit: 'barrels', color: v => v > 0 ? 'text-amber-900' : 'text-red-400' },
+                      ]}
+                    />
+                  )}
+                </>
+              ) : empty('No popcorn batches logged yet.')}
+            </div>
 
-          <div>
-            <h3 className="font-semibold text-amber-900 mb-1">Barrels Sold</h3>
-            <p className="text-xs text-amber-700 mb-3">Barrels sold per day</p>
-            {barrelsSoldData.length > 0 ? (
-              <>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={barrelsSoldData} margin={{ left: 0, right: 16 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                    <XAxis dataKey="date" {...xProps} />
-                    <YAxis {...yProps} />
-                    <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    {viewPopcornFlavors.map((f, i) => (
-                      <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
-                {popcornFlavorTotals.some(t => t.sold > 0) && (
-                  <TotalsTable
-                    borderColor="amber"
-                    rows={popcornFlavorTotals.filter(t => t.sold > 0).slice().sort((a, b) => b.sold - a.sold)}
-                    cols={[
-                      { label: 'Barrels Sold', key: 'sold' },
-                    ]}
-                  />
-                )}
-              </>
-            ) : empty('No barrels sold logged yet. Use the Products tab in Report.')}
-          </div>
+            <div>
+              <h3 className="font-semibold text-amber-900 mb-1">Barrels Sold</h3>
+              <p className="text-xs text-amber-700 mb-3">Barrels sold per day</p>
+              {barrelsSoldData.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={barrelsSoldData} margin={{ left: 0, right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                      <XAxis dataKey="date" {...xProps} />
+                      <YAxis {...yProps} />
+                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      {viewPopcornFlavors.map((f, i) => (
+                        <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                  {popcornFlavorTotals.some(t => t.sold > 0) && (
+                    <TotalsTable
+                      borderColor="amber"
+                      rows={popcornFlavorTotals.filter(t => t.sold > 0).slice().sort((a, b) => b.sold - a.sold)}
+                      cols={[
+                        { label: 'Barrels Sold', key: 'sold' },
+                      ]}
+                    />
+                  )}
+                </>
+              ) : empty('No barrels sold logged yet. Use the Products tab in Report.')}
+            </div>
 
-          <div>
-            <h3 className="font-semibold text-amber-900 mb-1">Batches Wasted</h3>
-            <p className="text-xs text-amber-700 mb-3">Total wasted batches per flavor</p>
-            {popcornWasteTotals.length > 0 ? (
-              <>
-                <ResponsiveContainer width="100%" height={Math.max(120, popcornWasteTotals.length * 52)}>
-                  <BarChart data={popcornWasteTotals} layout="vertical" margin={{ left: 16, right: 16 }}>
-                    <XAxis type="number" {...xProps} allowDecimals={false} />
-                    <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12, fill: '#4A2C17' }} />
-                    <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                    <Bar dataKey="batches" fill="#D97706" radius={[0, 4, 4, 0]} name="Batches wasted" />
-                  </BarChart>
-                </ResponsiveContainer>
-                {popcornWasteTable.length > 0 && (
-                  <div className="mt-4 overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-amber-200">
-                          <th className="text-left py-2 pr-4 text-amber-700 font-medium">Date</th>
-                          <th className="text-left py-2 pr-4 text-amber-700 font-medium">Flavor</th>
-                          <th className="text-left py-2 pr-4 text-amber-700 font-medium">Batches</th>
-                          <th className="text-left py-2 text-amber-700 font-medium">Reason</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {popcornWasteTable.map((row, i) => (
-                          <tr key={i} className="border-b border-amber-100 last:border-0">
-                            <td className="py-2 pr-4 text-amber-700">{row.date}</td>
-                            <td className="py-2 pr-4 text-amber-900 font-medium">{row.flavor}</td>
-                            <td className="py-2 pr-4 text-amber-900">1</td>
-                            <td className="py-2 text-amber-700">{row.reason}</td>
+            <div>
+              <h3 className="font-semibold text-amber-900 mb-1">Batches Wasted</h3>
+              <p className="text-xs text-amber-700 mb-3">Total wasted batches per flavor</p>
+              {popcornWasteTotals.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height={Math.max(120, popcornWasteTotals.length * 52)}>
+                    <BarChart data={popcornWasteTotals} layout="vertical" margin={{ left: 16, right: 16 }}>
+                      <XAxis type="number" {...xProps} allowDecimals={false} />
+                      <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12, fill: '#4A2C17' }} />
+                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                      <Bar dataKey="batches" fill="#D97706" radius={[0, 4, 4, 0]} name="Batches wasted" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                  {popcornWasteTable.length > 0 && (
+                    <div className="mt-4 overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-amber-200">
+                            <th className="text-left py-2 pr-4 text-amber-700 font-medium">Date</th>
+                            <th className="text-left py-2 pr-4 text-amber-700 font-medium">Flavor</th>
+                            <th className="text-left py-2 pr-4 text-amber-700 font-medium">Batches</th>
+                            <th className="text-left py-2 text-amber-700 font-medium">Reason</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </>
-            ) : empty('No wasted batches logged yet.')}
-          </div>
-        </>
+                        </thead>
+                        <tbody>
+                          {popcornWasteTable.map((row, i) => (
+                            <tr key={i} className="border-b border-amber-100 last:border-0">
+                              <td className="py-2 pr-4 text-amber-700">{row.date}</td>
+                              <td className="py-2 pr-4 text-amber-900 font-medium">{row.flavor}</td>
+                              <td className="py-2 pr-4 text-amber-900">1</td>
+                              <td className="py-2 text-amber-700">{row.reason}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              ) : empty('No wasted batches logged yet.')}
+            </div>
+          </>
+        )
       )}
 
     </div>
