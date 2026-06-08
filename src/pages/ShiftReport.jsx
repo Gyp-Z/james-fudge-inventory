@@ -405,7 +405,7 @@ export default function ShiftReport() {
     // Log hand-wrapped caramel usage (in quarter-tray increments → decimal trays)
     if (caramelsHandWrapped > 0) {
       await supabase.from('caramel_handwrap_logs').insert({
-        trays_used: caramelsHandWrapped * 0.25,
+        trays_used: caramelsHandWrapped / 18,
         report_date: todayStr,
       })
     }
@@ -466,16 +466,6 @@ export default function ShiftReport() {
 
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
 
-  // Formats an integer quarter-tray count as a fraction string: 0→"0", 1→"¼", 2→"½", 3→"¾", 4→"1", 5→"1¼" …
-  function formatQuarterTrays(q) {
-    if (q === 0) return '0'
-    const whole = Math.floor(q / 4)
-    const rem = q % 4
-    const frac = ['', '¼', '½', '¾'][rem]
-    if (whole === 0) return frac
-    if (rem === 0) return `${whole}`
-    return `${whole}${frac}`
-  }
 
   const todayLabel = new Date().toLocaleDateString('en-US', {
     timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric',
@@ -746,7 +736,7 @@ export default function ShiftReport() {
                       <p className="font-semibold text-store-brown">Caramels Hand Wrapped</p>
                       {caramelsHandWrapped > 0 && (
                         <p className="text-xs text-store-brown-light mt-0.5">
-                          = {formatQuarterTrays(caramelsHandWrapped)} tray{caramelsHandWrapped !== 4 ? 's' : ''} of caramel
+                          = {caramelsHandWrapped}/18 of a tray
                         </p>
                       )}
                     </div>
@@ -757,9 +747,10 @@ export default function ShiftReport() {
                         className="w-12 h-12 rounded-xl bg-store-tan text-store-brown text-2xl font-bold flex items-center justify-center active:scale-95 transition-transform select-none touch-manipulation"
                         aria-label="Decrease"
                       >−</button>
-                      <span className="w-10 text-center text-2xl font-bold text-store-brown tabular-nums select-none">
-                        {formatQuarterTrays(caramelsHandWrapped)}
-                      </span>
+                      <div className="flex items-baseline gap-0.5 w-16 justify-center">
+                        <span className="text-2xl font-bold text-store-brown tabular-nums select-none">{caramelsHandWrapped}</span>
+                        <span className="text-sm text-store-brown-light select-none">/18</span>
+                      </div>
                       <button
                         type="button"
                         onClick={() => setCaramelsHandWrapped(v => v + 1)}
@@ -768,7 +759,7 @@ export default function ShiftReport() {
                       >+</button>
                     </div>
                   </div>
-                  <p className="text-xs text-store-brown-light">Each step = ¼ tray of caramel used for hand wrapping.</p>
+                  <p className="text-xs text-store-brown-light">Each step = 1/18 tray. 18 steps = 1 full caramel tray.</p>
                 </div>
               </div>
 
