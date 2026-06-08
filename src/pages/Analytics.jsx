@@ -11,6 +11,8 @@ const FUDGE_COLORS = [
 ]
 const POPCORN_COLORS = ['#D97706', '#92400E', '#F59E0B', '#78350F', '#FBBF24']
 
+const SEASON_START = '2026-04-22'
+
 const RANGE_OPTIONS = [
   { label: '7 Days', days: 7 },
   { label: '30 Days', days: 30 },
@@ -20,6 +22,13 @@ const RANGE_OPTIONS = [
 function getDateStr(date) { return date.toLocaleDateString('en-CA') }
 function formatDate(str) {
   return new Date(str + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+function formatWeekLabel(mondayStr) {
+  const start = new Date(mondayStr + 'T12:00:00')
+  const end = new Date(mondayStr + 'T12:00:00')
+  end.setDate(end.getDate() + 6)
+  const opts = { month: 'short', day: 'numeric' }
+  return `${start.toLocaleDateString('en-US', opts)} – ${end.toLocaleDateString('en-US', opts)}`
 }
 
 export default function Analytics() {
@@ -31,9 +40,9 @@ export default function Analytics() {
   const [currentInventory, setCurrentInventory] = useState([])
   const [handwrapLogs, setHandwrapLogs] = useState([])
   const [range, setRange] = useState(7)
-  // 'fudge' | 'popcorn'
+  const [specificWeek, setSpecificWeek] = useState(null)
+  const [specificDay, setSpecificDay] = useState(null)
   const [groupFilter, setGroupFilter] = useState('fudge')
-  // Set of flavor ids | null (null = all in group)
   const [selectedFlavors, setSelectedFlavors] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -66,7 +75,6 @@ export default function Analytics() {
         supabase.from('current_inventory').select('flavor_id, tray_count, barrel_count'),
         supabase.from('caramel_handwrap_logs').select('trays_used, report_date').order('report_date'),
       ])
-      // Load ALL flavors (including inactive) so inactive SSC flavors are still detected
       const { data: allFlavorsData } = await supabase
         .from('flavors')
         .select('id, name, default_yield, is_component')
@@ -95,14 +103,12 @@ export default function Analytics() {
     () => flavors.filter(f => f.is_component === true),
     [flavors]
   )
-  // Flavors shown in pills for the active group
   const groupFlavors = useMemo(() => {
     if (groupFilter === 'popcorn') return popcornFlavors
     if (groupFilter === 'caramel') return componentFlavors
     return fudgeFlavors
   }, [groupFilter, fudgeFlavors, componentFlavors, popcornFlavors])
 
-  // Flavors used by charts / summaries
   const visibleFlavors = useMemo(
     () => selectedFlavors === null ? groupFlavors : groupFlavors.filter(f => selectedFlavors.has(f.id)),
     [groupFlavors, selectedFlavors]
@@ -148,7 +154,6 @@ export default function Analytics() {
     caramelTrays: componentFlavors.reduce((s, f) => s + (invMap[f.id]?.tray_count ?? 0), 0),
   }), [invMap, fudgeFlavors, popcornFlavors, componentFlavors])
 
-  // In Stock for the mode-specific summary card
   const inStockValue = useMemo(() => {
     if (groupFilter === 'fudge') {
       return fudgeFlavors
@@ -169,27 +174,61 @@ export default function Analytics() {
   }, [groupFilter, selectedFlavors, fudgeFlavors, componentFlavors, popcornFlavors, invMap])
 
   // ── Date filtering ────────────────────────────────────────────────────────
-  const cutoffStr = useMemo(() => {
-    if (!range) return null
+  const { cutoffStr, cutoffEndStr } = useMemo(() => {
+    if (specificDay) return { cutoffStr: specificDay, cutoffEndStr: specificDay }
+    if (specificWeek) {
+      const end = new Date(specificWeek + 'T12:00:00')
+      end.setDate(end.getDate() + 6)
+      return { cutoffStr: specificWeek, cutoffEndStr: getDateStr(end) }
+    }
+    if (!range) return { cutoffStr: null, cutoffEndStr: null }
     const c = new Date(); c.setDate(c.getDate() - range)
-    return getDateStr(c)
-  }, [range])
+    return { cutoffStr: getDateStr(c), cutoffEndStr: null }
+  }, [range, specificWeek, specificDay])
 
-  const filteredReports = useMemo(
-    () => cutoffStr ? reports.filter(r => r.report_date >= cutoffStr) : reports,
-    [reports, cutoffStr]
-  )
-  const filteredBatchLogs = useMemo(
-    () => cutoffStr ? batchLogs.filter(b => b.batch_date >= cutoffStr) : batchLogs,
-    [batchLogs, cutoffStr]
-  )
+  const filteredReports = useMemo(() => {
+    let r = cutoffStr ? reports.filter(rep => rep.report_date >= cutoffStr) : reports
+    if (cutoffEndStr) r = r.filter(rep => rep.report_date <= cutoffEndStr)
+    return r
+  }, [reports, cutoffStr, cutoffEndStr])
+
+  const filteredBatchLogs = useMemo(() => {
+    let b = cutoffStr ? batchLogs.filter(b => b.batch_date >= cutoffStr) : batchLogs
+    if (cutoffEndStr) b = b.filter(b => (b.batch_date ?? '').slice(0, 10) <= cutoffEndStr)
+    return b
+  }, [batchLogs, cutoffStr, cutoffEndStr])
+
   const filteredBucketLogs = useMemo(() => {
-    if (!cutoffStr) return bucketLogs
-    return bucketLogs.filter(b => {
-      const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-      return d >= cutoffStr
+    let logs = bucketLogs
+    if (cutoffStr || cutoffEndStr) {
+      logs = logs.filter(b => {
+        const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+        if (cutoffStr && d < cutoffStr) return false
+        if (cutoffEndStr && d > cutoffEndStr) return false
+        return true
+      })
+    }
+    return logs
+  }, [bucketLogs, cutoffStr, cutoffEndStr])
+
+  // ── Week / Day dropdown options ───────────────────────────────────────────
+  const availableWeeks = useMemo(() => {
+    const dates = reports.map(r => r.report_date).filter(d => d && d >= SEASON_START)
+    const weeks = new Set()
+    dates.forEach(d => {
+      const date = new Date(d + 'T12:00:00')
+      const day = date.getDay()
+      const diff = day === 0 ? -6 : 1 - day
+      date.setDate(date.getDate() + diff)
+      weeks.add(getDateStr(date))
     })
-  }, [bucketLogs, cutoffStr])
+    return [...weeks].sort().reverse()
+  }, [reports])
+
+  const availableDays = useMemo(() => {
+    const dates = [...new Set(reports.map(r => r.report_date).filter(d => d && d >= SEASON_START))]
+    return dates.sort().reverse()
+  }, [reports])
 
   // ── Fudge charts ──────────────────────────────────────────────────────────
   const chartSalesData = useMemo(() => {
@@ -232,7 +271,6 @@ export default function Analytics() {
 
   const chartStockData = useMemo(() => {
     if (!reports.length) return []
-    const SEASON_START = '2026-04-22'
     const snapshots = {}
     const running = {}
     ;[...reports].filter(r => r.report_date >= SEASON_START).sort((a, b) => a.report_date.localeCompare(b.report_date)).forEach(r => {
@@ -245,11 +283,12 @@ export default function Analytics() {
     if (!Object.keys(snapshots).length) return []
     const todayStr = getDateStr(new Date())
     const startStr = cutoffStr && cutoffStr > SEASON_START ? cutoffStr : SEASON_START
+    const endStr = cutoffEndStr || todayStr
     let last = {}
     for (const d of Object.keys(snapshots).sort()) { if (d <= startStr) last = snapshots[d]; else break }
     const rows = []
     const cursor = new Date(startStr + 'T12:00:00')
-    while (cursor <= new Date(todayStr + 'T12:00:00')) {
+    while (cursor <= new Date(endStr + 'T12:00:00')) {
       const ds = getDateStr(cursor)
       if (snapshots[ds]) last = snapshots[ds]
       if (Object.keys(last).length) {
@@ -260,7 +299,7 @@ export default function Analytics() {
       cursor.setDate(cursor.getDate() + 1)
     }
     return rows
-  }, [reports, visibleFudgeFlavors, cutoffStr])
+  }, [reports, visibleFudgeFlavors, cutoffStr, cutoffEndStr])
 
   const fudgeTotals = useMemo(() => {
     let sold = 0, wasted = 0, made = 0
@@ -278,6 +317,23 @@ export default function Analytics() {
     const componentIds = new Set(componentFlavors.map(f => f.id))
     return filteredBatchLogs.filter(b => componentIds.has(b.flavor_id) && b.is_wasted).length
   }, [filteredBatchLogs, componentFlavors])
+
+  // Per-flavor totals for fudge (sold + made in period, current stock live)
+  const fudgeFlavorTotals = useMemo(() => {
+    const map = {}
+    visibleFudgeFlavors.forEach(f => {
+      map[f.id] = { name: f.name, sold: 0, made: 0, wasted: 0, stock: invMap[f.id]?.tray_count ?? 0 }
+    })
+    filteredReports.forEach(r => {
+      r.shift_report_entries?.forEach(e => {
+        if (!map[e.flavor_id]) return
+        map[e.flavor_id].sold += e.trays_sold ?? 0
+        map[e.flavor_id].made += e.full_trays ?? 0
+        map[e.flavor_id].wasted += (e.trays_wasted ?? 0) + (e.in_progress_wasted ?? 0) * 0.5
+      })
+    })
+    return Object.values(map)
+  }, [filteredReports, visibleFudgeFlavors, invMap])
 
   // ── Popcorn charts ────────────────────────────────────────────────────────
   const barrelsMadeData = useMemo(() => {
@@ -298,14 +354,14 @@ export default function Analytics() {
     const running = Object.fromEntries(keys.map(k => [k, null]))
     const todayStr = getDateStr(new Date())
     const startStr = cutoffStr && cutoffStr > allDates[0] ? cutoffStr : allDates[0]
-    // seed running totals from data before the display window
+    const endStr = cutoffEndStr || todayStr
     for (const d of allDates) {
       if (d >= startStr) break
       keys.forEach(k => { if (byDate[d][k] != null) running[k] = (running[k] ?? 0) + byDate[d][k] })
     }
     const rows = []
     const cursor = new Date(startStr + 'T12:00:00')
-    while (cursor <= new Date(todayStr + 'T12:00:00')) {
+    while (cursor <= new Date(endStr + 'T12:00:00')) {
       const ds = getDateStr(cursor)
       if (byDate[ds]) keys.forEach(k => {
         if (byDate[ds][k] != null) running[k] = (running[k] ?? 0) + byDate[ds][k]
@@ -314,7 +370,7 @@ export default function Analytics() {
       cursor.setDate(cursor.getDate() + 1)
     }
     return rows
-  }, [bucketLogs, viewPopcornIds, popcornFlavors, cutoffStr])
+  }, [bucketLogs, viewPopcornIds, popcornFlavors, cutoffStr, cutoffEndStr])
 
   const barrelsSoldData = useMemo(() => {
     const byDate = {}
@@ -328,16 +384,26 @@ export default function Analytics() {
     return Object.entries(byDate).sort().map(([d, v]) => ({ date: formatDate(d), ...v }))
   }, [filteredBucketLogs, viewPopcornIds, popcornFlavors])
 
-
   const componentFlavorIds = useMemo(
     () => new Set(componentFlavors.map(f => f.id)),
     [componentFlavors]
   )
 
-  // Compute caramel count: batches made minus full SSC trays submitted (topped)
+  // Per-flavor totals for popcorn (sold in period, current stock live)
+  const popcornFlavorTotals = useMemo(() => {
+    const map = {}
+    viewPopcornFlavors.forEach(f => {
+      map[f.id] = { name: f.name, sold: 0, stock: invMap[f.id]?.barrel_count ?? 0 }
+    })
+    filteredBucketLogs.filter(b => viewPopcornIds.has(b.flavor_id)).forEach(b => {
+      if (!map[b.flavor_id]) return
+      map[b.flavor_id].sold += b.barrels_used ?? 0
+    })
+    return Object.values(map)
+  }, [filteredBucketLogs, viewPopcornFlavors, viewPopcornIds, invMap])
+
   const caramelComputedTotal = useMemo(() => {
     if (!componentFlavors.length) return 0
-    const SEASON_START = '2026-04-22'
     const caramelFlavor = componentFlavors[0]
     let total = 0
     batchLogs.forEach(b => {
@@ -346,7 +412,6 @@ export default function Analytics() {
       if (bDate < SEASON_START) return
       if (b.flavor_id === caramelFlavor.id) total += 1
     })
-    // Deduct when SSC trays are topped (submitted as full trays)
     reports.forEach(r => {
       if ((r.report_date ?? '') < SEASON_START) return
       r.shift_report_entries?.forEach(e => {
@@ -355,7 +420,6 @@ export default function Analytics() {
         }
       })
     })
-    // Deduct caramel used for hand-wrapped caramels
     handwrapLogs.forEach(h => {
       if ((h.report_date ?? '') < SEASON_START) return
       total -= h.trays_used ?? 0
@@ -365,25 +429,18 @@ export default function Analytics() {
 
   const caramelStockData = useMemo(() => {
     if (!componentFlavors.length) return []
-    const SEASON_START = '2026-04-22'
     const caramelFlavor = componentFlavors[0]
-
     const caramelBatches = batchLogs.filter(b => {
       if (b.is_wasted) return false
       const bDate = (b.batch_date ?? '').slice(0, 10)
       return bDate >= SEASON_START && b.flavor_id === caramelFlavor.id
     })
-
     if (!caramelBatches.length) return []
-
-    // Caramel batches grouped by date (+1 per batch)
     const caramelByDate = {}
     caramelBatches.forEach(b => {
       const bDate = (b.batch_date ?? '').slice(0, 10)
       caramelByDate[bDate] = (caramelByDate[bDate] ?? 0) + 1
     })
-
-    // SSC deductions grouped by report date (−full_trays/18 per SSC flavor entry)
     const sscByDate = {}
     reports.forEach(r => {
       const key = r.report_date ?? ''
@@ -394,31 +451,22 @@ export default function Analytics() {
         }
       })
     })
-
-    // Hand-wrapped caramel deductions grouped by report date
     handwrapLogs.forEach(h => {
       const key = h.report_date ?? ''
       if (!key || key < SEASON_START) return
       sscByDate[key] = (sscByDate[key] ?? 0) - (h.trays_used ?? 0)
     })
-
     const firstCaramelDate = Object.keys(caramelByDate).sort()[0]
     const todayStr = getDateStr(new Date())
     const effectiveStart = cutoffStr && cutoffStr > firstCaramelDate ? cutoffStr : firstCaramelDate
-
-    // Accumulate batches and SSC deductions that happened before the visible range
+    const endStr = cutoffEndStr || todayStr
     let runningAtStart = 0
-    for (const [d, v] of Object.entries(caramelByDate)) {
-      if (d < effectiveStart) runningAtStart += v
-    }
-    for (const [d, v] of Object.entries(sscByDate)) {
-      if (d < effectiveStart) runningAtStart += v
-    }
-
+    for (const [d, v] of Object.entries(caramelByDate)) { if (d < effectiveStart) runningAtStart += v }
+    for (const [d, v] of Object.entries(sscByDate)) { if (d < effectiveStart) runningAtStart += v }
     const rows = []
     const cursor = new Date(effectiveStart + 'T12:00:00')
     let running = runningAtStart
-    while (cursor <= new Date(todayStr + 'T12:00:00')) {
+    while (cursor <= new Date(endStr + 'T12:00:00')) {
       const ds = getDateStr(cursor)
       if (caramelByDate[ds]) running += caramelByDate[ds]
       if (sscByDate[ds]) running += sscByDate[ds]
@@ -426,7 +474,7 @@ export default function Analytics() {
       cursor.setDate(cursor.getDate() + 1)
     }
     return rows
-  }, [batchLogs, reports, componentFlavors, cutoffStr, handwrapLogs])
+  }, [batchLogs, reports, componentFlavors, cutoffStr, cutoffEndStr, handwrapLogs])
 
   const { popcornWasteTotals, popcornWasteTable } = useMemo(() => {
     const totals = {}
@@ -467,24 +515,84 @@ export default function Analytics() {
   const showFudge = groupFilter === 'fudge'
   const showPopcorn = groupFilter === 'popcorn'
   const showCaramel = groupFilter === 'caramel'
+  const isRolling = !specificWeek && !specificDay
+
+  function setRollingRange(days) {
+    setRange(days)
+    setSpecificWeek(null)
+    setSpecificDay(null)
+  }
+
+  // Compact totals table used below charts
+  function TotalsTable({ rows, cols, borderColor = 'store-tan' }) {
+    const borderClass = borderColor === 'amber' ? 'border-amber-200' : 'border-store-tan'
+    const subBorderClass = borderColor === 'amber' ? 'border-amber-100' : 'border-store-tan'
+    const headClass = borderColor === 'amber' ? 'text-amber-700' : 'text-store-brown-light'
+    return (
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className={`border-b ${borderClass}`}>
+              <th className={`text-left py-2 pr-4 font-medium ${headClass}`}>Flavor</th>
+              {cols.map(c => (
+                <th key={c.label} className={`text-right py-2 pr-4 last:pr-0 font-medium ${headClass}`}>{c.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(row => (
+              <tr key={row.name} className={`border-b ${subBorderClass} last:border-0`}>
+                <td className={`py-2 pr-4 font-medium ${borderColor === 'amber' ? 'text-amber-900' : 'text-store-brown'}`}>{row.name}</td>
+                {cols.map(c => (
+                  <td key={c.label} className={`py-2 pr-4 last:pr-0 text-right font-semibold ${c.color ? c.color(row[c.key]) : (borderColor === 'amber' ? 'text-amber-900' : 'text-store-brown')}`}>
+                    {row[c.key]}{c.unit ? ` ${c.unit}` : ''}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-8">
 
       {/* Header + date range */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-start justify-between flex-wrap gap-3">
         <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>Analytics</h2>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
           {RANGE_OPTIONS.map(opt => (
-            <button key={opt.label} onClick={() => setRange(opt.days)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors touch-manipulation ${range === opt.days ? 'bg-store-brown text-white' : 'bg-store-tan text-store-brown hover:bg-store-brown hover:text-white'}`}>
+            <button key={opt.label} onClick={() => setRollingRange(opt.days)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors touch-manipulation ${isRolling && range === opt.days ? 'bg-store-brown text-white' : 'bg-store-tan text-store-brown hover:bg-store-brown hover:text-white'}`}>
               {opt.label}
             </button>
           ))}
+          {availableWeeks.length > 0 && (
+            <select
+              value={specificWeek || ''}
+              onChange={e => e.target.value ? (setSpecificWeek(e.target.value), setSpecificDay(null)) : setRollingRange(7)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer touch-manipulation transition-colors ${specificWeek ? 'bg-store-brown text-white' : 'bg-store-tan text-store-brown'}`}
+            >
+              <option value="">By Week</option>
+              {availableWeeks.map(w => <option key={w} value={w}>{formatWeekLabel(w)}</option>)}
+            </select>
+          )}
+          {availableDays.length > 0 && (
+            <select
+              value={specificDay || ''}
+              onChange={e => e.target.value ? (setSpecificDay(e.target.value), setSpecificWeek(null)) : setRollingRange(7)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer touch-manipulation transition-colors ${specificDay ? 'bg-store-brown text-white' : 'bg-store-tan text-store-brown'}`}
+            >
+              <option value="">By Day</option>
+              {availableDays.map(d => <option key={d} value={d}>{formatDate(d)}</option>)}
+            </select>
+          )}
         </div>
       </div>
 
-      {/* Current stock — always visible, always separate */}
+      {/* Current stock — always visible */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white border border-store-tan rounded-xl p-3 shadow-sm text-center">
           <p className="text-2xl font-bold text-store-brown">{stockSnapshot.fudgeTrays}</p>
@@ -516,19 +624,16 @@ export default function Analytics() {
 
       {/* Filter pills */}
       <div className="flex flex-wrap gap-2">
-        {/* Group buttons */}
         {[
-          { key: 'fudge',   label: 'All Fudge',   activeClass: 'bg-store-brown text-white border-store-brown',     inactiveClass: 'bg-white text-store-brown border-store-tan hover:border-store-brown' },
-          { key: 'caramel', label: 'Caramel',      activeClass: 'bg-store-brown text-white border-store-brown',     inactiveClass: 'bg-white text-store-brown border-store-tan hover:border-store-brown' },
-          { key: 'popcorn', label: 'All Popcorn', activeClass: 'bg-amber-700 text-white border-amber-700',         inactiveClass: 'bg-white text-amber-900 border-amber-200 hover:border-amber-500' },
+          { key: 'fudge',   label: 'All Fudge',   activeClass: 'bg-store-brown text-white border-store-brown',   inactiveClass: 'bg-white text-store-brown border-store-tan hover:border-store-brown' },
+          { key: 'caramel', label: 'Caramel',      activeClass: 'bg-store-brown text-white border-store-brown',   inactiveClass: 'bg-white text-store-brown border-store-tan hover:border-store-brown' },
+          { key: 'popcorn', label: 'All Popcorn',  activeClass: 'bg-amber-700 text-white border-amber-700',       inactiveClass: 'bg-white text-amber-900 border-amber-200 hover:border-amber-500' },
         ].map(({ key, label, activeClass, inactiveClass }) => (
           <button key={key} onClick={() => handleGroupChange(key)}
             className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors touch-manipulation border ${groupFilter === key && selectedFlavors === null ? activeClass : inactiveClass}`}>
             {label}
           </button>
         ))}
-
-        {/* Individual flavor pills — hidden for Caramel (group button is the only selector needed) */}
         {groupFilter !== 'caramel' && groupFlavors.map((f, i) => {
           const isPopcorn = f.product_type === 'popcorn'
           const active = selectedFlavors !== null && selectedFlavors.has(f.id)
@@ -552,18 +657,29 @@ export default function Analytics() {
             <h3 className="font-semibold text-store-brown mb-1">Sales</h3>
             <p className="text-xs text-store-brown-light mb-3">Trays sold per day, grouped by flavor</p>
             {chartSalesData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={chartSalesData} margin={{ left: 0, right: 16 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                  <XAxis dataKey="date" {...xProps} />
-                  <YAxis {...yProps} />
-                  <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  {visibleFudgeFlavors.map((f, i) => (
-                    <Bar key={f.id} dataKey={f.name} fill={FUDGE_COLORS[i % FUDGE_COLORS.length]} radius={[4, 4, 0, 0]} />
-                  ))}
-                </BarChart>
-              </ResponsiveContainer>
+              <>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={chartSalesData} margin={{ left: 0, right: 16 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                    <XAxis dataKey="date" {...xProps} />
+                    <YAxis {...yProps} />
+                    <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    {visibleFudgeFlavors.map((f, i) => (
+                      <Bar key={f.id} dataKey={f.name} fill={FUDGE_COLORS[i % FUDGE_COLORS.length]} radius={[4, 4, 0, 0]} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+                {fudgeFlavorTotals.some(t => t.sold > 0) && (
+                  <TotalsTable
+                    rows={fudgeFlavorTotals.filter(t => t.sold > 0).slice().sort((a, b) => b.sold - a.sold)}
+                    cols={[
+                      { label: 'Sold', key: 'sold', unit: 'trays', color: () => 'text-store-green' },
+                      { label: 'Made', key: 'made', unit: 'trays' },
+                    ]}
+                  />
+                )}
+              </>
             ) : empty('No sales logged in this range yet.')}
           </div>
 
@@ -612,18 +728,33 @@ export default function Analytics() {
             <h3 className="font-semibold text-store-brown mb-1">Stock Trend</h3>
             <p className="text-xs text-store-brown-light mb-3">Inventory level at end of each reporting day</p>
             {chartStockData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={chartStockData} margin={{ left: 0, right: 16 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                  <XAxis dataKey="date" {...xProps} />
-                  <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
-                  <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  {visibleFudgeFlavors.map((f, i) => (
-                    <Line key={f.id} type="monotone" dataKey={f.name} stroke={FUDGE_COLORS[i % FUDGE_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
+              <>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={chartStockData} margin={{ left: 0, right: 16 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                    <XAxis dataKey="date" {...xProps} />
+                    <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
+                    <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    {visibleFudgeFlavors.map((f, i) => (
+                      <Line key={f.id} type="monotone" dataKey={f.name} stroke={FUDGE_COLORS[i % FUDGE_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+                {fudgeFlavorTotals.length > 0 && (
+                  <TotalsTable
+                    rows={fudgeFlavorTotals.slice().sort((a, b) => b.stock - a.stock)}
+                    cols={[
+                      {
+                        label: 'In Stock',
+                        key: 'stock',
+                        unit: 'trays',
+                        color: v => v > 0 ? 'text-store-brown' : 'text-red-400',
+                      },
+                    ]}
+                  />
+                )}
+              </>
             ) : empty('No stock data in this range yet.')}
           </div>
         </>
@@ -671,18 +802,34 @@ export default function Analytics() {
             <h3 className="font-semibold text-amber-900 mb-1">Barrels in Stock</h3>
             <p className="text-xs text-amber-700 mb-3">Stock trend (barrels added minus sold)</p>
             {barrelsMadeData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                  <XAxis dataKey="date" {...xProps} />
-                  <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
-                  <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  {viewPopcornFlavors.filter(f => barrelsMadeData.some(row => (row[f.name] ?? 0) > 0)).map((f, i) => (
-                    <Line key={f.id} type="monotone" dataKey={f.name} stroke={POPCORN_COLORS[i % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
+              <>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                    <XAxis dataKey="date" {...xProps} />
+                    <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
+                    <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    {viewPopcornFlavors.filter(f => barrelsMadeData.some(row => (row[f.name] ?? 0) > 0)).map((f, i) => (
+                      <Line key={f.id} type="monotone" dataKey={f.name} stroke={POPCORN_COLORS[i % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+                {popcornFlavorTotals.length > 0 && (
+                  <TotalsTable
+                    borderColor="amber"
+                    rows={popcornFlavorTotals.slice().sort((a, b) => b.stock - a.stock)}
+                    cols={[
+                      {
+                        label: 'In Stock',
+                        key: 'stock',
+                        unit: 'barrels',
+                        color: v => v > 0 ? 'text-amber-900' : 'text-red-400',
+                      },
+                    ]}
+                  />
+                )}
+              </>
             ) : empty('No popcorn batches logged yet.')}
           </div>
 
@@ -690,18 +837,29 @@ export default function Analytics() {
             <h3 className="font-semibold text-amber-900 mb-1">Barrels Sold</h3>
             <p className="text-xs text-amber-700 mb-3">Barrels sold per day</p>
             {barrelsSoldData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={barrelsSoldData} margin={{ left: 0, right: 16 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                  <XAxis dataKey="date" {...xProps} />
-                  <YAxis {...yProps} />
-                  <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  {viewPopcornFlavors.map((f, i) => (
-                    <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
-                  ))}
-                </BarChart>
-              </ResponsiveContainer>
+              <>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={barrelsSoldData} margin={{ left: 0, right: 16 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                    <XAxis dataKey="date" {...xProps} />
+                    <YAxis {...yProps} />
+                    <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    {viewPopcornFlavors.map((f, i) => (
+                      <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+                {popcornFlavorTotals.some(t => t.sold > 0) && (
+                  <TotalsTable
+                    borderColor="amber"
+                    rows={popcornFlavorTotals.filter(t => t.sold > 0).slice().sort((a, b) => b.sold - a.sold)}
+                    cols={[
+                      { label: 'Barrels Sold', key: 'sold' },
+                    ]}
+                  />
+                )}
+              </>
             ) : empty('No barrels sold logged yet. Use the Products tab in Report.')}
           </div>
 
