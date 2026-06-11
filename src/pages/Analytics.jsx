@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
-  BarChart, Bar, XAxis, YAxis, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, CartesianGrid, Legend,
 } from 'recharts'
 import { supabase } from '../lib/supabase'
@@ -29,6 +29,22 @@ function formatWeekLabel(mondayStr) {
   end.setDate(end.getDate() + 6)
   const opts = { month: 'short', day: 'numeric' }
   return `${start.toLocaleDateString('en-US', opts)} – ${end.toLocaleDateString('en-US', opts)}`
+}
+
+// Dismisses Recharts tooltip when the user taps outside the chart on touch devices
+function ChartWrapper({ children }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    function onTouchStart(e) {
+      if (ref.current && !ref.current.contains(e.target)) {
+        const svg = ref.current.querySelector('svg')
+        if (svg) svg.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }))
+      }
+    }
+    document.addEventListener('touchstart', onTouchStart, { passive: true })
+    return () => document.removeEventListener('touchstart', onTouchStart)
+  }, [])
+  return <div ref={ref}>{children}</div>
 }
 
 export default function Analytics() {
@@ -554,6 +570,8 @@ export default function Analytics() {
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading analytics...</p>
 
+  const tooltipStyle = { borderRadius: 8, borderColor: '#F5EDD8', fontSize: 12 }
+  const wrapperStyle = { zIndex: 50 }
   const xProps = { tick: { fontSize: 11, fill: '#8B5E3C' } }
   const yProps = { tick: { fontSize: 11, fill: '#8B5E3C' } }
   const empty = msg => <p className="text-store-brown-light text-sm text-center py-8">{msg}</p>
@@ -726,17 +744,20 @@ export default function Analytics() {
               <p className="text-xs text-store-brown-light mb-3">Trays sold per day, grouped by flavor</p>
               {chartSalesData.length > 0 ? (
                 <>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={chartSalesData} margin={{ left: 0, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                      <XAxis dataKey="date" {...xProps} />
-                      <YAxis {...yProps} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      {visibleFudgeFlavors.map((f, i) => (
-                        <Bar key={f.id} dataKey={f.name} fill={FUDGE_COLORS[i % FUDGE_COLORS.length]} radius={[4, 4, 0, 0]} />
-                      ))}
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <ChartWrapper>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={chartSalesData} margin={{ left: 0, right: 16 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                        <XAxis dataKey="date" {...xProps} />
+                        <YAxis {...yProps} />
+                        <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        {visibleFudgeFlavors.map((f, i) => (
+                          <Bar key={f.id} dataKey={f.name} fill={FUDGE_COLORS[i % FUDGE_COLORS.length]} radius={[4, 4, 0, 0]} />
+                        ))}
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartWrapper>
                   {fudgeFlavorTotals.some(t => t.sold > 0) && (
                     <TotalsTable
                       rows={fudgeFlavorTotals.filter(t => t.sold > 0).slice().sort((a, b) => b.sold - a.sold)}
@@ -755,13 +776,16 @@ export default function Analytics() {
               <p className="text-xs text-store-brown-light mb-3">Total trays wasted per flavor</p>
               {chartWasteData.length > 0 ? (
                 <>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={chartWasteData} layout="vertical" margin={{ left: 16, right: 16 }}>
-                      <XAxis type="number" {...xProps} />
-                      <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 12, fill: '#4A2C17' }} />
-                      <Bar dataKey="trays" fill="#C4843A" radius={[0, 4, 4, 0]} name="Trays wasted" />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <ChartWrapper>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={chartWasteData} layout="vertical" margin={{ left: 16, right: 16 }}>
+                        <XAxis type="number" {...xProps} />
+                        <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 12, fill: '#4A2C17' }} />
+                        <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                        <Bar dataKey="trays" fill="#C4843A" radius={[0, 4, 4, 0]} name="Trays wasted" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartWrapper>
                   {wasteTable.length > 0 && (
                     <div className="mt-4 overflow-x-auto">
                       <table className="w-full text-sm">
@@ -795,17 +819,20 @@ export default function Analytics() {
               <p className="text-xs text-store-brown-light mb-3">Inventory level at end of each reporting day</p>
               {chartStockData.length > 0 ? (
                 <>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={chartStockData} margin={{ left: 0, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                      <XAxis dataKey="date" {...xProps} />
-                      <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      {visibleFudgeFlavors.map((f, i) => (
-                        <Line key={f.id} type="monotone" dataKey={f.name} stroke={FUDGE_COLORS[i % FUDGE_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
-                      ))}
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <ChartWrapper>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={chartStockData} margin={{ left: 0, right: 16 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                        <XAxis dataKey="date" {...xProps} />
+                        <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
+                        <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        {visibleFudgeFlavors.map((f, i) => (
+                          <Line key={f.id} type="monotone" dataKey={f.name} stroke={FUDGE_COLORS[i % FUDGE_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </ChartWrapper>
                   {fudgeFlavorTotals.length > 0 && (
                     <TotalsTable
                       rows={fudgeFlavorTotals.slice().sort((a, b) => b.stock - a.stock)}
@@ -833,20 +860,23 @@ export default function Analytics() {
             <h3 className="font-semibold text-store-brown mb-1">Stock Trend</h3>
             <p className="text-xs text-store-brown-light mb-3">Caramel tray count over time (based on batches made vs. used in SSC)</p>
             {caramelStockData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={caramelStockData} margin={{ left: 16, right: 16 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                  <XAxis dataKey="date" {...xProps} />
-                  <YAxis {...yProps}
-                    domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]}
-                    tickFormatter={v => fmtCaramel(v)}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  {componentFlavors.map((f, i) => (
-                    <Line key={f.id} type="monotone" dataKey={f.name} stroke={FUDGE_COLORS[i % FUDGE_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
+              <ChartWrapper>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={caramelStockData} margin={{ left: 16, right: 16 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                    <XAxis dataKey="date" {...xProps} />
+                    <YAxis {...yProps}
+                      domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]}
+                      tickFormatter={v => fmtCaramel(v)}
+                    />
+                    <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} formatter={v => [fmtCaramel(v), 'trays']} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    {componentFlavors.map((f, i) => (
+                      <Line key={f.id} type="monotone" dataKey={f.name} stroke={FUDGE_COLORS[i % FUDGE_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </ChartWrapper>
             ) : empty('No caramel or SSC batches logged yet.')}
           </div>
         )
@@ -877,17 +907,20 @@ export default function Analytics() {
               <p className="text-xs text-amber-700 mb-3">Stock trend (barrels added minus sold)</p>
               {barrelsMadeData.length > 0 ? (
                 <>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                      <XAxis dataKey="date" {...xProps} />
-                      <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      {viewPopcornFlavors.filter(f => barrelsMadeData.some(row => (row[f.name] ?? 0) > 0)).map((f, i) => (
-                        <Line key={f.id} type="monotone" dataKey={f.name} stroke={POPCORN_COLORS[i % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
-                      ))}
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <ChartWrapper>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                        <XAxis dataKey="date" {...xProps} />
+                        <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
+                        <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        {viewPopcornFlavors.filter(f => barrelsMadeData.some(row => (row[f.name] ?? 0) > 0)).map((f, i) => (
+                          <Line key={f.id} type="monotone" dataKey={f.name} stroke={POPCORN_COLORS[i % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </ChartWrapper>
                   {popcornFlavorTotals.length > 0 && (
                     <TotalsTable
                       borderColor="amber"
@@ -906,17 +939,20 @@ export default function Analytics() {
               <p className="text-xs text-amber-700 mb-3">Barrels sold per day</p>
               {barrelsSoldData.length > 0 ? (
                 <>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={barrelsSoldData} margin={{ left: 0, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
-                      <XAxis dataKey="date" {...xProps} />
-                      <YAxis {...yProps} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      {viewPopcornFlavors.map((f, i) => (
-                        <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
-                      ))}
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <ChartWrapper>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={barrelsSoldData} margin={{ left: 0, right: 16 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                        <XAxis dataKey="date" {...xProps} />
+                        <YAxis {...yProps} />
+                        <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        {viewPopcornFlavors.map((f, i) => (
+                          <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
+                        ))}
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartWrapper>
                   {popcornFlavorTotals.some(t => t.sold > 0) && (
                     <TotalsTable
                       borderColor="amber"
@@ -935,13 +971,16 @@ export default function Analytics() {
               <p className="text-xs text-amber-700 mb-3">Total wasted batches per flavor</p>
               {popcornWasteTotals.length > 0 ? (
                 <>
-                  <ResponsiveContainer width="100%" height={Math.max(120, popcornWasteTotals.length * 52)}>
-                    <BarChart data={popcornWasteTotals} layout="vertical" margin={{ left: 16, right: 16 }}>
-                      <XAxis type="number" {...xProps} allowDecimals={false} />
-                      <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12, fill: '#4A2C17' }} />
-                      <Bar dataKey="batches" fill="#D97706" radius={[0, 4, 4, 0]} name="Batches wasted" />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <ChartWrapper>
+                    <ResponsiveContainer width="100%" height={Math.max(120, popcornWasteTotals.length * 52)}>
+                      <BarChart data={popcornWasteTotals} layout="vertical" margin={{ left: 16, right: 16 }}>
+                        <XAxis type="number" {...xProps} allowDecimals={false} />
+                        <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12, fill: '#4A2C17' }} />
+                        <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
+                        <Bar dataKey="batches" fill="#D97706" radius={[0, 4, 4, 0]} name="Batches wasted" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartWrapper>
                   {popcornWasteTable.length > 0 && (
                     <div className="mt-4 overflow-x-auto">
                       <table className="w-full text-sm">
