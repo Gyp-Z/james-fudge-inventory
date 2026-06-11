@@ -197,8 +197,8 @@ export default function ShiftReport() {
       const { data: todayBarrelLogs } = await supabase
         .from('shelf_bucket_logs')
         .select('flavor_id, barrels_added')
-        .gte('created_at', `${todayStr}T00:00:00`)
-        .lte('created_at', `${todayStr}T23:59:59`)
+        .gte('logged_at', `${todayStr}T00:00:00`)
+        .lte('logged_at', `${todayStr}T23:59:59`)
       const barrelTotalsMap = {}
       ;(todayBarrelLogs || []).forEach(row => {
         barrelTotalsMap[row.flavor_id] = (barrelTotalsMap[row.flavor_id] ?? 0) + (row.barrels_added ?? 0)
