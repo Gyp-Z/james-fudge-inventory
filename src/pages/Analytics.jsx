@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, ResponsiveContainer,
   LineChart, Line, CartesianGrid, Legend,
 } from 'recharts'
 import { supabase } from '../lib/supabase'
@@ -554,8 +554,6 @@ export default function Analytics() {
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading analytics...</p>
 
-  const tooltipStyle = { borderRadius: 8, borderColor: '#F5EDD8', fontSize: 12 }
-  const wrapperStyle = { zIndex: 50 }
   const xProps = { tick: { fontSize: 11, fill: '#8B5E3C' } }
   const yProps = { tick: { fontSize: 11, fill: '#8B5E3C' } }
   const empty = msg => <p className="text-store-brown-light text-sm text-center py-8">{msg}</p>
@@ -733,7 +731,6 @@ export default function Analytics() {
                       <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
                       <XAxis dataKey="date" {...xProps} />
                       <YAxis {...yProps} />
-                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
                       {visibleFudgeFlavors.map((f, i) => (
                         <Bar key={f.id} dataKey={f.name} fill={FUDGE_COLORS[i % FUDGE_COLORS.length]} radius={[4, 4, 0, 0]} />
@@ -762,7 +759,6 @@ export default function Analytics() {
                     <BarChart data={chartWasteData} layout="vertical" margin={{ left: 16, right: 16 }}>
                       <XAxis type="number" {...xProps} />
                       <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 12, fill: '#4A2C17' }} />
-                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
                       <Bar dataKey="trays" fill="#C4843A" radius={[0, 4, 4, 0]} name="Trays wasted" />
                     </BarChart>
                   </ResponsiveContainer>
@@ -804,7 +800,6 @@ export default function Analytics() {
                       <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
                       <XAxis dataKey="date" {...xProps} />
                       <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
-                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
                       {visibleFudgeFlavors.map((f, i) => (
                         <Line key={f.id} type="monotone" dataKey={f.name} stroke={FUDGE_COLORS[i % FUDGE_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
@@ -845,11 +840,6 @@ export default function Analytics() {
                   <YAxis {...yProps}
                     domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]}
                     tickFormatter={v => fmtCaramel(v)}
-                  />
-                  <Tooltip
-                    contentStyle={tooltipStyle}
-                    wrapperStyle={wrapperStyle}
-                    formatter={v => [fmtCaramel(v), 'trays']}
                   />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   {componentFlavors.map((f, i) => (
@@ -892,7 +882,6 @@ export default function Analytics() {
                       <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
                       <XAxis dataKey="date" {...xProps} />
                       <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
-                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
                       {viewPopcornFlavors.filter(f => barrelsMadeData.some(row => (row[f.name] ?? 0) > 0)).map((f, i) => (
                         <Line key={f.id} type="monotone" dataKey={f.name} stroke={POPCORN_COLORS[i % POPCORN_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
@@ -922,7 +911,6 @@ export default function Analytics() {
                       <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
                       <XAxis dataKey="date" {...xProps} />
                       <YAxis {...yProps} />
-                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
                       {viewPopcornFlavors.map((f, i) => (
                         <Bar key={f.id} dataKey={f.name} fill={POPCORN_COLORS[i % POPCORN_COLORS.length]} radius={[4, 4, 0, 0]} />
@@ -951,7 +939,6 @@ export default function Analytics() {
                     <BarChart data={popcornWasteTotals} layout="vertical" margin={{ left: 16, right: 16 }}>
                       <XAxis type="number" {...xProps} allowDecimals={false} />
                       <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12, fill: '#4A2C17' }} />
-                      <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
                       <Bar dataKey="batches" fill="#D97706" radius={[0, 4, 4, 0]} name="Batches wasted" />
                     </BarChart>
                   </ResponsiveContainer>
