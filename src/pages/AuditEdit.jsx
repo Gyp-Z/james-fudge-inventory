@@ -9,12 +9,42 @@ import IngredientCorrectionSection from '../components/audit/IngredientCorrectio
 import ActivitySection from '../components/audit/ActivitySection'
 
 const SECTIONS = [
-  { key: 'backdate', label: 'Backdate a Batch', icon: '🍫' },
-  { key: 'revert', label: 'Remove / Revert a Batch', icon: '↩️' },
-  { key: 'entries', label: 'Product Entries', icon: '📦' },
-  { key: 'inventory', label: 'Correct Inventory Counts', icon: '🔢' },
-  { key: 'ingredients', label: 'Correct Ingredient Stock', icon: '🧂' },
-  { key: 'activity', label: 'Activity Log', icon: '🔍' },
+  {
+    key: 'backdate',
+    label: 'Add a batch you forgot to log',
+    blurb: 'Made a batch on an earlier day but never logged it? Add it here and the ingredients come out automatically — just like if you’d logged it that day.',
+    icon: '🍫',
+  },
+  {
+    key: 'revert',
+    label: 'Undo a batch logged by mistake',
+    blurb: 'Logged a batch that wasn’t really made, or picked the wrong flavor? Remove it and the ingredients go back.',
+    icon: '↩️',
+  },
+  {
+    key: 'entries',
+    label: 'Fix tray counts (made / sold / wasted)',
+    blurb: 'Add or fix how many trays were made, sold, or wasted on a day. Use this if an end-of-day report was missed or had a wrong number.',
+    icon: '📦',
+  },
+  {
+    key: 'inventory',
+    label: 'Fix a shelf count',
+    blurb: 'Counted the shelf and the number in the app is wrong? Set it to what’s really there.',
+    icon: '🔢',
+  },
+  {
+    key: 'ingredients',
+    label: 'Fix an ingredient amount',
+    blurb: 'Counted an ingredient (butter, sugar…) and the app is off? Set it to the real amount.',
+    icon: '🧂',
+  },
+  {
+    key: 'activity',
+    label: 'See what was logged on a day',
+    blurb: 'Look back at everything that was logged in a date range — batches, tray counts, ingredient use, and fixes.',
+    icon: '🔍',
+  },
 ]
 
 export default function AuditEdit() {
@@ -53,30 +83,38 @@ export default function AuditEdit() {
     <div className="space-y-5">
       <div>
         <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
-          Audit &amp; Edit
+          Fix &amp; Add Past Days
         </h2>
         <p className="text-sm text-store-brown-light mt-1">
-          Fix mistakes safely — backdate, correct, or remove logged data. Ingredient and
-          inventory counts adjust automatically, just like the live report.
+          Forgot to log something, or logged it wrong? Fix it here. First pick the day it
+          happened, then choose what you need to do below. Counts and ingredients update
+          on their own — you don’t have to do any math.
         </p>
       </div>
 
       {/* Date picker — the date most sections act on */}
-      <div className="bg-white rounded-xl border border-store-tan p-4 shadow-sm flex items-center gap-3 flex-wrap">
-        <label className="text-sm font-semibold text-store-brown">Working date</label>
-        <input
-          type="date"
-          value={pickedDate}
-          max={todayEastern()}
-          onChange={(e) => setPickedDate(e.target.value)}
-          className="border border-store-tan rounded-xl px-3 py-2 text-sm bg-store-cream text-store-brown focus:outline-none focus:ring-2 focus:ring-store-green"
-        />
-        {pickedDate !== todayEastern() && (
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
-            Backdated
-          </span>
-        )}
+      <div className="bg-white rounded-xl border border-store-tan p-4 shadow-sm space-y-2">
+        <div className="flex items-center gap-3 flex-wrap">
+          <label className="text-sm font-semibold text-store-brown">Step 1 — Pick the day</label>
+          <input
+            type="date"
+            value={pickedDate}
+            max={todayEastern()}
+            onChange={(e) => setPickedDate(e.target.value)}
+            className="border border-store-tan rounded-xl px-3 py-2 text-sm bg-store-cream text-store-brown focus:outline-none focus:ring-2 focus:ring-store-green"
+          />
+          {pickedDate !== todayEastern() && (
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+              Earlier day
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-store-brown-light">
+          The day the thing you’re fixing actually happened. Leave it as today if it’s for today.
+        </p>
       </div>
+
+      <h3 className="text-sm font-semibold text-store-brown pt-1">Step 2 — Pick what you need to do</h3>
 
       {loading ? (
         <p className="text-store-brown-light text-center py-12">Loading…</p>
@@ -88,14 +126,20 @@ export default function AuditEdit() {
               <div key={s.key} className="bg-white rounded-xl border border-store-tan shadow-sm overflow-hidden">
                 <button
                   onClick={() => setOpenSection(isOpen ? null : s.key)}
-                  className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-store-cream transition-colors"
+                  className="w-full flex items-start justify-between gap-3 px-4 py-3 text-left hover:bg-store-cream transition-colors"
                 >
-                  <span className="font-semibold text-store-brown flex items-center gap-2">
-                    <span className="text-lg">{s.icon}</span>
-                    {s.label}
+                  <span className="flex items-start gap-2.5 min-w-0">
+                    <span className="text-xl leading-none mt-0.5">{s.icon}</span>
+                    <span className="min-w-0">
+                      <span className="block font-semibold text-store-brown">{s.label}</span>
+                      {!isOpen && <span className="block text-xs text-store-brown-light mt-0.5">{s.blurb}</span>}
+                    </span>
                   </span>
-                  <span className="text-store-brown-light text-sm">{isOpen ? '▲' : '▼'}</span>
+                  <span className="text-store-brown-light text-sm shrink-0 mt-1">{isOpen ? '▲' : '▼'}</span>
                 </button>
+                {isOpen && (
+                  <p className="px-4 pb-1 -mt-1 text-xs text-store-brown-light">{s.blurb}</p>
+                )}
                 {isOpen && (
                   <div className="border-t border-store-tan px-4 py-4 bg-store-cream/40">
                     {s.key === 'backdate' && <BackdateBatchSection {...sectionProps} />}
