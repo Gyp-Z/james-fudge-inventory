@@ -188,8 +188,13 @@ Added as a popcorn flavor mid-season 2026. Uses Cheddar Kernels (same qty as Che
 | `src/pages/Analytics.jsx` | Charts. Bucket charts removed. `caramelComputedTotal` + `caramelStockData` computed from batch logs day-by-day. |
 | `src/pages/Admin.jsx` | Flavor management + inline count editing. |
 | `src/pages/Ingredients.jsx` | Ingredient management + deduction log. Archive button is in the name row (not the data row). |
-| `src/utils/autoDeduct.js` | `autoDeductIngredients` (batch phase), `autoDeductTrayIngredients` (tray phase, takes `shiftReportEntryId`), `deductCaramelComponent` (SSC tray time), `incrementBarrelCount`, `revertBatchLog`. No rounding in any calculation path. |
-| `src/utils/inventoryActions.js` | Shared effect helpers used by both ShiftReport and Audit & Edit: `logBatchWithEffects`, `computeTrayInventory`, `applyTrayDeductions`, `applyShiftEntry`, `reverseShiftEntry`, `creditCaramelComponent`, `logInventoryAdjustment`. |
+| `src/core/ops.js` | **Single source of truth** for all reads/writes. Every DB-touching fn takes a Supabase client as its first arg, so it runs in the browser, the Jarvis chat, and the MCP server. Holds the deduction logic + read/analytics queries + `runTool`/`WRITE_TOOLS`/`summarizeToolCall`. No browser-only imports. |
+| `src/core/toolSchemas.js` | Shared Jarvis tool catalog (`TOOL_SCHEMAS`) + `SYSTEM_PROMPT`, consumed by `api/chat.js` and `mcp/server.js`. |
+| `src/utils/autoDeduct.js` | Browser-bound wrappers over `src/core/ops.js` (bind the anon client). Same signatures as before — call sites unchanged. |
+| `src/utils/inventoryActions.js` | Browser-bound wrappers over `src/core/ops.js`. Same signatures. |
+| `api/chat.js` | Vercel function — Claude inference proxy for the in-app Jarvis chat. Holds `ANTHROPIC_API_KEY`, verifies the owner's Supabase token, no DB access. Uses `claude-opus-4-8`. |
+| `src/pages/Jarvis.jsx` | Admin-only chat page (`/jarvis`). Client-side agentic loop; executes tools via `jarvisClientTools` (anon client), confirms writes via `ConfirmDialog`. |
+| `mcp/server.js` | Local stdio MCP server for the owner's desktop assistant. Runs the same `runTool` with a service-role client. See `mcp/README.md`. |
 | `src/pages/AuditEdit.jsx` | Admin-only Audit & Edit page (`/audit-edit`). Date picker + 6 accordion sections under `src/components/audit/`. |
 | `src/hooks/useFlavors.js` | Loads active flavors (`is_active = true`). Does NOT include inactive flavors. |
 | `scripts/seed-recipes.mjs` | Recipe seeder. Needs `SUPABASE_SERVICE_ROLE_KEY`. Run with `node --env-file=.env scripts/seed-recipes.mjs`. |
@@ -241,6 +246,32 @@ Owner tool to correct chef mistakes without hand-editing the DB. Six capabilitie
 - **Backdated entries** are grouped under a per-date `shift_reports` row with `report_type = 'manual_adjustment'`. No reads filter by `report_type`, so these count in Analytics/caramel exactly like `'snapshot'` entries.
 - **Audit trail:** every #4/#5 override writes an `inventory_adjustments` row (target_type/target_id/field/old_value/new_value/reason) via `logInventoryAdjustment`.
 - Schema added by `supabase/migrations/add_audit_edit_support.sql` (applied June 2026): `ingredient_deductions.shift_report_entry_id` + the `inventory_adjustments` table.
+
+---
+
+## Jarvis Assistant & MCP (Phase 2, live)
+
+Conversational assistant (Claude Opus 4.8) that answers questions about the shop and takes
+actions by chat, plus an MCP server so the owner's desktop assistant can do the same.
+
+- **One shared core, three front-ends.** `src/core/ops.js` is client-agnostic (takes a Supabase
+  client). It's used by: the browser app (anon client, via the `inventoryActions`/`autoDeduct`
+  wrappers), the in-app Jarvis chat (`api/chat.js` + `src/pages/Jarvis.jsx`), and the local MCP
+  server (`mcp/server.js`, service-role client). **Change tool/deduction logic in core only** —
+  never duplicate it per front-end.
+- **Tools** are defined once in `src/core/toolSchemas.js` and executed by `runTool` in core.
+  Reads: inventory/low-stock/sales-velocity/ingredient-stock/recent-activity/flavors/ingredients.
+  Writes: `log_batch`, `add_product_entry`, `set_inventory_count`, `set_ingredient_quantity`
+  (all route through the existing deduction helpers — no rounding, two-phase preserved).
+- **Confirmation:** in-app writes confirm via `ConfirmDialog`; via MCP the desktop client's own
+  tool-approval prompt is the gate.
+- **Access:** owner-only. `/jarvis` is behind `AdminRoute`; `api/chat.js` verifies the Supabase
+  access token (401 otherwise). The MCP server is local + service-role (RLS bypassed) — keep it
+  on the owner's machine only.
+- **Setup:** in-app chat needs `ANTHROPIC_API_KEY` in `.env` (local) and Vercel env. The MCP
+  server reuses `SUPABASE_SERVICE_ROLE_KEY` (already in `.env`) and is registered in the desktop
+  assistant per `mcp/README.md`. `vercel.json` excludes `/api` from the SPA rewrite. Run locally
+  with `vercel dev` (plain `vite` won't serve `/api/chat`).
 
 ---
 

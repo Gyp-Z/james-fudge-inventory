@@ -14,6 +14,7 @@ const adminMainTabs = [
   { to: '/analytics', label: '📊', title: 'Analytics' },
   { to: '/ingredients', label: '🧂', title: 'Ingredients' },
   { to: '/audit-edit', label: '🛠️', title: 'Fixes' },
+  { to: '/jarvis', label: '🤖', title: 'Jarvis' },
 ]
 
 const moreItems = [
