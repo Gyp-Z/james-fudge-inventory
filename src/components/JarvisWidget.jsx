@@ -1,7 +1,25 @@
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
 import { useAuth } from '../hooks/useAuth'
 import ConfirmDialog from './ConfirmDialog'
 import { runTool, WRITE_TOOLS, summarizeToolCall } from '../utils/jarvisClientTools'
+
+// Themed renderer so Jarvis's markdown becomes intentional, professional UI (no raw ** or #).
+const MD = {
+  h1: (p) => <div className="text-[11px] font-bold uppercase tracking-wide text-store-green mt-3 mb-1.5 first:mt-0" {...p} />,
+  h2: (p) => <div className="text-[11px] font-bold uppercase tracking-wide text-store-green mt-3 mb-1.5 first:mt-0" {...p} />,
+  h3: (p) => <div className="text-[11px] font-bold uppercase tracking-wide text-store-green mt-3 mb-1.5 first:mt-0" {...p} />,
+  p: (p) => <p className="mb-2 last:mb-0 leading-snug" {...p} />,
+  strong: (p) => <strong className="font-bold text-store-brown" {...p} />,
+  em: (p) => <em className="italic" {...p} />,
+  ul: (p) => <ul className="list-disc pl-5 space-y-1 mb-2 last:mb-0 marker:text-store-green" {...p} />,
+  ol: (p) => <ol className="list-decimal pl-5 space-y-1 mb-2 last:mb-0 marker:text-store-green marker:font-semibold" {...p} />,
+  li: (p) => <li className="leading-snug pl-0.5" {...p} />,
+  a: (p) => <a className="text-store-green underline" {...p} />,
+  code: (p) => <code className="font-mono text-xs bg-store-cream px-1 py-0.5 rounded" {...p} />,
+  hr: () => <hr className="my-2.5 border-store-tan" />,
+  blockquote: (p) => <blockquote className="border-l-2 border-store-tan pl-2.5 text-store-brown-light italic" {...p} />,
+}
 
 // Floating, owner-only Jarvis assistant available on every page. A launcher bubble opens a
 // chat panel; the agentic loop + write-confirmation logic is the same as the old page.
@@ -136,7 +154,9 @@ export default function JarvisWidget() {
               <div key={i} className="flex justify-end"><div className="bg-store-green text-white rounded-2xl rounded-br-sm px-3 py-1.5 max-w-[85%] text-sm whitespace-pre-wrap">{m.text}</div></div>
             )
             if (m.role === 'assistant') return (
-              <div key={i} className="flex justify-start"><div className="bg-white border border-store-tan rounded-2xl rounded-bl-sm px-3 py-1.5 max-w-[85%] text-sm text-store-brown whitespace-pre-wrap">{m.text}</div></div>
+              <div key={i} className="bg-white border border-store-tan rounded-xl px-3.5 py-2.5 text-sm text-store-brown shadow-sm">
+                <ReactMarkdown components={MD}>{m.text}</ReactMarkdown>
+              </div>
             )
             if (m.role === 'tool') return <div key={i} className="text-center text-xs text-store-brown-light">{m.text}</div>
             return <div key={i} className="text-center text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1">{m.text}</div>
