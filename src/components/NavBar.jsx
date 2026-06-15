@@ -13,13 +13,11 @@ const adminMainTabs = [
   { to: '/report', label: '📝', title: 'Report' },
   { to: '/analytics', label: '📊', title: 'Analytics' },
   { to: '/ingredients', label: '🧂', title: 'Ingredients' },
+  { to: '/admin', label: '🍬', title: 'Products' },
   { to: '/audit-edit', label: '🛠️', title: 'Fixes' },
-  { to: '/jarvis', label: '🤖', title: 'Jarvis' },
 ]
 
-const moreItems = [
-  { to: '/admin', label: '🍬', title: 'Products' },
-]
+const moreItems = []
 
 export default function NavBar() {
   const { session } = useAuth()
@@ -111,7 +109,7 @@ export default function NavBar() {
               <span>{title}</span>
             </NavLink>
           ))}
-          {session && (
+          {session && moreItems.length > 0 && (
             <button
               onClick={() => setMoreOpen(prev => !prev)}
               title="More"

@@ -7,8 +7,8 @@ import Analytics from './pages/Analytics'
 import Admin from './pages/Admin'
 import Ingredients from './pages/Ingredients'
 import AuditEdit from './pages/AuditEdit'
-import Jarvis from './pages/Jarvis'
 import NavBar from './components/NavBar'
+import JarvisWidget from './components/JarvisWidget'
 
 function AdminRoute({ children }) {
   const { session, loading } = useAuth()
@@ -36,9 +36,9 @@ export default function App() {
                   <Route path="/analytics" element={<AdminRoute><Analytics /></AdminRoute>} />
                   <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
                   <Route path="/audit-edit" element={<AdminRoute><AuditEdit /></AdminRoute>} />
-                  <Route path="/jarvis" element={<AdminRoute><Jarvis /></AdminRoute>} />
                 </Routes>
               </main>
+              <JarvisWidget />
             </div>
           }
         />

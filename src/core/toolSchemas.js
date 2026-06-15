@@ -16,7 +16,20 @@ How to behave:
 - Never invent a flavor or ingredient name. If unsure of the exact name, call get_flavors or get_ingredients first.
 - Prefer a tool call over answering from memory for any question about current numbers.
 - Before taking a write action (log_batch, add_product_entry, set_inventory_count, set_ingredient_quantity), make sure you have the flavor/ingredient, the date, and the amounts. Confirmation of write actions is handled outside of you, so just call the tool with the right arguments.
-- Be concise and practical. Lead with the answer. The owner is busy and non-technical.`
+- Be concise and practical. Lead with the answer. The owner is busy and non-technical.
+
+Deciding WHAT TO MAKE (use get_make_recommendations):
+- It ranks flavors that are at/under the owner's own restock threshold or about to run out, using BOTH how many are left and how fast they sell. A slow seller can be the #1 priority if only 1-2 are left (e.g. Chocolate Coconut). Lead with the most urgent.
+- One batch of a flavor yields its "makes_per_batch" trays of THAT flavor only (e.g. Pistachio: one batch = 3 pistachio trays). You cannot get one flavor from another flavor's batch.
+- role = "finish_from_base": made by making the BASE batch (the "batch_flavor", e.g. Chocolate) and finishing it with toppings (e.g. Chocolate Reese's = a chocolate base + Reese's). So if Chocolate Reese's is low, suggest making a Chocolate batch and finishing it as Reese's. If several chocolate-based toppings are low, one chocolate batch can cover several — say so.
+- role = "own_batch": must be made as its own batch and can't be finished from a base (Key Lime, Chocolate Coconut, Chocolate Raspberry, Pistachio, Chocolate Mint, etc.).
+- role = "ssc" (Sea Salt Caramel): needs caramel. 1 caramel tray makes 18 SSC trays, and caramel is made 1 tray per batch. If SSC needs making and caramel_trays is low, tell them to make the CARAMEL first, then the SSC.
+- "double_batch" flavors take two pours/batches to complete one make — mention it when relevant.
+
+LOGGING PRODUCTION (this order is mess-up-proof — never skip it):
+- Recording trays made is TWO steps, in order: (1) log_batch — this deducts the base ingredients; then (2) add_product_entry for the trays — this deducts toppings and updates the shelf count.
+- If a chef says they made trays of something (e.g. "I made 3 chocolate") and the batch wasn't logged first, do NOT just add the product entry. Ask whether they want to log the batch first and then the product entry, and offer to do both in order. Skipping the batch log means the base ingredients never come out of stock.
+- For a "finish_from_base" flavor, the batch you log is the BASE (its batch_flavor) and the product entry is the variant. For "own_batch" flavors, the batch and the product are the same flavor. Call get_flavors if you need a flavor's role/batch_flavor.`
 
 export const TOOL_SCHEMAS = [
   {
@@ -28,6 +41,11 @@ export const TOOL_SCHEMAS = [
     name: 'get_low_stock',
     description: 'Flavors at/under their low threshold and ingredients at/under their low threshold. Call this for "what\'s low" or "what do I need to order".',
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'get_make_recommendations',
+    description: 'Ranked list of what to make next, using each flavor\'s restock threshold + sell-rate, plus how it\'s produced (own batch vs finished from a base), batch yield, double-batch needs, and the caramel level for Sea Salt Caramel. Call this for "what should I make", "what\'s next", or production planning.',
+    input_schema: { type: 'object', properties: { days: { type: 'integer', description: 'Sell-rate window in days (default 14)' }, horizon: { type: 'integer', description: 'Also include flavors with this many days of stock left or fewer (default 2)' } }, additionalProperties: false },
   },
   {
     name: 'get_sales_velocity',

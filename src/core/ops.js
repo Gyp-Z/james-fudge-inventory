@@ -404,9 +404,120 @@ async function computeCaramelTrays(sb) {
   return Math.max(0, made - sscTrays / 18)
 }
 
+// Classifies every active flavor by how it's produced, so recommendations and logging are
+// correct. The tell for "can be finished from a base batch" is having a tray-phase topping
+// recipe AND a base group that maps to one of the base-trigger flavors (Vanilla / Chocolate
+// / Peanut Butter). Flavors without toppings (Choc Coconut, Key Lime, Pistachio, Choc
+// Raspberry…) must be made as their own batch.
+async function classifyFlavors(sb) {
+  const [{ data: flavors }, { data: trayRecipes }] = await Promise.all([
+    sb.from('flavors').select('id, name, product_type, is_component, is_base_trigger, base_groups, default_yield, low_tray_threshold, double_batch_reminder').eq('is_active', true).order('name'),
+    sb.from('recipes').select('flavor_id, ingredients(name)').eq('deduction_phase', 'tray'),
+  ])
+  const trayTops = {}
+  for (const r of trayRecipes || []) (trayTops[r.flavor_id] ||= []).push(r.ingredients?.name)
+
+  // group name -> base-trigger flavor name (e.g. 'chocolate' -> 'Chocolate'). brown_sugar has none.
+  const groupBase = {}
+  for (const f of flavors || []) if (f.is_base_trigger) for (const g of f.base_groups || []) groupBase[g] = f.name
+
+  const byId = {}
+  for (const f of flavors || []) {
+    const toppings = (trayTops[f.id] || []).filter(Boolean)
+    const baseFromGroups = (f.base_groups || []).map((g) => groupBase[g]).find(Boolean) || null
+    let role, base = null
+    if (f.is_component) role = 'component'
+    else if (f.product_type === 'popcorn') role = 'popcorn'
+    else if (f.is_base_trigger) role = 'base'
+    else if (isSSC(f.name)) { role = 'ssc'; base = baseFromGroups }
+    else if (toppings.length > 0 && baseFromGroups) { role = 'finish_from_base'; base = baseFromGroups }
+    else role = 'own_batch'
+    byId[f.id] = { ...f, toppings, role, base }
+  }
+  return { flavors: flavors || [], byId, groupBase }
+}
+
 export async function getFlavors(sb) {
-  const { data } = await sb.from('flavors').select('name, product_type, is_active, is_component').order('name')
-  return { flavors: data || [] }
+  const { flavors, byId } = await classifyFlavors(sb)
+  return {
+    flavors: flavors.map((f) => {
+      const c = byId[f.id]
+      return {
+        name: f.name,
+        product_type: f.product_type,
+        is_component: f.is_component,
+        yield_per_batch: f.default_yield,
+        double_batch: !!f.double_batch_reminder,
+        role: c.role, // base | finish_from_base | own_batch | ssc | popcorn | component
+        // the flavor whose BATCH you log to produce this (a base for finish_from_base/ssc, else itself):
+        batch_flavor: c.role === 'finish_from_base' || c.role === 'ssc' ? c.base : f.name,
+        is_ssc: c.role === 'ssc',
+        toppings: c.toppings,
+      }
+    }),
+  }
+}
+
+// Ranked "what should I make next" — uses each flavor's own restock threshold (owner-tuned)
+// plus sell-rate, so a slow seller with only 1-2 left still ranks at the top.
+export async function getMakeRecommendations(sb, { days = 14, horizon = 2 } = {}) {
+  const { flavors, byId } = await classifyFlavors(sb)
+  const [{ data: inv }, vel, caramel] = await Promise.all([
+    sb.from('current_inventory').select('flavor_id, tray_count, barrel_count, in_progress_count'),
+    getSalesVelocity(sb, days),
+    computeCaramelTrays(sb),
+  ])
+  const invMap = {}
+  ;(inv || []).forEach((r) => { invMap[r.flavor_id] = r })
+  const perDay = {}
+  for (const v of vel.velocity) perDay[v.flavor] = v.per_day
+
+  const recs = []
+  for (const f of flavors) {
+    if (f.is_component) continue
+    const c = byId[f.id]
+    const row = invMap[f.id] || {}
+    const isPop = f.product_type === 'popcorn'
+    const count = isPop ? (row.barrel_count ?? 0) : (row.tray_count ?? 0)
+    const pd = perDay[f.name] ?? 0
+    const daysLeft = pd > 0 ? Number((count / pd).toFixed(1)) : null
+    const threshold = f.low_tray_threshold ?? 0
+    const below = count <= threshold
+    if (!(below || (daysLeft != null && daysLeft <= horizon))) continue
+    recs.push({
+      flavor: f.name,
+      type: f.product_type,
+      count,
+      unit: isPop ? 'barrels' : 'trays',
+      per_day_sold: pd,
+      days_left: daysLeft,
+      restock_threshold: threshold,
+      below_threshold: below,
+      makes_per_batch: f.default_yield, // one batch yields this many trays of THIS flavor
+      double_batch: !!f.double_batch_reminder, // needs 2 pours to complete one make
+      role: c.role,
+      batch_flavor: c.role === 'finish_from_base' || c.role === 'ssc' ? c.base : f.name,
+      toppings: c.toppings,
+      is_ssc: c.role === 'ssc',
+    })
+  }
+  recs.sort((a, b) =>
+    (b.below_threshold - a.below_threshold) ||
+    ((a.days_left ?? 1e9) - (b.days_left ?? 1e9)) ||
+    (a.count - b.count)
+  )
+
+  const baseLevels = {}
+  for (const f of flavors) if (byId[f.id].role === 'base') baseLevels[f.name] = invMap[f.id]?.tray_count ?? 0
+  const anySSC = recs.some((r) => r.is_ssc)
+  return {
+    window_days: days,
+    horizon_days: horizon,
+    caramel_trays: Number(caramel.toFixed(4)),
+    base_levels: baseLevels, // current base stock (Vanilla/Chocolate/Peanut Butter) for finishing variants
+    needs_caramel_attention: anySSC && caramel < 1,
+    recommendations: recs,
+  }
 }
 
 export async function getIngredients(sb) {
@@ -574,6 +685,7 @@ export async function runTool(sb, name, input = {}) {
   switch (name) {
     case 'get_inventory': return await getInventory(sb)
     case 'get_low_stock': return await getLowStock(sb)
+    case 'get_make_recommendations': return await getMakeRecommendations(sb, { days: input.days ?? 14, horizon: input.horizon ?? 2 })
     case 'get_sales_velocity': return await getSalesVelocity(sb, input.days ?? 7)
     case 'get_ingredient_stock': return await getIngredientStock(sb, input.days ?? 14)
     case 'get_recent_activity': return await getRecentActivity(sb, input.days ?? 7, input.flavor)
