@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import Stepper from '../components/Stepper'
-import { autoDeductIngredients, autoDeductTrayIngredients, deductCaramelComponent } from '../utils/autoDeduct'
+import { logBatchWithEffects, computeTrayInventory, applyTrayDeductions } from '../utils/inventoryActions'
 
 export default function ShiftReport() {
   const { session } = useAuth()
@@ -234,32 +234,17 @@ export default function ShiftReport() {
       const flavorWasteReason = batchWasteReason[flavor.id]?.trim() || null
       for (let i = 0; i < madeCount + wastedCount; i++) {
         const isWasted = i >= madeCount
-        const { data: inserted } = await supabase
-          .from('batch_logs')
-          .insert({ flavor_id: flavor.id, batch_date: todayStr, is_wasted: isWasted, ...(isWasted && flavorWasteReason ? { waste_reason: flavorWasteReason } : {}) })
-          .select('id')
-          .single()
-
-        if (!inserted) continue
-
-        if (!isWasted) {
-          const { deductions, negatives, skipped } = await autoDeductIngredients(flavor.id, inserted.id)
-          allDeductions.push(...deductions)
-          allNegatives.push(...negatives)
-          allSkipped.push(...skipped)
-          // Note: caramel deduction for SSC has moved to handleProductSubmit (per full tray)
-        }
-
-        // Component flavors (Caramel): 1 batch = 1 tray — increment inventory
-        if (flavor.is_component && !isWasted) {
-          const { data: inv } = await supabase.from('current_inventory').select('tray_count').eq('flavor_id', flavor.id).single()
-          await supabase.from('current_inventory').upsert(
-            { flavor_id: flavor.id, tray_count: (inv?.tray_count ?? 0) + 1 },
-            { onConflict: 'flavor_id' }
-          )
-        }
-
-
+        // Shared helper fires the exact same batch-phase effects the Audit page backdates.
+        // Caramel SSC deduction stays in handleProductSubmit (per full tray), not here.
+        const { batchLogId, deductions, negatives, skipped } = await logBatchWithEffects(
+          flavor,
+          todayStr,
+          { isWasted, wasteReason: flavorWasteReason }
+        )
+        if (!batchLogId) continue
+        allDeductions.push(...deductions)
+        allNegatives.push(...negatives)
+        allSkipped.push(...skipped)
       }
     }
 
@@ -324,8 +309,15 @@ export default function ShiftReport() {
           waste_reason: e?.waste_reason?.trim() || null,
         }
       })
+    // Capture inserted entry ids so each tray-phase deduction can be linked to its entry
+    // (makes the entry reversible from the Audit & Edit page).
+    const entryIdByFlavor = {}
     if (entryRows.length > 0) {
-      await supabase.from('shift_report_entries').insert(entryRows)
+      const { data: insertedEntries } = await supabase
+        .from('shift_report_entries')
+        .insert(entryRows)
+        .select('id, flavor_id')
+      ;(insertedEntries || []).forEach((row) => { entryIdByFlavor[row.flavor_id] = row.id })
     }
 
     const { data: freshInv } = await supabase.from('current_inventory').select('flavor_id, tray_count')
@@ -339,20 +331,26 @@ export default function ShiftReport() {
       })
       .map((f) => {
         const e = entries[f.id]
-        const made = e?.full_trays ?? 0
-        const newInProg = e?.in_progress_trays ?? 0
-        const sold = e?.trays_sold ?? 0
-        const wastedCount = e?.trays_wasted ?? 0
         const isInProg = e?.waste_is_in_progress ?? false
-        const fullWasted = isInProg ? 0 : wastedCount
-        const inProgWasted = isInProg ? wastedCount : 0
-        const existingInProg = currentInProgress[f.id] ?? 0
-        const topped = Math.min(made, existingInProg)
+        const wastedCount = e?.trays_wasted ?? 0
+        // Normalize the UI waste flag into the canonical split columns, then use the shared
+        // inventory formula (same one the Audit & Edit page reverses against).
+        const values = {
+          full_trays: e?.full_trays ?? 0,
+          in_progress_trays: e?.in_progress_trays ?? 0,
+          trays_sold: e?.trays_sold ?? 0,
+          trays_wasted: isInProg ? 0 : wastedCount,
+          in_progress_wasted: isInProg ? wastedCount : 0,
+        }
+        const { tray_count, in_progress_count } = computeTrayInventory(
+          values,
+          freshMap[f.id] ?? 0,
+          currentInProgress[f.id] ?? 0
+        )
         return {
           flavor_id: f.id,
-          // Sales only deduct from full-tray stock, not from in-progress
-          tray_count: Math.max(0, (freshMap[f.id] ?? 0) + made - sold - fullWasted),
-          in_progress_count: Math.max(0, existingInProg + newInProg - topped - inProgWasted),
+          tray_count,
+          in_progress_count,
           updated_at: new Date().toISOString(),
         }
       })
@@ -361,14 +359,12 @@ export default function ShiftReport() {
       await supabase.from('current_inventory').upsert(activeRows, { onConflict: 'flavor_id' })
     }
 
-    // Per-tray ingredient deductions for fudge flavors
+    // Per-tray ingredient deductions for fudge flavors (linked to their entry so they're
+    // reversible from the Audit & Edit page). Caramel deduction for SSC fires inside.
     for (const f of flavors) {
       const made = entries[f.id]?.full_trays ?? 0
       if (made > 0) {
-        await autoDeductTrayIngredients(f.id, made)
-        if (f.name.toLowerCase().includes('sea salt')) {
-          await deductCaramelComponent(f.name, made)
-        }
+        await applyTrayDeductions(f, made, entryIdByFlavor[f.id] ?? null)
       }
     }
 

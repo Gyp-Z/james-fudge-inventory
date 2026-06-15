@@ -119,8 +119,11 @@ export async function autoDeductIngredients(flavorId, batchLogId) {
  * Deducts per-tray topping ingredients when a shift report is submitted.
  * Fetches 'tray' phase recipes for the flavor and multiplies each quantity by fullTrays.
  * Follows the same container_size conversion as autoDeductIngredients.
+ *
+ * Pass shiftReportEntryId to link each deduction row to the entry that caused it, so the
+ * deduction can be found and refunded if that entry is later edited or deleted.
  */
-export async function autoDeductTrayIngredients(flavorId, fullTrays) {
+export async function autoDeductTrayIngredients(flavorId, fullTrays, shiftReportEntryId = null) {
   if (!fullTrays || fullTrays <= 0) return { deductions: [], negatives: [], skipped: [] }
 
   const { data: recipes, error } = await supabase
@@ -184,6 +187,7 @@ export async function autoDeductTrayIngredients(flavorId, fullTrays) {
     const [updateResult, insertResult] = await Promise.all([
       supabase.from('ingredients').update({ quantity: newQty }).eq('id', activeIng.id),
       supabase.from('ingredient_deductions').insert({
+        shift_report_entry_id: shiftReportEntryId,
         ingredient_id: activeIng.id,
         quantity_deducted: deliveryQty,
         unit: activeIng.unit,
@@ -286,13 +290,8 @@ export async function revertBatchLog(batchLogId) {
 
   const flavor = batch.flavors
   const flavorId = batch.flavor_id
-  const isPopcorn = flavor?.product_type === 'popcorn'
   const isComponent = flavor?.is_component
   const isWasted = batch.is_wasted
-
-  // Determine batch quantity/yield
-  // Popcorn uses batch_quantity if set, else defaults to default_yield, else 1
-  const batchQty = batch.batch_quantity ?? batch.tray_count ?? flavor?.default_yield ?? (isPopcorn ? 1 : 3)
 
   // 2. Fetch deductions
   const { data: deductions, error: dErr } = await supabase
@@ -329,46 +328,9 @@ export async function revertBatchLog(batchLogId) {
     }
   }
 
-  // 4. If popcorn, decrement barrel count and delete matching shelf_bucket_log
-  if (isPopcorn && !isWasted) {
-    // Decrement barrel count
-    const { data: inv } = await supabase
-      .from('current_inventory')
-      .select('barrel_count')
-      .eq('flavor_id', flavorId)
-      .single()
-
-    if (inv) {
-      const newCount = Math.max(0, (inv.barrel_count ?? 0) - batchQty)
-      await supabase
-        .from('current_inventory')
-        .update({ barrel_count: newCount })
-        .eq('flavor_id', flavorId)
-    }
-
-    // Try to find and delete matching shelf_bucket_log
-    // Created around the same time as batch (within 2 minutes)
-    const batchCreatedAt = new Date(batch.created_at)
-    const twoMinutesBefore = new Date(batchCreatedAt.getTime() - 2 * 60 * 1000).toISOString()
-    const twoMinutesAfter = new Date(batchCreatedAt.getTime() + 2 * 60 * 1000).toISOString()
-
-    const { data: shelfLog } = await supabase
-      .from('shelf_bucket_logs')
-      .select('id')
-      .eq('flavor_id', flavorId)
-      .eq('barrels_added', batchQty)
-      .gte('logged_at', twoMinutesBefore)
-      .lte('logged_at', twoMinutesAfter)
-      .limit(1)
-      .single()
-
-    if (shelfLog) {
-      await supabase
-        .from('shelf_bucket_logs')
-        .delete()
-        .eq('id', shelfLog.id)
-    }
-  }
+  // 4. Popcorn batches do NOT change barrels. Barrels are added/removed only via the
+  //    Products tab (barrels_added/barrels_used), so batch logging never touched them and
+  //    reverting must not either. No barrel/shelf_bucket_log work here — intentional.
 
   // 5. If component (Caramel), decrement tray count
   if (isComponent && !isWasted) {

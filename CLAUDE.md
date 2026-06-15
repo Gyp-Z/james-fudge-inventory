@@ -173,8 +173,9 @@ Added as a popcorn flavor mid-season 2026. Uses Cheddar Kernels (same qty as Che
 | `shift_report_entries` | Per-flavor deltas within a report. `full_trays`, `trays_sold`, `trays_wasted`, `in_progress_trays`. |
 | `ingredients` | Raw ingredient stock. `quantity`, `unit`, `container_size`, `container_unit`, `low_stock_threshold`, `is_active`. |
 | `recipes` | Per-batch/tray ingredient quantities. `quantity_per_batch`, `unit`, `deduction_phase`, `pour_label`. |
-| `ingredient_deductions` | Audit log of auto-deductions. Inserted by `autoDeductIngredients` and `autoDeductTrayIngredients`. |
+| `ingredient_deductions` | Audit log of auto-deductions. Inserted by `autoDeductIngredients` (sets `batch_log_id`) and `autoDeductTrayIngredients` (sets `shift_report_entry_id`). One of those two links is what makes a deduction reversible. |
 | `shelf_bucket_logs` | Barrel movement log. `barrels_added`, `barrels_used` only — bucket columns inactive. |
+| `inventory_adjustments` | Audit trail of manual count/quantity overrides from the Audit & Edit page. `target_type`, `target_id`, `field`, `old_value`, `new_value`, `reason`. |
 
 ---
 
@@ -187,7 +188,9 @@ Added as a popcorn flavor mid-season 2026. Uses Cheddar Kernels (same qty as Che
 | `src/pages/Analytics.jsx` | Charts. Bucket charts removed. `caramelComputedTotal` + `caramelStockData` computed from batch logs day-by-day. |
 | `src/pages/Admin.jsx` | Flavor management + inline count editing. |
 | `src/pages/Ingredients.jsx` | Ingredient management + deduction log. Archive button is in the name row (not the data row). |
-| `src/utils/autoDeduct.js` | `autoDeductIngredients` (batch phase), `autoDeductTrayIngredients` (tray phase), `deductCaramelComponent` (SSC tray time), `incrementBarrelCount`. No rounding in any calculation path. |
+| `src/utils/autoDeduct.js` | `autoDeductIngredients` (batch phase), `autoDeductTrayIngredients` (tray phase, takes `shiftReportEntryId`), `deductCaramelComponent` (SSC tray time), `incrementBarrelCount`, `revertBatchLog`. No rounding in any calculation path. |
+| `src/utils/inventoryActions.js` | Shared effect helpers used by both ShiftReport and Audit & Edit: `logBatchWithEffects`, `computeTrayInventory`, `applyTrayDeductions`, `applyShiftEntry`, `reverseShiftEntry`, `creditCaramelComponent`, `logInventoryAdjustment`. |
+| `src/pages/AuditEdit.jsx` | Admin-only Audit & Edit page (`/audit-edit`). Date picker + 6 accordion sections under `src/components/audit/`. |
 | `src/hooks/useFlavors.js` | Loads active flavors (`is_active = true`). Does NOT include inactive flavors. |
 | `scripts/seed-recipes.mjs` | Recipe seeder. Needs `SUPABASE_SERVICE_ROLE_KEY`. Run with `node --env-file=.env scripts/seed-recipes.mjs`. |
 | `scripts/fix-zero-deductions.mjs` | One-off season correction (May 2026). Parsed `ingredient_deductions.notes` to recover and apply deductions that were rounded to 0 by the old rounding bug. Keep for reference. |
@@ -222,6 +225,22 @@ Pre-season test data is excluded from all charts and caramel calculations.
 - `container_unit` = content unit (lbs, oz) NOT the container name. `unit` = delivery container (boxes, bags).
 - The cross-day double-batch carry (`effectiveTotal`/`effectiveBatches`) only applies when `currentInProgress > 0`. Do NOT add `|| totalBatches > 0` back — that caused SSC to show "Both batches done" after a single click.
 - There is no standalone `/batch` route. `Batch.jsx` was deleted. All batch logging goes through ShiftReport Batches tab.
+- **Popcorn batches do NOT change barrels.** `handleBatchSubmit` only deducts ingredients for popcorn; barrels move solely via the Products tab (`barrels_added`/`barrels_used`). `revertBatchLog` was fixed (June 2026) to match — it no longer decrements barrels or deletes shelf_bucket_logs for popcorn. Don't re-add that branch.
+- **Shared effect helpers are the single source of truth.** `handleBatchSubmit`/`handleProductSubmit` and the Audit & Edit page both call `logBatchWithEffects` / `applyShiftEntry` / `applyTrayDeductions` / `computeTrayInventory` from `src/utils/inventoryActions.js`. Change the effect logic there, not inline, or the two paths drift.
+
+---
+
+## Audit & Edit Page (admin-only, `/audit-edit`)
+
+Owner tool to correct chef mistakes without hand-editing the DB. Six capabilities, all scoped to a picked date: backdate a batch, revert a batch, add/edit/delete product (shift) entries, direct inventory count override, ingredient quantity override, and a read-only activity log.
+
+- **Single source of truth:** all side effects go through `src/utils/inventoryActions.js`, which wraps the existing `autoDeduct.js` primitives. Backdating fires identical effects to live logging; no rounding is introduced.
+- **Tray-phase deductions are now reversible.** `ingredient_deductions.shift_report_entry_id` links each tray deduction to its entry (set by `autoDeductTrayIngredients`'s 3rd arg). `reverseShiftEntry` refunds via that link; legacy entries (pre-column) fall back to recomputing the refund from the recipe and flag `legacy: true`.
+- **Entry edit = reverse-then-reapply** (`reverseShiftEntry` then `applyShiftEntry`). The in-progress "topped" term isn't perfectly invertible (point-in-time state isn't stored) — net deltas reverse exactly for common cases; the Direct Inventory Correction tool is the safety net.
+- **Caramel:** `deductCaramelComponent` (tray time) has an exact inverse `creditCaramelComponent`. Caramel display still computes forward from batch logs, so deleting an SSC entry self-corrects the Dashboard/Analytics caramel count.
+- **Backdated entries** are grouped under a per-date `shift_reports` row with `report_type = 'manual_adjustment'`. No reads filter by `report_type`, so these count in Analytics/caramel exactly like `'snapshot'` entries.
+- **Audit trail:** every #4/#5 override writes an `inventory_adjustments` row (target_type/target_id/field/old_value/new_value/reason) via `logInventoryAdjustment`.
+- Schema added by `supabase/migrations/add_audit_edit_support.sql` (applied June 2026): `ingredient_deductions.shift_report_entry_id` + the `inventory_adjustments` table.
 
 ---
 
