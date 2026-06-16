@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import { useAuth } from '../hooks/useAuth'
 import ConfirmDialog from './ConfirmDialog'
 import { runTool, WRITE_TOOLS, summarizeToolCall } from '../utils/jarvisClientTools'
+import { getTodayTrivia, triviaShownToday, markTriviaShown } from '../utils/trivia'
 
 // Themed renderer so Jarvis's markdown becomes intentional, professional UI (no raw ** or #).
 const MD = {
@@ -20,6 +21,19 @@ const MD = {
   code: (p) => <code className="font-mono text-xs bg-store-cream px-1 py-0.5 rounded" {...p} />,
   hr: () => <hr className="my-2.5 border-store-tan" />,
   blockquote: (p) => <blockquote className="border-l-2 border-store-tan pl-2.5 text-store-brown-light italic" {...p} />,
+}
+
+// "Big Sam's Trivia of the Day" — a distinct gold card, set apart from normal chat bubbles.
+function TriviaCard({ t }) {
+  return (
+    <div className="rounded-2xl border border-store-gold/60 bg-gradient-to-br from-store-gold/20 to-store-cream px-3.5 py-3 shadow-sm animate-fade-in-up">
+      <div className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wide text-store-brown mb-1.5">
+        <span>🎯</span> Big Sam's Trivia of the Day
+      </div>
+      <p className="text-sm font-semibold text-store-brown leading-snug">{t.question}</p>
+      <p className="text-xs text-store-brown-light mt-2">Drop your guesses below 👇</p>
+    </div>
+  )
 }
 
 // Floating, owner-only Jarvis assistant available on every page. A launcher bubble opens a
@@ -55,12 +69,30 @@ export default function JarvisWidget() {
   const [confirm, setConfirm] = useState(null)
   const scrollRef = useRef(null)
   const messagesRef = useRef([])
+  const triviaSeededRef = useRef(false)
 
   const pageCtx = contextFor(location.pathname)
 
   useEffect(() => {
     if (open) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [transcript, busy, open])
+
+  // On the first open of the day, show Big Sam's Trivia as a card AND seed the hidden
+  // answer/hints into the chat history so Jarvis can judge guesses, drop hints, and reveal.
+  useEffect(() => {
+    if (!open || triviaSeededRef.current || triviaShownToday()) return
+    triviaSeededRef.current = true
+    const t = getTodayTrivia()
+    messagesRef.current = [
+      ...messagesRef.current,
+      {
+        role: 'user',
+        content: `[SYSTEM CONTEXT — not from a chef] Today's "Big Sam's Trivia of the Day" has ALREADY been shown to the crew as a card on screen, so do NOT repost the question. Question: "${t.question}" | Answer: "${t.answer}" | Hint 1: "${t.hint1}" | Hint 2: "${t.hint2}" | Fun fact: "${t.funFact}". When a chef guesses: be generous with fuzzy matching and hype them up if they're basically right; if wrong, give exactly ONE hint at a time; after 3 wrong guesses (or if they say to just tell them / give up) reveal the answer and the fun fact. If they ask about anything else, just help normally and don't force trivia.`,
+      },
+    ]
+    setTranscript((tr) => [...tr, { role: 'trivia', trivia: t }])
+    markTriviaShown()
+  }, [open])
 
   if (!session) return null // owner-only
 
@@ -181,6 +213,7 @@ export default function JarvisWidget() {
           )}
 
           {transcript.map((m, i) => {
+            if (m.role === 'trivia') return <TriviaCard key={i} t={m.trivia} />
             if (m.role === 'user') return (
               <div key={i} className="flex justify-end animate-fade-in-up"><div className="bg-store-green text-white rounded-2xl rounded-br-sm px-3 py-1.5 max-w-[85%] text-sm whitespace-pre-wrap shadow-sm">{m.text}</div></div>
             )
