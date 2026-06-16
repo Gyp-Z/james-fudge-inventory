@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import { useAuth } from '../hooks/useAuth'
 import ConfirmDialog from './ConfirmDialog'
 import { runTool, WRITE_TOOLS, summarizeToolCall } from '../utils/jarvisClientTools'
-import { getTodayTrivia, triviaShownToday, markTriviaShown } from '../utils/trivia'
+import { getDailyTrivia, triviaShownToday, markTriviaShown } from '../utils/trivia'
 
 // Themed renderer so Jarvis's markdown becomes intentional, professional UI (no raw ** or #).
 const MD = {
@@ -82,16 +82,21 @@ export default function JarvisWidget() {
   useEffect(() => {
     if (!open || triviaSeededRef.current || triviaShownToday()) return
     triviaSeededRef.current = true
-    const t = getTodayTrivia()
-    messagesRef.current = [
-      ...messagesRef.current,
-      {
-        role: 'user',
-        content: `[SYSTEM CONTEXT — not from a chef] Today's "Big Sam's Trivia of the Day" has ALREADY been shown to the crew as a card on screen, so do NOT repost the question. Question: "${t.question}" | Answer: "${t.answer}" | Hint 1: "${t.hint1}" | Hint 2: "${t.hint2}" | Fun fact: "${t.funFact}". When a chef guesses: be generous with fuzzy matching and hype them up if they're basically right; if wrong, give exactly ONE hint at a time; after 3 wrong guesses (or if they say to just tell them / give up) reveal the answer and the fun fact. If they ask about anything else, just help normally and don't force trivia.`,
-      },
-    ]
-    setTranscript((tr) => [...tr, { role: 'trivia', trivia: t }])
-    markTriviaShown()
+    let cancelled = false
+    ;(async () => {
+      const t = await getDailyTrivia(session?.access_token) // weekend = fresh web question, else static
+      if (cancelled || !t) return
+      messagesRef.current = [
+        ...messagesRef.current,
+        {
+          role: 'user',
+          content: `[SYSTEM CONTEXT — not from a chef] Today's "Big Sam's Trivia of the Day" has ALREADY been shown to the crew as a card on screen, so do NOT repost the question. Question: "${t.question}" | Answer: "${t.answer}" | Hint 1: "${t.hint1}" | Hint 2: "${t.hint2}" | Fun fact: "${t.funFact}". When a chef guesses: be generous with fuzzy matching and hype them up if they're basically right; if wrong, give exactly ONE hint at a time; after 3 wrong guesses (or if they say to just tell them / give up) reveal the answer and the fun fact. If they ask about anything else, just help normally and don't force trivia.`,
+        },
+      ]
+      setTranscript((tr) => [...tr, { role: 'trivia', trivia: t }])
+      markTriviaShown()
+    })()
+    return () => { cancelled = true }
   }, [open])
 
   if (!session) return null // owner-only

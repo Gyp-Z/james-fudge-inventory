@@ -21,12 +21,36 @@ function daysSinceRef(dateStr) {
   return Math.floor(ms / 86400000)
 }
 
-// Today's question (same for the whole crew on a given Eastern day).
+// Today's STATIC question (same for the whole crew on a given Eastern day).
 export function getTodayTrivia() {
   const today = todayEastern()
   const n = triviaBank.length
   const idx = ((daysSinceRef(today) % n) + n) % n
   return { ...triviaBank[idx], date: today, index: idx }
+}
+
+// Weekends get a fresh, web-sourced current-events question (Sat/Sun, Eastern).
+export function isFreshDay() {
+  const [y, m, d] = todayEastern().split('-').map(Number)
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay() // 0 = Sun ... 6 = Sat
+  return dow === 0 || dow === 6
+}
+
+// Hybrid pick: on weekends try the live /api/trivia question (cached server-side so the whole
+// crew gets the same one); fall back to the static bank on weekdays or if anything fails.
+export async function getDailyTrivia(token) {
+  if (isFreshDay()) {
+    try {
+      const res = await fetch('/api/trivia', { headers: { Authorization: `Bearer ${token ?? ''}` } })
+      if (res.status === 200) {
+        const data = await res.json()
+        if (data?.question && data?.answer) return { ...data, source: 'web' }
+      }
+    } catch {
+      /* network/server issue — fall through to the static bank */
+    }
+  }
+  return getTodayTrivia()
 }
 
 // Has this device already been shown today's trivia?
