@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import { useAuth } from '../hooks/useAuth'
 import ConfirmDialog from './ConfirmDialog'
 import { runTool, WRITE_TOOLS, summarizeToolCall } from '../utils/jarvisClientTools'
-import { getDailyTrivia, triviaShownToday, markTriviaShown } from '../utils/trivia'
+import { getDailyTrivia } from '../utils/trivia'
 
 // Themed renderer so Jarvis's markdown becomes intentional, professional UI (no raw ** or #).
 const MD = {
@@ -46,7 +46,7 @@ const GENERIC_EXAMPLES = [
 ]
 
 const PAGE_CONTEXT = {
-  '/':            { label: 'the Dashboard',   examples: ['What should I make today?', 'Which flavors are running low?', 'How many Sea Salt Caramel can I make?'] },
+  '/':            { label: 'the Dashboard',   examples: ['What should I make today?', 'What do I need to order?', 'Which flavors are running low?'] },
   '/report':      { label: 'the Shift Report', examples: ['Log 2 trays of vanilla I made today', 'How many SSC trays can I make right now?', 'What still needs topping?'] },
   '/ingredients': { label: 'Ingredients',     examples: ['What do I need to order?', 'When do we run out of butter?', 'Which ingredients are below threshold?'] },
   '/analytics':   { label: 'Analytics',       examples: ["What's my best seller this season?", 'Which flavors get wasted most?', 'How fast is caramel selling?'] },
@@ -58,6 +58,8 @@ function contextFor(path) {
 }
 
 const MAX_TURNS = 8
+// Phrases that should pull up Big Sam's Trivia instead of a normal chat turn.
+const TRIVIA_INTENT = /\b(trivia|question of the day|big sam'?s?)\b/i
 
 export default function JarvisWidget() {
   const { session } = useAuth()
@@ -70,6 +72,7 @@ export default function JarvisWidget() {
   const scrollRef = useRef(null)
   const messagesRef = useRef([])
   const triviaSeededRef = useRef(false)
+  const triviaRef = useRef(null)
 
   const pageCtx = contextFor(location.pathname)
 
@@ -77,31 +80,35 @@ export default function JarvisWidget() {
     if (open) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [transcript, busy, open])
 
-  // On the first open of the day, show Big Sam's Trivia as a card AND seed the hidden
-  // answer/hints into the chat history so Jarvis can judge guesses, drop hints, and reveal.
-  useEffect(() => {
-    if (!open || triviaSeededRef.current || triviaShownToday()) return
-    triviaSeededRef.current = true
-    let cancelled = false
-    ;(async () => {
-      const t = await getDailyTrivia(session?.access_token) // weekend = fresh web question, else static
-      if (cancelled || !t) return
+  if (!session) return null // owner-only
+
+  function pushUI(role, text) { setTranscript((t) => [...t, { role, text }]) }
+
+  // Big Sam's Trivia is an opt-in extra (not auto-shown). Fetch today's question once,
+  // seed the hidden answer/hints into the chat so Jarvis can judge guesses + reveal.
+  async function ensureTrivia() {
+    if (triviaRef.current) return triviaRef.current
+    const t = await getDailyTrivia(session?.access_token) // weekend = fresh web question, else static
+    if (!t) return null
+    triviaRef.current = t
+    if (!triviaSeededRef.current) {
+      triviaSeededRef.current = true
       messagesRef.current = [
         ...messagesRef.current,
         {
           role: 'user',
-          content: `[SYSTEM CONTEXT — not from a chef] Today's "Big Sam's Trivia of the Day" has ALREADY been shown to the crew as a card on screen, so do NOT repost the question. Question: "${t.question}" | Answer: "${t.answer}" | Hint 1: "${t.hint1}" | Hint 2: "${t.hint2}" | Fun fact: "${t.funFact}". When a chef guesses: be generous with fuzzy matching and hype them up if they're basically right; if wrong, give exactly ONE hint at a time; after 3 wrong guesses (or if they say to just tell them / give up) reveal the answer and the fun fact. If they ask about anything else, just help normally and don't force trivia.`,
+          content: `[SYSTEM CONTEXT — not from a chef] "Big Sam's Trivia of the Day" is now showing on screen as a card, so do NOT repost the question. Question: "${t.question}" | Answer: "${t.answer}" | Hint 1: "${t.hint1}" | Hint 2: "${t.hint2}" | Fun fact: "${t.funFact}". When a chef guesses: be generous with fuzzy matching and hype them up if they're basically right; if wrong, give exactly ONE hint at a time; after 3 wrong guesses (or if they say to just tell them / give up) reveal the answer and the fun fact. Otherwise just help normally.`,
         },
       ]
-      setTranscript((tr) => [...tr, { role: 'trivia', trivia: t }])
-      markTriviaShown()
-    })()
-    return () => { cancelled = true }
-  }, [open])
+    }
+    return t
+  }
 
-  if (!session) return null // owner-only
-
-  function pushUI(role, text) { setTranscript((t) => [...t, { role, text }]) }
+  async function showTrivia() {
+    const t = await ensureTrivia()
+    if (!t) { pushUI('error', "Couldn't load today's trivia — try again in a sec."); return }
+    setTranscript((tr) => [...tr, { role: 'trivia', trivia: t }])
+  }
 
   function confirmWrite(toolUse) {
     return new Promise((resolve) => {
@@ -126,6 +133,13 @@ export default function JarvisWidget() {
   async function send(text) {
     const trimmed = text.trim()
     if (!trimmed || busy) return
+    // "show me the trivia" / "question of the day" → pull up the card instead of a chat turn.
+    if (TRIVIA_INTENT.test(trimmed)) {
+      setInput('')
+      pushUI('user', trimmed)
+      await showTrivia()
+      return
+    }
     setInput('')
     pushUI('user', trimmed)
     messagesRef.current = [...messagesRef.current, { role: 'user', content: trimmed }]
@@ -194,7 +208,10 @@ export default function JarvisWidget() {
               </div>
             </div>
           </div>
-          <button onClick={() => setOpen(false)} aria-label="Close" className="press text-white/90 hover:text-white text-lg w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center">✕</button>
+          <div className="flex items-center gap-1">
+            <button onClick={showTrivia} title="Big Sam's Trivia of the Day" aria-label="Trivia" className="press text-lg w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center">🎯</button>
+            <button onClick={() => setOpen(false)} aria-label="Close" className="press text-white/90 hover:text-white text-lg w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center">✕</button>
+          </div>
         </div>
 
         {/* Messages */}
@@ -213,6 +230,13 @@ export default function JarvisWidget() {
                     {ex}
                   </button>
                 ))}
+                <button
+                  onClick={showTrivia}
+                  style={{ '--stagger': pageCtx.examples.length }}
+                  className="press stagger text-left text-xs bg-store-gold/15 border border-store-gold/50 rounded-xl px-3 py-2 text-store-brown hover:bg-store-gold/25 shadow-sm flex items-center gap-1.5"
+                >
+                  🎯 Big Sam's Trivia of the Day
+                </button>
               </div>
             </div>
           )}
