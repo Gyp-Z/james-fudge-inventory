@@ -22,7 +22,7 @@ function AdminRoute({ children }) {
 function AnimatedRoutes() {
   const location = useLocation()
   return (
-    <main className="flex-1 px-4 py-6 pb-28 lg:pb-8 max-w-2xl mx-auto w-full">
+    <main className="flex-1 px-4 py-6 pb-28 md:pb-8 max-w-2xl mx-auto w-full">
       <div key={location.pathname} className="animate-fade-in-up">
         <Routes location={location}>
           <Route path="/" element={<Dashboard />} />

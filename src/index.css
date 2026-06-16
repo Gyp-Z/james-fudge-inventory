@@ -189,6 +189,10 @@ body {
   transform: scaleX(1);
 }
 
+/* Hide scrollbar but keep scrollability (used by the tablet top nav) */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
 /* Jarvis typing indicator dots */
 .typing-dot {
   display: inline-block;

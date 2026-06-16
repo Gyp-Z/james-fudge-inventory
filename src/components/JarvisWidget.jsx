@@ -134,7 +134,7 @@ export default function JarvisWidget() {
         onClick={() => setOpen(true)}
         title="Ask Jarvis"
         aria-label="Ask Jarvis"
-        className="press animate-pulse-glow group fixed z-40 right-4 bottom-24 lg:bottom-6 w-14 h-14 rounded-full bg-gradient-to-br from-store-green to-store-green-dark text-white flex items-center justify-center text-2xl hover:scale-105 transition-transform"
+        className="press animate-pulse-glow group fixed z-40 right-4 bottom-24 md:bottom-6 w-14 h-14 rounded-full bg-gradient-to-br from-store-green to-store-green-dark text-white flex items-center justify-center text-2xl hover:scale-105 transition-transform"
       >
         <span className="transition-transform duration-300 group-hover:rotate-12">🤖</span>
         <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-store-gold border-2 border-store-cream" />
@@ -144,7 +144,7 @@ export default function JarvisWidget() {
 
   return (
     <>
-      <div className="fixed z-40 right-4 bottom-24 lg:bottom-6 w-[calc(100vw-2rem)] sm:w-96 h-[65vh] sm:h-[560px] flex flex-col bg-white border border-store-tan rounded-2xl shadow-xl overflow-hidden animate-float-in">
+      <div className="fixed z-40 right-4 bottom-24 md:bottom-6 w-[calc(100vw-2rem)] sm:w-96 h-[65vh] sm:h-[560px] flex flex-col bg-white border border-store-tan rounded-2xl shadow-xl overflow-hidden animate-float-in">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-store-green to-store-green-dark text-white shrink-0">
           <div className="flex items-center gap-2.5">

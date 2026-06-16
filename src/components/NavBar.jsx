@@ -48,24 +48,28 @@ export default function NavBar() {
         <div className="max-w-2xl sm:max-w-5xl mx-auto px-4 h-14 flex items-center gap-4">
           <NavLink to="/" className="flex items-center gap-2 group shrink-0">
             <span className="text-2xl transition-transform duration-300 group-hover:-rotate-12 group-hover:scale-110">🍬</span>
+            {/* Wordmark collapses to just the icon on iPad portrait (md) so the
+                six admin tabs fit; it returns on phones and large screens. */}
             <span
-              className="font-bold text-lg tracking-tight text-store-green leading-none"
+              className="inline md:hidden lg:inline font-bold text-lg tracking-tight text-store-green leading-none"
               style={{ fontFamily: 'var(--font-display)' }}
             >
               James' Fudge
             </span>
           </NavLink>
 
-          {/* Desktop / landscape-tablet inline nav (lg+). Below lg the bottom
-              tab bar handles navigation so an iPad in portrait never overflows. */}
-          <nav className="hidden lg:flex items-center gap-0.5 ml-2">
+          {/* Inline top nav on tablet + desktop (md+). Only phones (below md)
+              fall back to the bottom tab bar. Scrolls horizontally as a safety
+              net on the narrowest tablets. */}
+          <nav className="hidden md:flex items-center gap-0.5 ml-1 flex-1 min-w-0 overflow-x-auto no-scrollbar">
             {tabs.map(({ to, label, title, end }) => (
               <NavLink
                 key={to}
                 to={to}
                 end={end}
+                title={title}
                 className={({ isActive }) =>
-                  `nav-underline press px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                  `nav-underline press shrink-0 whitespace-nowrap px-2.5 py-2 rounded-lg text-sm font-semibold transition-colors ${
                     isActive
                       ? 'text-store-green is-active bg-store-green/10'
                       : 'text-store-brown-light hover:text-store-green'
@@ -99,8 +103,8 @@ export default function NavBar() {
         </div>
       </header>
 
-      {/* ── Bottom tab bar — phones + portrait tablets (below lg) ─────────── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-store-cream/95 backdrop-blur-md border-t border-store-tan shadow-[0_-4px_16px_rgba(42,26,16,0.06)] lg:hidden">
+      {/* ── Bottom tab bar — phones only (below md) ───────────────────────── */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-store-cream/95 backdrop-blur-md border-t border-store-tan shadow-[0_-4px_16px_rgba(42,26,16,0.06)] md:hidden">
         <div className="max-w-3xl mx-auto" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="flex items-stretch">
           {tabs.map(({ to, label, title, end }) => (
