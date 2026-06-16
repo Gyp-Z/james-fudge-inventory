@@ -26,19 +26,19 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-store-cream flex flex-col items-center justify-center px-4">
-      <div className="w-full max-w-sm mb-6 text-center">
+      <div className="w-full max-w-sm mb-6 text-center animate-fade-in-up">
         <div
-          className="text-4xl font-bold text-white bg-store-green rounded-2xl py-5 px-6 shadow-lg mb-1"
+          className="text-4xl font-bold text-white bg-gradient-to-br from-store-green to-store-green-dark rounded-2xl py-5 px-6 shadow-lg mb-1"
           style={{ fontFamily: 'var(--font-display)' }}
         >
-          James' Fudge
+          🍬 James' Fudge
         </div>
         <div className="bg-store-tan rounded-xl py-2 px-4 text-store-brown-light text-sm font-medium tracking-wide">
           Kitchen & Inventory Management
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-md border border-store-tan p-8 w-full max-w-sm">
+      <div className="bg-white rounded-2xl shadow-md border border-store-tan p-8 w-full max-w-sm animate-fade-in-up" style={{ animationDelay: '80ms' }}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-store-brown mb-1">Email</label>
@@ -63,12 +63,12 @@ export default function Login() {
             />
           </div>
 
-          {error && <p className="text-red-600 text-sm">{error}</p>}
+          {error && <p className="text-red-600 text-sm animate-fade-in">{error}</p>}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-store-green hover:bg-store-green-dark text-white font-semibold py-3 rounded-xl transition-colors disabled:opacity-50 text-base"
+            className="press w-full bg-store-green hover:bg-store-green-dark text-white font-semibold py-3 rounded-xl disabled:opacity-50 text-base shadow-sm"
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>

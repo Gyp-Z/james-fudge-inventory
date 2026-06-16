@@ -165,7 +165,7 @@ export default function Dashboard() {
   )
   const negativeIngredients = ingredients.filter(i => i.quantity < 0)
 
-  const renderFlavorPill = (flavor) => {
+  const renderFlavorPill = (flavor, idx = 0) => {
     const entry = entries[flavor.id]
     const fullTrays = entry?.full_trays ?? 0
     const inProgress = entry?.in_progress_trays ?? 0
@@ -186,7 +186,7 @@ export default function Dashboard() {
     const numer = flavor.is_component ? Math.round((fullTrays - whole) * 18) : 0
 
     return (
-      <div key={flavor.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${pillClass}`}>
+      <div key={flavor.id} style={{ '--stagger': idx }} className={`pill-lift stagger flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${pillClass}`}>
         <span>{flavor.name}</span>
         <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${countClass}`}>
           {flavor.is_component ? whole : fullTrays}
@@ -201,7 +201,7 @@ export default function Dashboard() {
     )
   }
 
-  const renderPopcornPill = (flavor) => {
+  const renderPopcornPill = (flavor, idx = 0) => {
     const barrels = entries[flavor.id]?.barrel_count ?? 0
     const inProgressBarrels = entries[flavor.id]?.in_progress_barrels ?? 0
     const threshold = flavor.low_tray_threshold ?? 1
@@ -217,7 +217,7 @@ export default function Dashboard() {
         : 'bg-store-green text-white'
 
     return (
-      <div key={flavor.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${pillClass}`}>
+      <div key={flavor.id} style={{ '--stagger': idx }} className={`pill-lift stagger flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${pillClass}`}>
         <span>{flavor.name}</span>
         <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${countClass}`}>
           {barrels} {barrels === 1 ? 'barrel' : 'barrels'}
@@ -229,13 +229,13 @@ export default function Dashboard() {
     )
   }
 
-  const renderIngredientPill = (ing) => {
+  const renderIngredientPill = (ing, idx = 0) => {
     const isNegative = ing.quantity < 0
     const isOut = !isNegative && ing.quantity === 0
     const isLow = !isOut && !isNegative && ing.quantity <= (ing.low_stock_threshold ?? 0)
 
     return (
-      <div key={ing.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${
+      <div key={ing.id} style={{ '--stagger': idx }} className={`pill-lift stagger flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border ${
         isNegative ? 'bg-red-100 border-red-400 text-red-800'
           : isOut ? 'bg-red-50 border-red-300 text-red-700'
             : isLow ? 'bg-amber-50 border-amber-300 text-amber-700'
@@ -255,7 +255,7 @@ export default function Dashboard() {
 
       {/* ── FUDGE ─────────────────────────────────────────────── */}
       <div className="space-y-4">
-        <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
+        <h2 className="text-2xl font-bold text-store-brown pl-3 border-l-4 border-store-coral rounded-sm" style={{ fontFamily: 'var(--font-display)' }}>
           Fudge
         </h2>
         <div>
@@ -315,7 +315,7 @@ export default function Dashboard() {
         const stockedCaramel = componentFlavors.filter(f => (entries[f.id]?.full_trays ?? 0) > (f.low_tray_threshold ?? 2))
         return (
           <div className="space-y-4">
-            <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
+            <h2 className="text-2xl font-bold text-store-brown pl-3 border-l-4 border-store-coral rounded-sm" style={{ fontFamily: 'var(--font-display)' }}>
               Caramel
             </h2>
             <div>
@@ -341,7 +341,7 @@ export default function Dashboard() {
       {/* ── POPCORN ───────────────────────────────────────────── */}
       {popcornFlavors.length > 0 && (
         <div className="space-y-4">
-          <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
+          <h2 className="text-2xl font-bold text-store-brown pl-3 border-l-4 border-store-coral rounded-sm" style={{ fontFamily: 'var(--font-display)' }}>
             Popcorn
           </h2>
 
@@ -369,7 +369,7 @@ export default function Dashboard() {
       {/* ── INGREDIENTS ───────────────────────────────────────── */}
       <div className="space-y-4">
         <div>
-          <h2 className="text-2xl font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>
+          <h2 className="text-2xl font-bold text-store-brown pl-3 border-l-4 border-store-coral rounded-sm" style={{ fontFamily: 'var(--font-display)' }}>
             Ingredients
           </h2>
           {ingredientsLoading ? (

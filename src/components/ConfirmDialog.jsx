@@ -17,11 +17,11 @@ export default function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 px-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4 animate-fade-in"
       onClick={busy ? undefined : onCancel}
     >
       <div
-        className="bg-white rounded-2xl border border-store-tan shadow-xl max-w-sm w-full p-5"
+        className="bg-white rounded-2xl border border-store-tan shadow-xl max-w-sm w-full p-5 animate-pop-in"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="font-bold text-store-brown text-lg mb-2" style={{ fontFamily: 'var(--font-display)' }}>
@@ -37,14 +37,14 @@ export default function ConfirmDialog({
           <button
             onClick={onCancel}
             disabled={busy}
-            className="text-sm text-store-brown-light hover:text-store-brown px-4 py-2 rounded-xl transition-colors disabled:opacity-50"
+            className="press text-sm text-store-brown-light hover:text-store-brown px-4 py-2 rounded-xl disabled:opacity-50"
           >
             {cancelText}
           </button>
           <button
             onClick={onConfirm}
             disabled={busy}
-            className={`text-sm font-semibold px-4 py-2 rounded-xl transition-colors disabled:opacity-50 ${
+            className={`press text-sm font-semibold px-4 py-2 rounded-xl disabled:opacity-50 ${
               isDangerous
                 ? 'bg-red-600 text-white hover:bg-red-700'
                 : 'bg-store-green text-white hover:bg-store-green-dark'

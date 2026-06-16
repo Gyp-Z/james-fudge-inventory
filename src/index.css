@@ -1,20 +1,217 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
 @import "tailwindcss";
 
+/* =============================================================================
+   DESIGN TOKENS — ported faithfully from the James' Fudge website
+   (assets/base.css). The app's existing `store-*` token names are remapped onto
+   the website palette so the whole UI re-skins from this one place.
+   ============================================================================= */
 @theme {
-  --color-store-green: #2D5A1B;
-  --color-store-green-dark: #1E3D10;
-  --color-store-green-light: #EBF2E5;
-  --color-store-tan: #F5EDD8;
-  --color-store-cream: #FAF6EE;
-  --color-store-brown: #4A2C17;
-  --color-store-brown-light: #8B5E3C;
-  --font-display: 'Playfair Display', serif;
-  --font-body: 'Inter', sans-serif;
+  /* Primary — sage green ("mahogany" on the site) */
+  --color-store-green:       #6B8F72;
+  --color-store-green-dark:  #5A7A61;
+  --color-store-green-light: #E3ECDE;
+
+  /* Warm surfaces */
+  --color-store-cream: #F0E6D3;
+  --color-store-tan:   #E4D5BC; /* linen — borders + light surfaces */
+
+  /* Text */
+  --color-store-brown:       #1E2A20; /* deep green-charcoal — primary text */
+  --color-store-brown-light: #6B7A6E; /* muted text */
+
+  /* Website accent palette */
+  --color-store-coral:    #E87461;
+  --color-store-gold:     #C9973A;
+  --color-store-charcoal: #2E3530;
+  --color-store-sage:     #6B8F72;
+  --color-store-linen:    #E4D5BC;
+
+  /* Type */
+  --font-display: 'Playfair Display', Georgia, serif;
+  --font-body:    'DM Sans', system-ui, -apple-system, sans-serif;
+
+  /* Warm-tinted shadow scale (overrides Tailwind defaults app-wide) */
+  --shadow-sm: 0 1px 4px rgba(42, 26, 16, 0.08), 0 1px 2px rgba(42, 26, 16, 0.06);
+  --shadow-md: 0 4px 12px rgba(42, 26, 16, 0.10), 0 2px 4px rgba(42, 26, 16, 0.06);
+  --shadow-lg: 0 8px 24px rgba(42, 26, 16, 0.12), 0 4px 8px rgba(42, 26, 16, 0.06);
+  --shadow-xl: 0 16px 48px rgba(42, 26, 16, 0.14), 0 8px 16px rgba(42, 26, 16, 0.06);
+
+  /* Animation utilities — generate `animate-*` classes */
+  --animate-fade-in:    fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-fade-in-up: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-pop-in:     pop-in 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-bump:       bump 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-pulse-glow: pulse-glow 2.4s ease-in-out infinite;
+  --animate-float-in:   float-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Keyframes ────────────────────────────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes pop-in {
+  0%   { opacity: 0; transform: scale(0.92); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes bump {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.28); }
+  100% { transform: scale(1); }
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 8px 24px rgba(42, 26, 16, 0.18), 0 0 0 0 rgba(107, 143, 114, 0.45); }
+  50%      { box-shadow: 0 8px 24px rgba(42, 26, 16, 0.18), 0 0 0 10px rgba(107, 143, 114, 0); }
+}
+@keyframes float-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes typing-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40%           { transform: translateY(-4px); opacity: 1; }
+}
+
+/* =============================================================================
+   GLOBAL BASE
+   ============================================================================= */
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   font-family: var(--font-body);
   background-color: var(--color-store-cream);
   color: var(--color-store-brown);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(107, 143, 114, 0.25);
+}
+
+/* Slim warm scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(107, 143, 114, 0.4) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb {
+  background: rgba(107, 143, 114, 0.35);
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-thumb:hover { background: rgba(107, 143, 114, 0.55); }
+
+/* =============================================================================
+   REUSABLE POLISH UTILITIES
+   ============================================================================= */
+
+/* Card hover-lift — matches the website's product-card interaction */
+.card-lift {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (hover: hover) {
+  .card-lift:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+/* Pill hover — gentle lift for status chips */
+.pill-lift {
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (hover: hover) {
+  .pill-lift:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+/* Tactile press feedback for buttons / tap targets */
+.press {
+  transition: transform 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+              background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+.press:active:not(:disabled) {
+  transform: scale(0.955);
+}
+
+/* Collapsible — animates height with no JS measuring. Used to ease reminder
+   banners in/out so steppers never snap-jump under the chef's finger. */
+.collapsible {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.26s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.26s ease, margin 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+  opacity: 0;
+}
+.collapsible > * {
+  overflow: hidden;
+  min-height: 0;
+}
+.collapsible.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+/* Staggered entrance — set --stagger via inline style for index-based delay */
+.stagger {
+  animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--stagger, 0) * 45ms);
+}
+
+/* Animated underline for nav links (website .nav__link) */
+.nav-underline { position: relative; }
+.nav-underline::after {
+  content: '';
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: 0.25rem;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.nav-underline:hover::after,
+.nav-underline.is-active::after {
+  transform: scaleX(1);
+}
+
+/* Jarvis typing indicator dots */
+.typing-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: typing-bounce 1.2s ease-in-out infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.typing-dot:nth-child(3) { animation-delay: 0.3s; }
+
+/* =============================================================================
+   ACCESSIBILITY — honor reduced motion
+   ============================================================================= */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .collapsible { transition: none; }
 }

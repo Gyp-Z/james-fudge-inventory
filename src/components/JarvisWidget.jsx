@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { useAuth } from '../hooks/useAuth'
 import ConfirmDialog from './ConfirmDialog'
@@ -23,15 +24,30 @@ const MD = {
 
 // Floating, owner-only Jarvis assistant available on every page. A launcher bubble opens a
 // chat panel; the agentic loop + write-confirmation logic is the same as the old page.
-const EXAMPLES = [
+// Jarvis is page-aware: its greeting + starter prompts adapt to the screen you're on.
+const GENERIC_EXAMPLES = [
   'What should I make today?',
   'How much butter do we have, and when do we run out?',
   'Log 2 trays of vanilla I made yesterday',
 ]
+
+const PAGE_CONTEXT = {
+  '/':            { label: 'the Dashboard',   examples: ['What should I make today?', 'Which flavors are running low?', 'How many Sea Salt Caramel can I make?'] },
+  '/report':      { label: 'the Shift Report', examples: ['Log 2 trays of vanilla I made today', 'How many SSC trays can I make right now?', 'What still needs topping?'] },
+  '/ingredients': { label: 'Ingredients',     examples: ['What do I need to order?', 'When do we run out of butter?', 'Which ingredients are below threshold?'] },
+  '/analytics':   { label: 'Analytics',       examples: ["What's my best seller this season?", 'Which flavors get wasted most?', 'How fast is caramel selling?'] },
+  '/admin':       { label: 'Products',        examples: ["What's selling slowest?", 'Which flavors underperform?', 'Set the alert threshold for vanilla'] },
+  '/audit-edit':  { label: 'Fixes',           examples: ['Revert the last batch of chocolate', "Fix yesterday's vanilla count", 'What changed today?'] },
+}
+function contextFor(path) {
+  return PAGE_CONTEXT[path] || { label: "James' Fudge", examples: GENERIC_EXAMPLES }
+}
+
 const MAX_TURNS = 8
 
 export default function JarvisWidget() {
   const { session } = useAuth()
+  const location = useLocation()
   const [open, setOpen] = useState(false)
   const [transcript, setTranscript] = useState([]) // { role, text }
   const [input, setInput] = useState('')
@@ -39,6 +55,8 @@ export default function JarvisWidget() {
   const [confirm, setConfirm] = useState(null)
   const scrollRef = useRef(null)
   const messagesRef = useRef([])
+
+  const pageCtx = contextFor(location.pathname)
 
   useEffect(() => {
     if (open) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
@@ -116,32 +134,45 @@ export default function JarvisWidget() {
         onClick={() => setOpen(true)}
         title="Ask Jarvis"
         aria-label="Ask Jarvis"
-        className="fixed z-40 right-4 bottom-20 sm:bottom-6 w-14 h-14 rounded-full bg-store-green text-white shadow-lg flex items-center justify-center text-2xl hover:bg-store-green-dark active:scale-95 transition-all"
+        className="press animate-pulse-glow group fixed z-40 right-4 bottom-20 sm:bottom-6 w-14 h-14 rounded-full bg-gradient-to-br from-store-green to-store-green-dark text-white flex items-center justify-center text-2xl hover:scale-105 transition-transform"
       >
-        🤖
+        <span className="transition-transform duration-300 group-hover:rotate-12">🤖</span>
+        <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-store-gold border-2 border-store-cream" />
       </button>
     )
   }
 
   return (
     <>
-      <div className="fixed z-40 right-4 bottom-20 sm:bottom-6 w-[calc(100vw-2rem)] sm:w-96 h-[65vh] sm:h-[560px] flex flex-col bg-white border border-store-tan rounded-2xl shadow-xl overflow-hidden">
+      <div className="fixed z-40 right-4 bottom-20 sm:bottom-6 w-[calc(100vw-2rem)] sm:w-96 h-[65vh] sm:h-[560px] flex flex-col bg-white border border-store-tan rounded-2xl shadow-xl overflow-hidden animate-float-in">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2.5 bg-store-green text-white shrink-0">
-          <span className="font-bold flex items-center gap-2" style={{ fontFamily: 'var(--font-display)' }}>
-            🤖 Jarvis
-          </span>
-          <button onClick={() => setOpen(false)} aria-label="Close" className="text-white/90 hover:text-white text-lg px-1">✕</button>
+        <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-store-green to-store-green-dark text-white shrink-0">
+          <div className="flex items-center gap-2.5">
+            <span className="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center text-lg">🤖</span>
+            <div className="leading-tight">
+              <div className="font-bold" style={{ fontFamily: 'var(--font-display)' }}>Jarvis</div>
+              <div className="text-[11px] text-white/70 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-store-gold inline-block" />
+                Online · {pageCtx.label}
+              </div>
+            </div>
+          </div>
+          <button onClick={() => setOpen(false)} aria-label="Close" className="press text-white/90 hover:text-white text-lg w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center">✕</button>
         </div>
 
         {/* Messages */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-2.5 bg-store-cream/40">
           {transcript.length === 0 && (
-            <div className="text-sm text-store-brown-light space-y-2 pt-1">
-              <p>Ask me about the shop, or tell me to log/fix something:</p>
+            <div className="text-sm text-store-brown-light space-y-2 pt-1 animate-fade-in">
+              <p>You're on <span className="font-semibold text-store-brown">{pageCtx.label}</span>. Ask me anything, or tell me to log or fix something:</p>
               <div className="flex flex-col gap-1.5">
-                {EXAMPLES.map((ex) => (
-                  <button key={ex} onClick={() => send(ex)} className="text-left text-xs bg-white border border-store-tan rounded-lg px-2.5 py-1.5 text-store-brown hover:bg-store-cream transition-colors">
+                {pageCtx.examples.map((ex, idx) => (
+                  <button
+                    key={ex}
+                    onClick={() => send(ex)}
+                    style={{ '--stagger': idx }}
+                    className="press stagger text-left text-xs bg-white border border-store-tan rounded-xl px-3 py-2 text-store-brown hover:border-store-green/40 hover:bg-store-green/5 shadow-sm"
+                  >
                     {ex}
                   </button>
                 ))}
@@ -151,18 +182,23 @@ export default function JarvisWidget() {
 
           {transcript.map((m, i) => {
             if (m.role === 'user') return (
-              <div key={i} className="flex justify-end"><div className="bg-store-green text-white rounded-2xl rounded-br-sm px-3 py-1.5 max-w-[85%] text-sm whitespace-pre-wrap">{m.text}</div></div>
+              <div key={i} className="flex justify-end animate-fade-in-up"><div className="bg-store-green text-white rounded-2xl rounded-br-sm px-3 py-1.5 max-w-[85%] text-sm whitespace-pre-wrap shadow-sm">{m.text}</div></div>
             )
             if (m.role === 'assistant') return (
-              <div key={i} className="bg-white border border-store-tan rounded-xl px-3.5 py-2.5 text-sm text-store-brown shadow-sm">
+              <div key={i} className="bg-white border border-store-tan rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-sm text-store-brown shadow-sm max-w-[92%] animate-fade-in-up">
                 <ReactMarkdown components={MD}>{m.text}</ReactMarkdown>
               </div>
             )
-            if (m.role === 'tool') return <div key={i} className="text-center text-xs text-store-brown-light">{m.text}</div>
-            return <div key={i} className="text-center text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1">{m.text}</div>
+            if (m.role === 'tool') return <div key={i} className="text-center text-xs text-store-brown-light animate-fade-in">{m.text}</div>
+            return <div key={i} className="text-center text-xs text-store-coral bg-store-coral/10 border border-store-coral/30 rounded-lg px-2.5 py-1 animate-fade-in">{m.text}</div>
           })}
 
-          {busy && <div className="text-center text-xs text-store-brown-light animate-pulse">Jarvis is thinking…</div>}
+          {busy && (
+            <div className="flex items-center gap-1.5 text-store-green pl-1">
+              <span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" />
+              <span className="text-xs text-store-brown-light ml-1">Jarvis is thinking…</span>
+            </div>
+          )}
         </div>
 
         {/* Input */}
@@ -173,10 +209,10 @@ export default function JarvisWidget() {
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask Jarvis…"
             disabled={busy}
-            className="flex-1 min-w-0 border border-store-tan rounded-xl px-3 py-2 text-sm bg-store-cream text-store-brown focus:outline-none focus:ring-2 focus:ring-store-green disabled:opacity-60"
+            className="flex-1 min-w-0 border border-store-tan rounded-full px-4 py-2 text-sm bg-store-cream text-store-brown focus:outline-none focus:ring-2 focus:ring-store-green disabled:opacity-60"
           />
-          <button type="submit" disabled={busy || !input.trim()} className="bg-store-green hover:bg-store-green-dark text-white px-3.5 py-2 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 shrink-0">
-            Send
+          <button type="submit" disabled={busy || !input.trim()} className="press bg-store-green hover:bg-store-green-dark text-white w-10 h-10 rounded-full text-sm font-semibold disabled:opacity-50 shrink-0 flex items-center justify-center shadow-sm">
+            ➤
           </button>
         </form>
       </div>

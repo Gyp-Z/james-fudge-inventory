@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './hooks/useAuth'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -17,6 +17,27 @@ function AdminRoute({ children }) {
   return children
 }
 
+// Re-mounts on every route change (keyed by pathname) so each page plays a
+// gentle fade-up entrance instead of snapping in.
+function AnimatedRoutes() {
+  const location = useLocation()
+  return (
+    <main className="flex-1 px-4 py-6 pb-24 sm:pb-6 max-w-2xl mx-auto w-full">
+      <div key={location.pathname} className="animate-fade-in-up">
+        <Routes location={location}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/dashboard" element={<Navigate to="/" replace />} />
+          <Route path="/report" element={<ShiftReport />} />
+          <Route path="/ingredients" element={<AdminRoute><Ingredients /></AdminRoute>} />
+          <Route path="/analytics" element={<AdminRoute><Analytics /></AdminRoute>} />
+          <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
+          <Route path="/audit-edit" element={<AdminRoute><AuditEdit /></AdminRoute>} />
+        </Routes>
+      </div>
+    </main>
+  )
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -27,17 +48,7 @@ export default function App() {
           element={
             <div className="min-h-screen bg-store-cream flex flex-col">
               <NavBar />
-              <main className="flex-1 px-4 py-6 pb-24 sm:pb-6 max-w-2xl mx-auto w-full">
-                <Routes>
-                  <Route path="/" element={<Dashboard />} />
-                  <Route path="/dashboard" element={<Navigate to="/" replace />} />
-                  <Route path="/report" element={<ShiftReport />} />
-                  <Route path="/ingredients" element={<AdminRoute><Ingredients /></AdminRoute>} />
-                  <Route path="/analytics" element={<AdminRoute><Analytics /></AdminRoute>} />
-                  <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
-                  <Route path="/audit-edit" element={<AdminRoute><AuditEdit /></AdminRoute>} />
-                </Routes>
-              </main>
+              <AnimatedRoutes />
               <JarvisWidget />
             </div>
           }

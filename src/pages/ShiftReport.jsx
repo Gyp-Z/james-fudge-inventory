@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import Stepper from '../components/Stepper'
+import Collapsible from '../components/Collapsible'
 import { logBatchWithEffects, computeTrayInventory, applyTrayDeductions } from '../utils/inventoryActions'
 
 export default function ShiftReport() {
@@ -524,10 +525,10 @@ export default function ShiftReport() {
           <button
             key={key}
             onClick={() => { setActiveTab(key); setSubmitted(false); setIngSubmitted(false); setRecSubmitted(false); setBatchResult(null) }}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors touch-manipulation ${
+            className={`press px-4 py-2 rounded-full text-sm font-semibold touch-manipulation ${
               activeTab === key
-                ? 'bg-store-brown text-white'
-                : 'bg-store-tan text-store-brown hover:bg-store-brown hover:text-white'
+                ? 'bg-store-green text-white shadow-sm'
+                : 'bg-white border border-store-tan text-store-brown-light hover:text-store-green hover:border-store-green/40'
             }`}
           >
             {label}
@@ -667,13 +668,13 @@ export default function ShiftReport() {
           <button
             onClick={handleBatchSubmit}
             disabled={batchSubmitting || !batchesReady}
-            className="w-full bg-store-green hover:bg-store-green-dark text-white py-4 rounded-xl text-lg font-semibold transition-colors disabled:opacity-50 touch-manipulation"
+            className="press w-full bg-store-green hover:bg-store-green-dark text-white py-4 rounded-xl text-lg font-semibold disabled:opacity-50 touch-manipulation shadow-sm"
           >
             {batchSubmitting ? 'Logging…' : 'Log Batches'}
           </button>
 
           {batchResult && (
-            <div className={`rounded-xl border p-4 space-y-2 ${batchResult.negatives.length > 0 ? 'bg-red-50 border-red-200' : 'bg-store-green-light border-store-green'}`}>
+            <div className={`rounded-xl border p-4 space-y-2 animate-pop-in ${batchResult.negatives.length > 0 ? 'bg-red-50 border-red-200' : 'bg-store-green-light border-store-green'}`}>
               <p className={`font-semibold text-sm ${batchResult.negatives.length > 0 ? 'text-red-700' : 'text-store-green'}`}>
                 ✓ Batches logged
               </p>
@@ -715,7 +716,7 @@ export default function ShiftReport() {
       {activeTab === 'products' && (
         <>
           {submitted ? (
-            <div className="bg-store-green-light border border-store-green rounded-xl px-4 py-4 text-center">
+            <div className="bg-store-green-light border border-store-green rounded-xl px-4 py-4 text-center animate-pop-in">
               <p className="text-store-green font-semibold text-lg">Report submitted ✓</p>
               <p className="text-store-green text-sm mt-1">Redirecting to dashboard...</p>
             </div>
@@ -761,7 +762,7 @@ export default function ShiftReport() {
 
               <div className="space-y-3">
                 <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide">Fudge</p>
-                {flavors.map((f) => {
+                {flavors.map((f, i) => {
                   const e = entries[f.id] || { full_trays: 0, in_progress_trays: 0, trays_sold: 0, trays_wasted: 0, waste_reason: '' }
                   const inProgCount = currentInProgress[f.id] ?? 0
                   const inProgWastedLive = (e.waste_is_in_progress && (e.trays_wasted ?? 0) > 0) ? (e.trays_wasted ?? 0) : 0
@@ -796,16 +797,24 @@ export default function ShiftReport() {
                   const prevDayCount = prevDayBatchCounts[f.id] ?? 0
                   const effectiveBatches = (prevDayCount === 1 && inProgCount > 0) ? prevDayCount + (todayBatchCounts[f.id] ?? 0) : (todayBatchCounts[f.id] ?? 0)
 
+                  // Reminder banners (sit between the name and the steppers). Consolidated so
+                  // they ease open inside one Collapsible — the steppers never snap-jump under
+                  // a chef's finger when async batch data lands.
+                  const showInProg = liveInProg > 0
+                  const showDouble1 = f.double_batch_reminder && effectiveBatches === 1 && !(e.full_trays > 0) && !(e.in_progress_trays > 0) && !(liveInProg > 0)
+                  const showDouble2 = f.double_batch_reminder && effectiveBatches >= 2 && !(e.full_trays > 0) && liveInProg > 0
+                  const anyReminder = showInProg || showBaseReminder || showSelfReminder || showDouble1 || showDouble2
+
                   return (
-                    <div key={f.id} className="bg-white rounded-xl border border-store-tan p-4 shadow-sm space-y-4">
+                    <div key={f.id} className="bg-white rounded-xl border border-store-tan p-4 shadow-sm stagger" style={{ '--stagger': i }}>
                       <div className="flex items-center justify-between">
-                        <p className="font-semibold text-store-brown text-lg">{f.name}</p>
+                        <p className="font-semibold text-store-brown text-lg" style={{ fontFamily: 'var(--font-display)' }}>{f.name}</p>
                         <div className="flex gap-2 text-xs text-store-brown-light flex-wrap items-center">
                           {currentInventory[f.id] !== undefined && (
                             <span>{currentInventory[f.id]} in stock</span>
                           )}
                           {inProgCount > 0 && (
-                            <><span>·</span><span className="text-amber-600 font-medium">{liveInProg} in progress</span></>
+                            <><span>·</span><span className="text-store-gold font-medium">{liveInProg} in progress</span></>
                           )}
                           {totalMadeToday > 0 && (
                             <><span>·</span><span>{totalMadeToday} made today</span></>
@@ -818,68 +827,76 @@ export default function ShiftReport() {
                           )}
                         </div>
                       </div>
-                      {liveInProg > 0 && (
-                        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                          <span className="text-amber-700 font-semibold text-sm">{liveInProg} in progress</span>
-                          <span className="text-amber-600 text-xs">— marking trays made will top {liveInProg === 1 ? 'it' : 'them'}</span>
+
+                      <Collapsible open={anyReminder}>
+                        <div className="pt-3 space-y-2">
+                          {showInProg && (
+                            <div className="flex items-center gap-2 bg-store-gold/10 border border-store-gold/30 rounded-lg px-3 py-2">
+                              <span className="text-store-gold font-semibold text-sm">{liveInProg} in progress</span>
+                              <span className="text-store-brown-light text-xs">— marking trays made will top {liveInProg === 1 ? 'it' : 'them'}</span>
+                            </div>
+                          )}
+                          {showBaseReminder && (
+                            <div className="bg-store-gold/10 border border-store-gold/30 rounded-lg px-3 py-2">
+                              <span className="text-store-brown text-xs font-medium">Base batch made today — enter trays to deduct</span>
+                            </div>
+                          )}
+                          {showSelfReminder && (
+                            <div className="bg-store-gold/10 border border-store-gold/30 rounded-lg px-3 py-2">
+                              <span className="text-store-brown text-xs font-medium">Batch logged today — enter trays when ready</span>
+                            </div>
+                          )}
+                          {showDouble1 && (
+                            <div className="bg-store-gold/10 border border-store-gold/30 rounded-lg px-3 py-2">
+                              <span className="text-store-brown text-xs font-medium">1st batch done — enter in-progress trays; log 2nd batch when you top</span>
+                            </div>
+                          )}
+                          {showDouble2 && (
+                            <div className="bg-store-green/10 border border-store-green/30 rounded-lg px-3 py-2">
+                              <span className="text-store-green text-xs font-medium">Both batches done — move in-progress to full trays</span>
+                            </div>
+                          )}
                         </div>
-                      )}
-                      {showBaseReminder && (
-                        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                          <span className="text-amber-700 text-xs">Base batch made today — enter trays to deduct</span>
+                      </Collapsible>
+
+                      <div className="mt-4 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-store-brown-light">Trays made</span>
+                          <Stepper value={e.full_trays} onChange={(v) => setField(f.id, 'full_trays', v)} />
                         </div>
-                      )}
-                      {showSelfReminder && (
-                        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                          <span className="text-amber-700 text-xs">Batch logged today — enter trays when ready</span>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-store-brown-light">In-progress trays</span>
+                          <Stepper value={e.in_progress_trays} onChange={(v) => setField(f.id, 'in_progress_trays', v)} />
                         </div>
-                      )}
-                      {f.double_batch_reminder && effectiveBatches === 1 && !(e.full_trays > 0) && !(e.in_progress_trays > 0) && !(liveInProg > 0) && (
-                        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                          <span className="text-amber-700 text-xs">1st batch done — enter in-progress trays; log 2nd batch when you top</span>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-store-brown-light">Trays sold</span>
+                          <Stepper value={e.trays_sold} onChange={(v) => setField(f.id, 'trays_sold', v)} />
                         </div>
-                      )}
-                      {f.double_batch_reminder && effectiveBatches >= 2 && !(e.full_trays > 0) && liveInProg > 0 && (
-                        <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-                          <span className="text-store-green text-xs font-medium">Both batches done — move in-progress to full trays</span>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-store-brown-light">Trays wasted</span>
+                          <Stepper value={e.trays_wasted} onChange={(v) => setField(f.id, 'trays_wasted', v)} />
                         </div>
-                      )}
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-store-brown-light">Trays made</span>
-                        <Stepper value={e.full_trays} onChange={(v) => setField(f.id, 'full_trays', v)} />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-store-brown-light">In-progress trays</span>
-                        <Stepper value={e.in_progress_trays} onChange={(v) => setField(f.id, 'in_progress_trays', v)} />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-store-brown-light">Trays sold</span>
-                        <Stepper value={e.trays_sold} onChange={(v) => setField(f.id, 'trays_sold', v)} />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-store-brown-light">Trays wasted</span>
-                        <Stepper value={e.trays_wasted} onChange={(v) => setField(f.id, 'trays_wasted', v)} />
-                      </div>
-                      {e.trays_wasted > 0 && (
-                        <div className="space-y-2">
-                          <input
-                            type="text"
-                            value={e.waste_reason}
-                            onChange={(ev) => setField(f.id, 'waste_reason', ev.target.value)}
-                            placeholder="Waste reason"
-                            className="w-full border border-store-tan rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
-                          />
-                          <label className="flex items-center gap-2 text-sm text-store-brown-light cursor-pointer">
+                        <Collapsible open={e.trays_wasted > 0}>
+                          <div className="pt-0 space-y-2">
                             <input
-                              type="checkbox"
-                              checked={e.waste_is_in_progress ?? false}
-                              onChange={(ev) => setField(f.id, 'waste_is_in_progress', ev.target.checked)}
-                              className="w-4 h-4 accent-store-green"
+                              type="text"
+                              value={e.waste_reason}
+                              onChange={(ev) => setField(f.id, 'waste_reason', ev.target.value)}
+                              placeholder="Waste reason"
+                              className="w-full border border-store-tan rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-store-green bg-store-cream"
                             />
-                            In-progress tray? <span className="text-xs opacity-60">(counts as ½)</span>
-                          </label>
-                        </div>
-                      )}
+                            <label className="flex items-center gap-2 text-sm text-store-brown-light cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={e.waste_is_in_progress ?? false}
+                                onChange={(ev) => setField(f.id, 'waste_is_in_progress', ev.target.checked)}
+                                className="w-4 h-4 accent-store-green"
+                              />
+                              In-progress tray? <span className="text-xs opacity-60">(counts as ½)</span>
+                            </label>
+                          </div>
+                        </Collapsible>
+                      </div>
                     </div>
                   )
                 })}
@@ -974,7 +991,7 @@ export default function ShiftReport() {
               <button
                 onClick={handleProductSubmit}
                 disabled={submitting}
-                className="w-full bg-store-green hover:bg-store-green-dark text-white py-4 rounded-xl text-lg font-semibold transition-colors disabled:opacity-50 touch-manipulation"
+                className="press w-full bg-store-green hover:bg-store-green-dark text-white py-4 rounded-xl text-lg font-semibold disabled:opacity-50 touch-manipulation shadow-sm"
               >
                 {submitting ? 'Submitting…' : 'Submit Product Report'}
               </button>
@@ -1010,7 +1027,7 @@ export default function ShiftReport() {
                 <button
                   onClick={handleIngredientReceive}
                   disabled={recSubmitting || !ingList.some((i) => (ingReceived[i.id] ?? 0) > 0)}
-                  className="w-full bg-store-brown text-white py-3 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 touch-manipulation hover:opacity-90"
+                  className="press w-full bg-store-brown text-white py-3 rounded-xl text-sm font-semibold disabled:opacity-50 touch-manipulation hover:opacity-90 shadow-sm"
                 >
                   {recSubmitting ? 'Logging…' : 'Log Received Order'}
                 </button>
@@ -1044,7 +1061,7 @@ export default function ShiftReport() {
                 <button
                   onClick={handleIngredientSubmit}
                   disabled={ingSubmitting || !ingList.some((i) => (ingUsage[i.id] ?? 0) > 0)}
-                  className="w-full bg-store-green hover:bg-store-green-dark text-white py-3 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 touch-manipulation"
+                  className="press w-full bg-store-green hover:bg-store-green-dark text-white py-3 rounded-xl text-sm font-semibold disabled:opacity-50 touch-manipulation shadow-sm"
                 >
                   {ingSubmitting ? 'Logging…' : 'Log Usage'}
                 </button>
