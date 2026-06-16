@@ -695,8 +695,8 @@ export default function Analytics() {
       <div className="flex flex-wrap gap-2">
         {[
           { key: 'fudge',   label: 'All Fudge',   activeClass: 'bg-store-brown text-white border-store-brown',   inactiveClass: 'bg-white text-store-brown border-store-tan hover:border-store-brown' },
-          { key: 'caramel', label: 'Caramel',      activeClass: 'bg-store-brown text-white border-store-brown',   inactiveClass: 'bg-white text-store-brown border-store-tan hover:border-store-brown' },
           { key: 'popcorn', label: 'All Popcorn',  activeClass: 'bg-amber-700 text-white border-amber-700',       inactiveClass: 'bg-white text-amber-900 border-amber-200 hover:border-amber-500' },
+          { key: 'caramel', label: 'Caramel',      activeClass: 'bg-store-brown text-white border-store-brown',   inactiveClass: 'bg-white text-store-brown border-store-tan hover:border-store-brown' },
         ].map(({ key, label, activeClass, inactiveClass }) => (
           <button key={key} onClick={() => handleGroupChange(key)}
             className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors touch-manipulation border ${groupFilter === key && selectedFlavors === null ? activeClass : inactiveClass}`}>

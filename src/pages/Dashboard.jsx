@@ -275,6 +275,65 @@ export default function Dashboard() {
         )}
       </div>
 
+      <hr className="border-store-tan" />
+
+      {/* ── POPCORN ───────────────────────────────────────────── */}
+      {popcornFlavors.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-2xl font-bold text-store-brown pl-3 border-l-4 border-store-coral rounded-sm" style={{ fontFamily: 'var(--font-display)' }}>
+            Popcorn
+          </h2>
+
+          <div>
+            <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">Make Soon</h3>
+            {lowPopcorn.length > 0 ? (
+              <div className="flex flex-wrap gap-2">{lowPopcorn.map(renderPopcornPill)}</div>
+            ) : (
+              <p className="text-sm text-store-green font-medium">All popcorn stocked ✓</p>
+            )}
+          </div>
+
+          {stockedPopcorn.length > 0 && (
+            <div>
+              <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">Popcorn In Stock</h3>
+              <div className="flex flex-wrap gap-2">{stockedPopcorn.map(renderPopcornPill)}</div>
+            </div>
+          )}
+
+        </div>
+      )}
+
+      {popcornFlavors.length > 0 && <hr className="border-store-tan" />}
+
+      {/* ── CARAMEL ───────────────────────────────────────────── */}
+      {componentFlavors.length > 0 && (() => {
+        const lowCaramel = componentFlavors.filter(f => (entries[f.id]?.full_trays ?? 0) <= (f.low_tray_threshold ?? 2))
+        const stockedCaramel = componentFlavors.filter(f => (entries[f.id]?.full_trays ?? 0) > (f.low_tray_threshold ?? 2))
+        return (
+          <div className="space-y-4">
+            <h2 className="text-2xl font-bold text-store-brown pl-3 border-l-4 border-store-coral rounded-sm" style={{ fontFamily: 'var(--font-display)' }}>
+              Caramel
+            </h2>
+            <div>
+              <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">Make Soon</h3>
+              {lowCaramel.length > 0 ? (
+                <div className="flex flex-wrap gap-2">{lowCaramel.map(renderFlavorPill)}</div>
+              ) : (
+                <p className="text-sm text-store-green font-medium">Caramel stocked ✓</p>
+              )}
+            </div>
+            {stockedCaramel.length > 0 && (
+              <div>
+                <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">Caramel In Stock</h3>
+                <div className="flex flex-wrap gap-2">{stockedCaramel.map(renderFlavorPill)}</div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
+      {componentFlavors.length > 0 && <hr className="border-store-tan" />}
+
       {/* Yesterday's Shelf */}
       {(Object.keys(yesterdayEntries).length > 0 || Object.keys(yesterdayBarrels).length > 0) && (
         <div>
@@ -307,64 +366,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <hr className="border-store-tan" />
-
-      {/* ── CARAMEL ───────────────────────────────────────────── */}
-      {componentFlavors.length > 0 && (() => {
-        const lowCaramel = componentFlavors.filter(f => (entries[f.id]?.full_trays ?? 0) <= (f.low_tray_threshold ?? 2))
-        const stockedCaramel = componentFlavors.filter(f => (entries[f.id]?.full_trays ?? 0) > (f.low_tray_threshold ?? 2))
-        return (
-          <div className="space-y-4">
-            <h2 className="text-2xl font-bold text-store-brown pl-3 border-l-4 border-store-coral rounded-sm" style={{ fontFamily: 'var(--font-display)' }}>
-              Caramel
-            </h2>
-            <div>
-              <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">Make Soon</h3>
-              {lowCaramel.length > 0 ? (
-                <div className="flex flex-wrap gap-2">{lowCaramel.map(renderFlavorPill)}</div>
-              ) : (
-                <p className="text-sm text-store-green font-medium">Caramel stocked ✓</p>
-              )}
-            </div>
-            {stockedCaramel.length > 0 && (
-              <div>
-                <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">Caramel In Stock</h3>
-                <div className="flex flex-wrap gap-2">{stockedCaramel.map(renderFlavorPill)}</div>
-              </div>
-            )}
-          </div>
-        )
-      })()}
-
-      {componentFlavors.length > 0 && <hr className="border-store-tan" />}
-
-      {/* ── POPCORN ───────────────────────────────────────────── */}
-      {popcornFlavors.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-2xl font-bold text-store-brown pl-3 border-l-4 border-store-coral rounded-sm" style={{ fontFamily: 'var(--font-display)' }}>
-            Popcorn
-          </h2>
-
-          <div>
-            <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">Make Soon</h3>
-            {lowPopcorn.length > 0 ? (
-              <div className="flex flex-wrap gap-2">{lowPopcorn.map(renderPopcornPill)}</div>
-            ) : (
-              <p className="text-sm text-store-green font-medium">All popcorn stocked ✓</p>
-            )}
-          </div>
-
-          {stockedPopcorn.length > 0 && (
-            <div>
-              <h3 className="text-sm font-bold text-store-brown-light uppercase tracking-wide mb-2">Popcorn In Stock</h3>
-              <div className="flex flex-wrap gap-2">{stockedPopcorn.map(renderPopcornPill)}</div>
-            </div>
-          )}
-
-        </div>
-      )}
-
-      {popcornFlavors.length > 0 && <hr className="border-store-tan" />}
+      {(Object.keys(yesterdayEntries).length > 0 || Object.keys(yesterdayBarrels).length > 0) && <hr className="border-store-tan" />}
 
       {/* ── INGREDIENTS ───────────────────────────────────────── */}
       <div className="space-y-4">
