@@ -100,7 +100,7 @@ export default function NavBar() {
       </header>
 
       {/* ── Bottom tab bar — phones + portrait tablets (below lg) ─────────── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-store-tan shadow-[0_-4px_16px_rgba(42,26,16,0.06)] lg:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-store-cream/95 backdrop-blur-md border-t border-store-tan shadow-[0_-4px_16px_rgba(42,26,16,0.06)] lg:hidden">
         <div className="max-w-3xl mx-auto" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="flex items-stretch">
           {tabs.map(({ to, label, title, end }) => (
