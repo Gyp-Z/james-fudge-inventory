@@ -570,10 +570,10 @@ export default function Analytics() {
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading analytics...</p>
 
-  const tooltipStyle = { borderRadius: 8, borderColor: '#F5EDD8', fontSize: 12 }
+  const tooltipStyle = { borderRadius: 12, borderColor: '#E4D5BC', fontSize: 12, boxShadow: '0 8px 24px rgba(42,26,16,0.12)' }
   const wrapperStyle = { zIndex: 50 }
-  const xProps = { tick: { fontSize: 11, fill: '#8B5E3C' } }
-  const yProps = { tick: { fontSize: 11, fill: '#8B5E3C' } }
+  const xProps = { tick: { fontSize: 11, fill: '#6B7A6E' } }
+  const yProps = { tick: { fontSize: 11, fill: '#6B7A6E' } }
   const empty = msg => <p className="text-store-brown-light text-sm text-center py-8">{msg}</p>
 
   const showFudge = groupFilter === 'fudge'
@@ -712,7 +712,7 @@ export default function Analytics() {
               className="px-3 py-1.5 rounded-full text-sm font-medium transition-colors touch-manipulation border"
               style={active
                 ? { backgroundColor: color, color: 'white', borderColor: color }
-                : { backgroundColor: 'white', color: '#4A2C17', borderColor: '#E8D5B0' }}>
+                : { backgroundColor: 'white', color: '#6B7A6E', borderColor: '#E4D5BC' }}>
               {f.name}
             </button>
           )
@@ -747,7 +747,7 @@ export default function Analytics() {
                   <ChartWrapper>
                     <ResponsiveContainer width="100%" height={300}>
                       <BarChart data={chartSalesData} margin={{ left: 0, right: 16 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E4D5BC" />
                         <XAxis dataKey="date" {...xProps} />
                         <YAxis {...yProps} />
                         <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
@@ -780,7 +780,7 @@ export default function Analytics() {
                     <ResponsiveContainer width="100%" height={300}>
                       <BarChart data={chartWasteData} layout="vertical" margin={{ left: 16, right: 16 }}>
                         <XAxis type="number" {...xProps} />
-                        <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 12, fill: '#4A2C17' }} />
+                        <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 12, fill: '#6B7A6E' }} />
                         <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
                         <Bar dataKey="trays" fill="#C4843A" radius={[0, 4, 4, 0]} name="Trays wasted" />
                       </BarChart>
@@ -822,7 +822,7 @@ export default function Analytics() {
                   <ChartWrapper>
                     <ResponsiveContainer width="100%" height={300}>
                       <LineChart data={chartStockData} margin={{ left: 0, right: 16 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E4D5BC" />
                         <XAxis dataKey="date" {...xProps} />
                         <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
                         <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
@@ -863,7 +863,7 @@ export default function Analytics() {
               <ChartWrapper>
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={caramelStockData} margin={{ left: 16, right: 16 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E4D5BC" />
                     <XAxis dataKey="date" {...xProps} />
                     <YAxis {...yProps}
                       domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]}
@@ -910,7 +910,7 @@ export default function Analytics() {
                   <ChartWrapper>
                     <ResponsiveContainer width="100%" height={300}>
                       <LineChart data={barrelsMadeData} margin={{ left: 0, right: 16 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E4D5BC" />
                         <XAxis dataKey="date" {...xProps} />
                         <YAxis {...yProps} domain={[0, dataMax => Math.ceil(dataMax * 1.2) || 2]} />
                         <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
@@ -942,7 +942,7 @@ export default function Analytics() {
                   <ChartWrapper>
                     <ResponsiveContainer width="100%" height={300}>
                       <BarChart data={barrelsSoldData} margin={{ left: 0, right: 16 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#F5EDD8" />
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E4D5BC" />
                         <XAxis dataKey="date" {...xProps} />
                         <YAxis {...yProps} />
                         <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
@@ -975,7 +975,7 @@ export default function Analytics() {
                     <ResponsiveContainer width="100%" height={Math.max(120, popcornWasteTotals.length * 52)}>
                       <BarChart data={popcornWasteTotals} layout="vertical" margin={{ left: 16, right: 16 }}>
                         <XAxis type="number" {...xProps} allowDecimals={false} />
-                        <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12, fill: '#4A2C17' }} />
+                        <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12, fill: '#6B7A6E' }} />
                         <Tooltip contentStyle={tooltipStyle} wrapperStyle={wrapperStyle} />
                         <Bar dataKey="batches" fill="#D97706" radius={[0, 4, 4, 0]} name="Batches wasted" />
                       </BarChart>

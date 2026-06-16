@@ -56,8 +56,9 @@ export default function NavBar() {
             </span>
           </NavLink>
 
-          {/* Desktop inline nav */}
-          <nav className="hidden sm:flex items-center gap-0.5 ml-2">
+          {/* Desktop / landscape-tablet inline nav (lg+). Below lg the bottom
+              tab bar handles navigation so an iPad in portrait never overflows. */}
+          <nav className="hidden lg:flex items-center gap-0.5 ml-2">
             {tabs.map(({ to, label, title, end }) => (
               <NavLink
                 key={to}
@@ -83,8 +84,8 @@ export default function NavBar() {
                 title="Sign out"
                 className="press px-3 py-1.5 rounded-full text-sm font-semibold text-store-brown-light hover:text-store-green hover:bg-store-green/10 transition-colors"
               >
-                <span className="sm:hidden">🚪</span>
-                <span className="hidden sm:inline">Sign out</span>
+                <span className="lg:hidden">🚪</span>
+                <span className="hidden lg:inline">Sign out</span>
               </button>
             ) : (
               <button
@@ -98,8 +99,9 @@ export default function NavBar() {
         </div>
       </header>
 
-      {/* ── Bottom tab bar — mobile only ──────────────────────────────────── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-store-tan shadow-[0_-4px_16px_rgba(42,26,16,0.06)] sm:hidden">
+      {/* ── Bottom tab bar — phones + portrait tablets (below lg) ─────────── */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-store-tan shadow-[0_-4px_16px_rgba(42,26,16,0.06)] lg:hidden">
+        <div className="max-w-3xl mx-auto" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="flex items-stretch">
           {tabs.map(({ to, label, title, end }) => (
             <NavLink
@@ -130,6 +132,7 @@ export default function NavBar() {
               )}
             </NavLink>
           ))}
+        </div>
         </div>
       </nav>
     </>
