@@ -54,7 +54,7 @@ Three tabs: Batches, Products, Ingredients.
 **Products tab**
 - Log trays made (full + in-progress), trays sold, and trays wasted (with reason) per fudge flavor
 - Log barrel movements for popcorn flavors
-- Each fudge flavor card has a collapsible **Recipe ▾** section showing per-batch ingredients and per-tray toppings
+- Contextual reminder banners (in-progress trays to top, base batch made today, double-batch progress) ease in above the steppers without shifting the tap targets
 - Submitting the report auto-deducts per-tray toppings (M&Ms, walnuts, oreos, etc.) based on full tray counts entered
 - SSC caramel deduction also fires at submit time (not batch time), based on full SSC trays reported
 
@@ -125,6 +125,27 @@ Manage flavors and component inventory:
 
 ---
 
+### Jarvis Assistant — Admin only
+A floating, owner-only AI assistant (Claude Opus 4.8) available on every page via a glowing launcher bubble in the bottom corner.
+
+- **Page-aware** — its greeting and starter prompts adapt to whatever screen you're on (e.g. "What should I make today?" on the Dashboard, "What do I need to order?" on Ingredients)
+- **Answers questions** about stock, sales velocity, ingredient burn-rate, and what to make next
+- **Takes actions by chat** — log a batch, add a product entry, set an inventory count, set an ingredient quantity — all routed through the same deduction logic as the app, with a confirmation prompt before any write
+- Also exposed as a local **MCP server** so the owner's desktop assistant can run the same tools (see `mcp/README.md`)
+
+---
+
+## Design & Experience
+
+The interface is styled after the James' Fudge storefront website, so the kitchen tool feels like part of the brand.
+
+- **Palette & type** — warm cream / linen surfaces, sage-green primary, coral + gold accents, **Playfair Display** headings over **DM Sans** body. The whole app re-skins from one set of design tokens in [`src/index.css`](src/index.css)
+- **Motion, used deliberately** — page fade-up transitions, card and pill hover-lifts, tactile button-press feedback, staggered list entrances, and a value-bump on the tray/barrel steppers. All behind a `prefers-reduced-motion` guard
+- **Tablet-first & responsive** — the app lives on a kitchen tablet, so phones and iPad-portrait use a large-tap-target bottom tab bar (cream chrome top and bottom), while landscape/desktop get an inline nav. Safe-area aware on iOS
+- **No-jump reminders** — batch/topping reminder banners in the Shift Report ease open inside a height-animating `Collapsible` so the steppers never snap-shift under a chef's finger mid-tap
+
+---
+
 ## Flavor & Recipe System
 
 ### Base Groups
@@ -158,7 +179,8 @@ Safe to re-run — deletes and re-inserts per flavor each time. Supports `ingred
 | Routing | React Router v7 |
 | Database + Auth | Supabase (PostgreSQL) |
 | Charts | Recharts |
-| Styling | Tailwind CSS v4 |
+| Styling | Tailwind CSS v4 (custom design tokens + CSS keyframe animations) |
+| Assistant | Claude Opus 4.8 via a Vercel function (`/api/chat`) + local MCP server |
 | Deployment | Vercel |
 
 ---
