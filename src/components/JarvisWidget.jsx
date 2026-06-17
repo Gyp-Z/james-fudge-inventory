@@ -225,8 +225,9 @@ export default function JarvisWidget() {
     const wantsBack = triviaActiveRef.current && BACK_INTENT.test(trimmed)
     if (TRIVIA_INTENT.test(trimmed) || (triviaActiveRef.current && (wantsNew || cat || wantsBack))) {
       setInput('')
-      pushUI('user', trimmed)
+      // Show the new card FIRST, then echo the command below it (text under the trivia).
       await showTrivia({ category: cat, fresh: wantsNew, back: wantsBack })
+      pushUI('user', trimmed)
       return
     }
     setInput('')
