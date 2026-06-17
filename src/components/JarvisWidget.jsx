@@ -81,6 +81,25 @@ function detectCategory(text) {
   return null
 }
 
+// Conversation persistence for the browser SESSION: survives refresh + page changes, and
+// clears when the tab is closed. The "New chat" button wipes it on demand.
+const CONVO_KEY = 'jarvis-convo'
+function loadConvo() {
+  try {
+    const d = JSON.parse(sessionStorage.getItem(CONVO_KEY) || 'null')
+    if (!d || !Array.isArray(d.transcript) || !Array.isArray(d.messages)) return null
+    return d
+  } catch {
+    return null
+  }
+}
+function saveConvo(transcript, messages) {
+  try { sessionStorage.setItem(CONVO_KEY, JSON.stringify({ transcript, messages })) } catch { /* ignore */ }
+}
+function clearConvo() {
+  try { sessionStorage.removeItem(CONVO_KEY) } catch { /* ignore */ }
+}
+
 export default function JarvisWidget() {
   const { session } = useAuth()
   const location = useLocation()
@@ -101,15 +120,34 @@ export default function JarvisWidget() {
     if (open) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [transcript, busy, open])
 
-  // Restore today's chosen question + reroll history so a refresh keeps your pick.
+  // Restore the conversation (survives refresh + page changes) + today's chosen trivia.
   useEffect(() => {
+    const convo = loadConvo()
+    if (convo) {
+      setTranscript(convo.transcript)
+      messagesRef.current = convo.messages
+      if (convo.transcript.some((m) => m.role === 'trivia')) triviaActiveRef.current = true
+    }
     const saved = loadTriviaChoice()
     if (saved) { triviaHistoryRef.current = saved.history; triviaPosRef.current = saved.pos }
   }, [])
 
+  // Persist the conversation whenever it changes.
+  useEffect(() => {
+    if (transcript.length > 0) saveConvo(transcript, messagesRef.current)
+  }, [transcript])
+
   if (!session) return null // owner-only
 
   function pushUI(role, text) { setTranscript((t) => [...t, { role, text }]) }
+
+  // Start a fresh conversation (keeps today's chosen trivia question for the day).
+  function newChat() {
+    setTranscript([])
+    messagesRef.current = []
+    triviaActiveRef.current = false
+    clearConvo()
+  }
 
   // Show a Big Sam's Trivia card. Default = today's question (special-day themed one if it's
   // a special date, weekend → fresh web question, else the daily rotation). Pass { fresh }
@@ -260,6 +298,9 @@ export default function JarvisWidget() {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            {transcript.length > 0 && (
+              <button onClick={newChat} title="New chat" aria-label="New chat" className="press text-[11px] font-semibold px-2 h-8 rounded-lg hover:bg-white/10 flex items-center">New</button>
+            )}
             <button onClick={showTrivia} title="Big Sam's Trivia of the Day" aria-label="Trivia" className="press text-lg w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center">🎯</button>
             <button onClick={() => setOpen(false)} aria-label="Close" className="press text-white/90 hover:text-white text-lg w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center">✕</button>
           </div>
