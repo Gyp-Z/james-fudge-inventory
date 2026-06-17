@@ -32,7 +32,7 @@ function TriviaCard({ t }) {
       </div>
       <p className="text-sm font-semibold text-store-brown leading-snug">{t.question}</p>
       <p className="text-xs text-store-brown-light mt-2">Drop your guesses below 👇</p>
-      <p className="text-[11px] text-store-brown-light/80 mt-1">Not it? Ask for “another” or a genre (sports, anime, music…).</p>
+      <p className="text-[11px] text-store-brown-light/80 mt-1">Not it? Ask for “another”, a genre (sports, anime…), or “go back”.</p>
     </div>
   )
 }
@@ -63,6 +63,8 @@ const MAX_TURNS = 8
 const TRIVIA_INTENT = /\b(trivia|question of the day|big sam'?s?)\b/i
 // "Give me another" / reshuffle the trivia.
 const NEW_INTENT = /\b(another|a new one|new question|different( one)?|switch( it up)?|switch ?up|skip|next( one)?|one more|change it|not feeling|don'?t like|hit me|reroll|refresh)\b/i
+// "Go back" to the previous question.
+const BACK_INTENT = /\b(go back|previous|prev|original|bring (it|that) back|today'?s (one|question))\b/i
 // Genre switch-up → map a phrase to a bank category.
 const CATEGORY_MAP = [
   [/\b(sports?|nba|nfl|basketball|football|baseball|hockey|soccer|eagles|sixers|phillies|flyers)\b/i, 'Sports'],
@@ -89,8 +91,9 @@ export default function JarvisWidget() {
   const [confirm, setConfirm] = useState(null)
   const scrollRef = useRef(null)
   const messagesRef = useRef([])
-  const shownQuestionsRef = useRef([]) // questions already shown this session (avoid repeats)
   const triviaActiveRef = useRef(false)
+  const triviaHistoryRef = useRef([]) // trivia objects shown this session (for reroll + go-back)
+  const triviaPosRef = useRef(-1)     // index of the active question within the history
 
   const pageCtx = contextFor(location.pathname)
 
@@ -106,22 +109,36 @@ export default function JarvisWidget() {
   // a special date, weekend → fresh web question, else the daily rotation). Pass { fresh }
   // for "give me another" or { category } to switch genres. Seeds the ACTIVE question's
   // answer into context so Jarvis can judge guesses, hint, and reveal against the right one.
-  async function showTrivia({ category = null, fresh = false } = {}) {
+  async function showTrivia({ category = null, fresh = false, back = false } = {}) {
     let t
-    if (category) t = getRandomTrivia({ category, exclude: shownQuestionsRef.current })
-    else if (fresh) t = getRandomTrivia({ exclude: shownQuestionsRef.current })
-    else t = await getDailyTrivia(session?.access_token)
-    if (!t) { pushUI('error', "Couldn't load trivia — try again in a sec."); return }
-    shownQuestionsRef.current = [...shownQuestionsRef.current, t.question]
+    if (back) {
+      if (triviaPosRef.current > 0) {
+        triviaPosRef.current -= 1
+        t = triviaHistoryRef.current[triviaPosRef.current]
+      } else {
+        pushUI('tool', '↩️ That’s the first question — nothing to go back to.')
+        return
+      }
+    } else {
+      const exclude = triviaHistoryRef.current.map((x) => x.question)
+      if (category) t = getRandomTrivia({ category, exclude })
+      else if (fresh) t = getRandomTrivia({ exclude })
+      else t = await getDailyTrivia(session?.access_token)
+      if (!t) { pushUI('error', "Couldn't load trivia — try again in a sec."); return }
+      triviaHistoryRef.current = [...triviaHistoryRef.current, t]
+      triviaPosRef.current = triviaHistoryRef.current.length - 1
+    }
     triviaActiveRef.current = true
+    // ONE card only: drop any existing trivia card, then show the active one at the bottom
+    // (so a reroll changes the question in view instead of stacking a second card).
+    setTranscript((tr) => [...tr.filter((m) => m.role !== 'trivia'), { role: 'trivia', trivia: t }])
     messagesRef.current = [
       ...messagesRef.current,
       {
         role: 'user',
-        content: `[SYSTEM CONTEXT — not from a chef] The ACTIVE "Big Sam's Trivia" question is now showing on screen as a card — do NOT repost it. Question: "${t.question}" | Answer: "${t.answer}" | Hint 1: "${t.hint1}" | Hint 2: "${t.hint2}" | Fun fact: "${t.funFact}". Judge guesses against THIS question: be generous with fuzzy matching and hype them up if they're basically right; if wrong, give exactly ONE hint at a time; after 3 wrong guesses (or if they give up) reveal the answer and the fun fact. If the crew asks for another question or a different genre, the app swaps the card for them — just keep judging whatever question is currently active.`,
+        content: `[SYSTEM CONTEXT — not from a chef] The ACTIVE "Big Sam's Trivia" question is now showing on screen as a card — do NOT repost it. Question: "${t.question}" | Answer: "${t.answer}" | Hint 1: "${t.hint1}" | Hint 2: "${t.hint2}" | Fun fact: "${t.funFact}". Judge guesses against THIS question: be generous with fuzzy matching and hype them up if they're basically right; if wrong, give exactly ONE hint at a time; after 3 wrong guesses (or if they give up) reveal the answer and the fun fact. The crew can ask for another, a genre, or to go back — the app swaps the card; just keep judging whatever is currently active.`,
       },
     ]
-    setTranscript((tr) => [...tr, { role: 'trivia', trivia: t }])
   }
 
   function confirmWrite(toolUse) {
@@ -151,10 +168,11 @@ export default function JarvisWidget() {
     // After trivia is active, bare "another" or a genre word counts as a trivia command.
     const cat = detectCategory(trimmed)
     const wantsNew = NEW_INTENT.test(trimmed)
-    if (TRIVIA_INTENT.test(trimmed) || (triviaActiveRef.current && (wantsNew || cat))) {
+    const wantsBack = triviaActiveRef.current && BACK_INTENT.test(trimmed)
+    if (TRIVIA_INTENT.test(trimmed) || (triviaActiveRef.current && (wantsNew || cat || wantsBack))) {
       setInput('')
       pushUI('user', trimmed)
-      await showTrivia({ category: cat, fresh: wantsNew })
+      await showTrivia({ category: cat, fresh: wantsNew, back: wantsBack })
       return
     }
     setInput('')
