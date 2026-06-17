@@ -33,6 +33,18 @@ export function getSpecialDay() {
   return { ...pick, date: today, special: true }
 }
 
+// A random question from the bank, optionally filtered to a category, optionally excluding
+// questions already shown this session. Powers "give me another" and genre switch-ups.
+export function getRandomTrivia({ category = null, exclude = [] } = {}) {
+  const exSet = new Set(exclude)
+  const pool = category ? triviaBank.filter((q) => q.category === category) : triviaBank
+  let candidates = pool.filter((q) => !exSet.has(q.question))
+  if (candidates.length === 0) candidates = pool.length ? pool : triviaBank // ran out → allow repeats
+  if (candidates.length === 0) return null
+  const pick = candidates[Math.floor(Math.random() * candidates.length)]
+  return { ...pick, date: todayEastern() }
+}
+
 // Today's question: a special-day entry if one exists, otherwise the static rotation.
 export function getTodayTrivia() {
   const special = getSpecialDay()

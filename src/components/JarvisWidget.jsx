@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import { useAuth } from '../hooks/useAuth'
 import ConfirmDialog from './ConfirmDialog'
 import { runTool, WRITE_TOOLS, summarizeToolCall } from '../utils/jarvisClientTools'
-import { getDailyTrivia } from '../utils/trivia'
+import { getDailyTrivia, getRandomTrivia } from '../utils/trivia'
 
 // Themed renderer so Jarvis's markdown becomes intentional, professional UI (no raw ** or #).
 const MD = {
@@ -32,6 +32,7 @@ function TriviaCard({ t }) {
       </div>
       <p className="text-sm font-semibold text-store-brown leading-snug">{t.question}</p>
       <p className="text-xs text-store-brown-light mt-2">Drop your guesses below 👇</p>
+      <p className="text-[11px] text-store-brown-light/80 mt-1">Not it? Ask for “another” or a genre (sports, anime, music…).</p>
     </div>
   )
 }
@@ -60,6 +61,23 @@ function contextFor(path) {
 const MAX_TURNS = 8
 // Phrases that should pull up Big Sam's Trivia instead of a normal chat turn.
 const TRIVIA_INTENT = /\b(trivia|question of the day|big sam'?s?)\b/i
+// "Give me another" / reshuffle the trivia.
+const NEW_INTENT = /\b(another|a new one|new question|different( one)?|switch( it up)?|switch ?up|skip|next( one)?|one more|change it|not feeling|don'?t like|hit me|reroll|refresh)\b/i
+// Genre switch-up → map a phrase to a bank category.
+const CATEGORY_MAP = [
+  [/\b(sports?|nba|nfl|basketball|football|baseball|hockey|soccer|eagles|sixers|phillies|flyers)\b/i, 'Sports'],
+  [/\b(anime|manga|one ?piece|naruto|dragon ?ball|jujutsu|demon ?slayer|bleach)\b/i, 'Anime'],
+  [/(\bmusic\b|\bsongs?\b|\bhip ?hop\b|\bmotown\b|\brapper)/i, 'Music history'],
+  [/(\bhistory\b|\bhistorical\b|\bancient\b)/i, 'World history'],
+  [/(\bfood\b|\bcooking\b|\bkitchen\b|\brecipe\b)/i, 'Food & cooking'],
+  [/(\bpop ?culture\b|\bmovies?\b|\bfilms?\b|\btv\b|\bcelebrit)/i, 'Pop culture'],
+  [/(\brecords?\b|\bguinness\b|\bextreme\b)/i, 'Extreme records'],
+  [/(\bfun ?facts?\b|\bscience\b|\bnature\b)/i, 'Crazy fun facts'],
+]
+function detectCategory(text) {
+  for (const [re, cat] of CATEGORY_MAP) if (re.test(text)) return cat
+  return null
+}
 
 export default function JarvisWidget() {
   const { session } = useAuth()
@@ -71,8 +89,8 @@ export default function JarvisWidget() {
   const [confirm, setConfirm] = useState(null)
   const scrollRef = useRef(null)
   const messagesRef = useRef([])
-  const triviaSeededRef = useRef(false)
-  const triviaRef = useRef(null)
+  const shownQuestionsRef = useRef([]) // questions already shown this session (avoid repeats)
+  const triviaActiveRef = useRef(false)
 
   const pageCtx = contextFor(location.pathname)
 
@@ -84,29 +102,25 @@ export default function JarvisWidget() {
 
   function pushUI(role, text) { setTranscript((t) => [...t, { role, text }]) }
 
-  // Big Sam's Trivia is an opt-in extra (not auto-shown). Fetch today's question once,
-  // seed the hidden answer/hints into the chat so Jarvis can judge guesses + reveal.
-  async function ensureTrivia() {
-    if (triviaRef.current) return triviaRef.current
-    const t = await getDailyTrivia(session?.access_token) // weekend = fresh web question, else static
-    if (!t) return null
-    triviaRef.current = t
-    if (!triviaSeededRef.current) {
-      triviaSeededRef.current = true
-      messagesRef.current = [
-        ...messagesRef.current,
-        {
-          role: 'user',
-          content: `[SYSTEM CONTEXT — not from a chef] "Big Sam's Trivia of the Day" is now showing on screen as a card, so do NOT repost the question. Question: "${t.question}" | Answer: "${t.answer}" | Hint 1: "${t.hint1}" | Hint 2: "${t.hint2}" | Fun fact: "${t.funFact}". When a chef guesses: be generous with fuzzy matching and hype them up if they're basically right; if wrong, give exactly ONE hint at a time; after 3 wrong guesses (or if they say to just tell them / give up) reveal the answer and the fun fact. Otherwise just help normally.`,
-        },
-      ]
-    }
-    return t
-  }
-
-  async function showTrivia() {
-    const t = await ensureTrivia()
-    if (!t) { pushUI('error', "Couldn't load today's trivia — try again in a sec."); return }
+  // Show a Big Sam's Trivia card. Default = today's question (special-day themed one if it's
+  // a special date, weekend → fresh web question, else the daily rotation). Pass { fresh }
+  // for "give me another" or { category } to switch genres. Seeds the ACTIVE question's
+  // answer into context so Jarvis can judge guesses, hint, and reveal against the right one.
+  async function showTrivia({ category = null, fresh = false } = {}) {
+    let t
+    if (category) t = getRandomTrivia({ category, exclude: shownQuestionsRef.current })
+    else if (fresh) t = getRandomTrivia({ exclude: shownQuestionsRef.current })
+    else t = await getDailyTrivia(session?.access_token)
+    if (!t) { pushUI('error', "Couldn't load trivia — try again in a sec."); return }
+    shownQuestionsRef.current = [...shownQuestionsRef.current, t.question]
+    triviaActiveRef.current = true
+    messagesRef.current = [
+      ...messagesRef.current,
+      {
+        role: 'user',
+        content: `[SYSTEM CONTEXT — not from a chef] The ACTIVE "Big Sam's Trivia" question is now showing on screen as a card — do NOT repost it. Question: "${t.question}" | Answer: "${t.answer}" | Hint 1: "${t.hint1}" | Hint 2: "${t.hint2}" | Fun fact: "${t.funFact}". Judge guesses against THIS question: be generous with fuzzy matching and hype them up if they're basically right; if wrong, give exactly ONE hint at a time; after 3 wrong guesses (or if they give up) reveal the answer and the fun fact. If the crew asks for another question or a different genre, the app swaps the card for them — just keep judging whatever question is currently active.`,
+      },
+    ]
     setTranscript((tr) => [...tr, { role: 'trivia', trivia: t }])
   }
 
@@ -133,11 +147,14 @@ export default function JarvisWidget() {
   async function send(text) {
     const trimmed = text.trim()
     if (!trimmed || busy) return
-    // "show me the trivia" / "question of the day" → pull up the card instead of a chat turn.
-    if (TRIVIA_INTENT.test(trimmed)) {
+    // Trivia controls: "show me the trivia", "another one", or a genre switch → swap the card.
+    // After trivia is active, bare "another" or a genre word counts as a trivia command.
+    const cat = detectCategory(trimmed)
+    const wantsNew = NEW_INTENT.test(trimmed)
+    if (TRIVIA_INTENT.test(trimmed) || (triviaActiveRef.current && (wantsNew || cat))) {
       setInput('')
       pushUI('user', trimmed)
-      await showTrivia()
+      await showTrivia({ category: cat, fresh: wantsNew })
       return
     }
     setInput('')
