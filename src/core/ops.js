@@ -451,10 +451,12 @@ export async function getFlavors(sb) {
         product_type: f.product_type,
         is_component: f.is_component,
         yield_per_batch: f.default_yield,
-        double_batch: !!f.double_batch_reminder,
+        // SSC excluded — its half-trays are made the night before, not a same-day double batch.
+        double_batch: !!f.double_batch_reminder && c.role !== 'ssc',
+        in_progress_first_round: (!!f.default_yield && c.role !== 'ssc' && f.double_batch_reminder) ? f.default_yield * 2 : 0,
         role: c.role, // base | finish_from_base | own_batch | ssc | popcorn | component
-        // the flavor whose BATCH you log to produce this (a base for finish_from_base/ssc, else itself):
-        batch_flavor: c.role === 'finish_from_base' || c.role === 'ssc' ? c.base : f.name,
+        // Log production under the flavor ITSELF — each flavor's own recipe covers its base.
+        log_under: f.name,
         is_ssc: c.role === 'ssc',
         toppings: c.toppings,
       }
