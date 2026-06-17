@@ -80,6 +80,15 @@ function detectCategory(text) {
   for (const [re, cat] of CATEGORY_MAP) if (re.test(text)) return cat
   return null
 }
+// A genre switch must have a request cue or a trivia word — so a bare/one-word ANSWER that
+// happens to be a genre (e.g. typing "Sports" as a guess) stays a guess, not a command.
+const SWITCH_CUE = /\b(give me|gimme|switch|change|how about|let'?s|lets|i want|i'?d like|can (we|i)|put on|make it|do (a|an|some)|new|another|different)\b/i
+function categorySwitch(text) {
+  const cat = detectCategory(text)
+  if (!cat) return null
+  if (SWITCH_CUE.test(text) || /\b(trivia|question|one|genre|category)\b/i.test(text)) return cat
+  return null
+}
 
 // Conversation persistence for the browser SESSION: survives refresh + page changes, and
 // clears when the tab is closed. The "New chat" button wipes it on demand.
@@ -220,10 +229,13 @@ export default function JarvisWidget() {
     if (!trimmed || busy) return
     // Trivia controls: "show me the trivia", "another one", or a genre switch → swap the card.
     // After trivia is active, bare "another" or a genre word counts as a trivia command.
-    const cat = detectCategory(trimmed)
+    const explicitTrivia = TRIVIA_INTENT.test(trimmed)
     const wantsNew = NEW_INTENT.test(trimmed)
     const wantsBack = triviaActiveRef.current && BACK_INTENT.test(trimmed)
-    if (TRIVIA_INTENT.test(trimmed) || (triviaActiveRef.current && (wantsNew || cat || wantsBack))) {
+    // If they explicitly said "trivia", any genre word counts; otherwise (mid-game) require a
+    // clear switch request, so a one-word or misspelled ANSWER is judged as a guess instead.
+    const cat = explicitTrivia ? detectCategory(trimmed) : (triviaActiveRef.current ? categorySwitch(trimmed) : null)
+    if (explicitTrivia || (triviaActiveRef.current && (wantsNew || cat || wantsBack))) {
       setInput('')
       // Show the new card FIRST, then echo the command below it (text under the trivia).
       await showTrivia({ category: cat, fresh: wantsNew, back: wantsBack })
