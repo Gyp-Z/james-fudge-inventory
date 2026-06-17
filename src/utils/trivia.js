@@ -33,6 +33,12 @@ export function getSpecialDay() {
   return { ...pick, date: today, special: true }
 }
 
+// For GENERAL/random pulls (no genre asked), down-weight niche categories so they don't
+// dominate — most of the crew (and the cashiers) don't watch anime. When someone explicitly
+// asks for the Anime genre, it's picked from the full anime pool, so this only affects
+// "general knowledge" / "another" pulls.
+const GENERAL_WEIGHT = { Anime: 0.3 }
+
 // A random question from the bank, optionally filtered to a category, optionally excluding
 // questions already shown this session. Powers "give me another" and genre switch-ups.
 export function getRandomTrivia({ category = null, exclude = [] } = {}) {
@@ -41,7 +47,22 @@ export function getRandomTrivia({ category = null, exclude = [] } = {}) {
   let candidates = pool.filter((q) => !exSet.has(q.question))
   if (candidates.length === 0) candidates = pool.length ? pool : triviaBank // ran out → allow repeats
   if (candidates.length === 0) return null
-  const pick = candidates[Math.floor(Math.random() * candidates.length)]
+
+  let pick
+  if (category) {
+    // Explicit genre → straight random within it (full anime when anime is requested).
+    pick = candidates[Math.floor(Math.random() * candidates.length)]
+  } else {
+    // General/random → weighted so niche categories (anime) only come up occasionally.
+    const weights = candidates.map((q) => GENERAL_WEIGHT[q.category] ?? 1)
+    const total = weights.reduce((a, b) => a + b, 0)
+    let r = Math.random() * total
+    pick = candidates[candidates.length - 1]
+    for (let i = 0; i < candidates.length; i++) {
+      r -= weights[i]
+      if (r <= 0) { pick = candidates[i]; break }
+    }
+  }
   return { ...pick, date: todayEastern() }
 }
 
