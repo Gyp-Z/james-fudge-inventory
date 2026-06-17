@@ -4,6 +4,7 @@
 // question shows for everyone on the same Eastern day, and rotates without repeating inside
 // the bank's length (90+ questions → no repeats within a 90-day window).
 import triviaBank from '../data/triviaBank.json'
+import specialDays from '../data/triviaSpecialDays.json'
 
 // Reference day for the rotation. Index = (days since this date) mod bank length.
 const REF_DATE = '2026-01-01'
@@ -21,8 +22,21 @@ function daysSinceRef(dateStr) {
   return Math.floor(ms / 86400000)
 }
 
-// Today's STATIC question (same for the whole crew on a given Eastern day).
+// A date-specific question for a holiday / notable day (keyed by "MM-DD"), or null.
+// These OVERRIDE the rotation and the weekend web question — e.g. July 4th, Juneteenth,
+// Michael Jackson's birthday, Joel Embiid's birthday, One Piece days, etc.
+export function getSpecialDay() {
+  const today = todayEastern()
+  const entry = specialDays[today.slice(5)] // MM-DD
+  if (!entry) return null
+  const pick = Array.isArray(entry) ? entry[Number(today.slice(0, 4)) % entry.length] : entry
+  return { ...pick, date: today, special: true }
+}
+
+// Today's question: a special-day entry if one exists, otherwise the static rotation.
 export function getTodayTrivia() {
+  const special = getSpecialDay()
+  if (special) return special
   const today = todayEastern()
   const n = triviaBank.length
   const idx = ((daysSinceRef(today) % n) + n) % n
@@ -39,6 +53,8 @@ export function isFreshDay() {
 // Hybrid pick: on weekends try the live /api/trivia question (cached server-side so the whole
 // crew gets the same one); fall back to the static bank on weekdays or if anything fails.
 export async function getDailyTrivia(token) {
+  const special = getSpecialDay() // holidays/birthdays beat everything
+  if (special) return special
   if (isFreshDay()) {
     try {
       const res = await fetch('/api/trivia', { headers: { Authorization: `Bearer ${token ?? ''}` } })
