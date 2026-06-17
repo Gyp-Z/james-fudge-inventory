@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import { useAuth } from '../hooks/useAuth'
 import ConfirmDialog from './ConfirmDialog'
 import { runTool, WRITE_TOOLS, summarizeToolCall } from '../utils/jarvisClientTools'
-import { getDailyTrivia, getRandomTrivia } from '../utils/trivia'
+import { getDailyTrivia, getRandomTrivia, loadTriviaChoice, saveTriviaChoice } from '../utils/trivia'
 
 // Themed renderer so Jarvis's markdown becomes intentional, professional UI (no raw ** or #).
 const MD = {
@@ -101,6 +101,12 @@ export default function JarvisWidget() {
     if (open) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [transcript, busy, open])
 
+  // Restore today's chosen question + reroll history so a refresh keeps your pick.
+  useEffect(() => {
+    const saved = loadTriviaChoice()
+    if (saved) { triviaHistoryRef.current = saved.history; triviaPosRef.current = saved.pos }
+  }, [])
+
   if (!session) return null // owner-only
 
   function pushUI(role, text) { setTranscript((t) => [...t, { role, text }]) }
@@ -119,16 +125,26 @@ export default function JarvisWidget() {
         pushUI('tool', '↩️ That’s the first question — nothing to go back to.')
         return
       }
-    } else {
+    } else if (category || fresh) {
       const exclude = triviaHistoryRef.current.map((x) => x.question)
-      if (category) t = getRandomTrivia({ category, exclude })
-      else if (fresh) t = getRandomTrivia({ exclude })
-      else t = await getDailyTrivia(session?.access_token)
+      t = getRandomTrivia({ category, exclude })
       if (!t) { pushUI('error', "Couldn't load trivia — try again in a sec."); return }
       triviaHistoryRef.current = [...triviaHistoryRef.current, t]
       triviaPosRef.current = triviaHistoryRef.current.length - 1
+    } else {
+      // Default (button / "show me the trivia"): keep the current chosen question if there is
+      // one (survives a refresh), otherwise load today's daily/special/weekend question.
+      if (triviaPosRef.current >= 0 && triviaHistoryRef.current[triviaPosRef.current]) {
+        t = triviaHistoryRef.current[triviaPosRef.current]
+      } else {
+        t = await getDailyTrivia(session?.access_token)
+        if (!t) { pushUI('error', "Couldn't load trivia — try again in a sec."); return }
+        triviaHistoryRef.current = [...triviaHistoryRef.current, t]
+        triviaPosRef.current = triviaHistoryRef.current.length - 1
+      }
     }
     triviaActiveRef.current = true
+    saveTriviaChoice(triviaHistoryRef.current, triviaPosRef.current)
     // ONE card only: drop any existing trivia card, then show the active one at the bottom
     // (so a reroll changes the question in view instead of stacking a second card).
     setTranscript((tr) => [...tr.filter((m) => m.role !== 'trivia'), { role: 'trivia', trivia: t }])

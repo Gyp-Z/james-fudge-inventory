@@ -97,3 +97,24 @@ export function markTriviaShown() {
     /* localStorage unavailable (private mode etc.) — fine, trivia just may re-show */
   }
 }
+
+// Persist the chosen question + reroll history for TODAY, so a page refresh keeps your pick
+// instead of snapping back to the original. Cleared automatically on a new day.
+const CHOICE_KEY = 'bigsams-trivia-choice'
+export function loadTriviaChoice() {
+  try {
+    const data = JSON.parse(localStorage.getItem(CHOICE_KEY) || 'null')
+    if (!data || data.date !== todayEastern()) return null // stale → new day resets to default
+    if (!Array.isArray(data.history) || data.history.length === 0 || typeof data.pos !== 'number') return null
+    return { history: data.history, pos: Math.max(0, Math.min(data.pos, data.history.length - 1)) }
+  } catch {
+    return null
+  }
+}
+export function saveTriviaChoice(history, pos) {
+  try {
+    localStorage.setItem(CHOICE_KEY, JSON.stringify({ date: todayEastern(), history, pos }))
+  } catch {
+    /* ignore */
+  }
+}
