@@ -32,7 +32,7 @@ function TriviaCard({ t }) {
       </div>
       <p className="text-sm font-semibold text-store-brown leading-snug">{t.question}</p>
       <p className="text-xs text-store-brown-light mt-2">Drop your guesses below 👇</p>
-      <p className="text-[11px] text-store-brown-light/80 mt-1">Not it? Ask for “another”, a genre (sports, anime, general knowledge…), or say it’s “too hard”.</p>
+      <p className="text-[11px] text-store-brown-light/80 mt-1">Not it? Just say “another”, a genre, a team (sixers, eagles…), or “too hard” — Jarvis swaps it.</p>
     </div>
   )
 }
@@ -59,15 +59,7 @@ function contextFor(path) {
 }
 
 const MAX_TURNS = 8
-// Phrases that should pull up Big Sam's Trivia instead of a normal chat turn.
-const TRIVIA_INTENT = /\b(trivia|question of the day|big sam'?s?)\b/i
-// "Give me another" / reshuffle the trivia — including "too hard / too easy / easier".
-const NEW_INTENT = /\b(another|a new one|new question|different( one| question)?|switch( it up)?|switch ?up|skip|next( one)?|one more|change (it|the question)|not feeling|don'?t like|hit me|reroll|refresh|too (hard|tough|difficult|easy)|easier|harder)\b/i
-// "General knowledge" / random = no specific genre, just a fresh question from any topic.
-const GENERAL_INTENT = /\b(general knowledge|general trivia|general one|something general|random( one| question| trivia)?|surprise me|any topic|anything)\b/i
-// "Go back" to the previous question.
-const BACK_INTENT = /\b(go back|previous|prev|original|bring (it|that) back|today'?s (one|question))\b/i
-// Genre switch-up → map a phrase to a bank category.
+// Maps a (Jarvis-normalized) genre word to a bank category — used by the change_trivia tool.
 const CATEGORY_MAP = [
   [/\b(sports?|nba|nfl|basketball|football|baseball|hockey|soccer|eagles|sixers|phillies|flyers)\b/i, 'Sports'],
   [/\b(anime|manga|one ?piece|naruto|dragon ?ball|jujutsu|demon ?slayer|bleach)\b/i, 'Anime'],
@@ -80,22 +72,6 @@ const CATEGORY_MAP = [
 ]
 function detectCategory(text) {
   for (const [re, cat] of CATEGORY_MAP) if (re.test(text)) return cat
-  return null
-}
-// A genre switch must have a request cue or a trivia word — so a bare/one-word ANSWER that
-// happens to be a genre (e.g. typing "Sports" as a guess) stays a guess, not a command.
-const SWITCH_CUE = /\b(give me|gimme|switch|change|how about|let'?s|lets|i want|i'?d like|can (we|i)|put on|make it|do (a|an|some)|new|another|different)\b/i
-function categorySwitch(text) {
-  const cat = detectCategory(text)
-  if (!cat) return null
-  if (SWITCH_CUE.test(text) || /\b(trivia|question|one|genre|category)\b/i.test(text)) return cat
-  return null
-}
-// Specific topic (sixers/eagles/one piece…) — same cue requirement so a bare answer stays a guess.
-function topicSwitch(text) {
-  const key = detectTopic(text)
-  if (!key) return null
-  if (SWITCH_CUE.test(text) || /\b(trivia|question|one|genre|category)\b/i.test(text)) return key
   return null
 }
 
@@ -171,51 +147,66 @@ export default function JarvisWidget() {
   // a special date, weekend → fresh web question, else the daily rotation). Pass { fresh }
   // for "give me another" or { category } to switch genres. Seeds the ACTIVE question's
   // answer into context so Jarvis can judge guesses, hint, and reveal against the right one.
-  async function showTrivia({ category = null, topic = null, fresh = false, back = false } = {}) {
+  async function showTrivia({ category = null, topic = null, fresh = false, back = false, seedContext = true } = {}) {
     let t
     if (back) {
       if (triviaPosRef.current > 0) {
         triviaPosRef.current -= 1
         t = triviaHistoryRef.current[triviaPosRef.current]
       } else {
-        pushUI('tool', '↩️ That’s the first question — nothing to go back to.')
-        return
+        return null // nothing to go back to
       }
     } else if (topic || category || fresh) {
       const exclude = triviaHistoryRef.current.map((x) => x.question)
-      if (topic) {
-        t = getTopicTrivia(topic, exclude)
-        if (!t) { pushUI('tool', `🤷 No ${topic} questions in the bank yet — here's another.`); t = getRandomTrivia({ exclude }) }
-      } else {
-        t = getRandomTrivia({ category, exclude })
-      }
-      if (!t) { pushUI('error', "Couldn't load trivia — try again in a sec."); return }
+      t = topic ? (getTopicTrivia(topic, exclude) || getRandomTrivia({ exclude })) : getRandomTrivia({ category, exclude })
+      if (!t) { pushUI('error', "Couldn't load trivia — try again in a sec."); return null }
       triviaHistoryRef.current = [...triviaHistoryRef.current, t]
       triviaPosRef.current = triviaHistoryRef.current.length - 1
     } else {
-      // Default (button / "show me the trivia"): keep the current chosen question if there is
-      // one (survives a refresh), otherwise load today's daily/special/weekend question.
+      // Default (button): keep the current chosen question if there is one (survives a
+      // refresh), otherwise load today's daily/special/weekend question.
       if (triviaPosRef.current >= 0 && triviaHistoryRef.current[triviaPosRef.current]) {
         t = triviaHistoryRef.current[triviaPosRef.current]
       } else {
         t = await getDailyTrivia(session?.access_token)
-        if (!t) { pushUI('error', "Couldn't load trivia — try again in a sec."); return }
+        if (!t) { pushUI('error', "Couldn't load trivia — try again in a sec."); return null }
         triviaHistoryRef.current = [...triviaHistoryRef.current, t]
         triviaPosRef.current = triviaHistoryRef.current.length - 1
       }
     }
     triviaActiveRef.current = true
     saveTriviaChoice(triviaHistoryRef.current, triviaPosRef.current)
-    // ONE card only: drop any existing trivia card, then show the active one at the bottom
-    // (so a reroll changes the question in view instead of stacking a second card).
+    // ONE card only: drop any existing trivia card, then show the active one at the bottom.
     setTranscript((tr) => [...tr.filter((m) => m.role !== 'trivia'), { role: 'trivia', trivia: t }])
-    messagesRef.current = [
-      ...messagesRef.current,
-      {
-        role: 'user',
-        content: `[SYSTEM CONTEXT — not from a chef] The ACTIVE "Big Sam's Trivia" question is now showing on screen as a card — do NOT repost it. Question: "${t.question}" | Answer: "${t.answer}" | Hint 1: "${t.hint1}" | Hint 2: "${t.hint2}" | Fun fact: "${t.funFact}". Judge guesses against THIS question: be generous with fuzzy matching and hype them up if they're basically right; if wrong, give exactly ONE hint at a time; after 3 wrong guesses (or if they give up) reveal the answer and the fun fact. The crew can ask for another, a genre, or to go back — the app swaps the card; just keep judging whatever is currently active.`,
-      },
-    ]
+    // Button path has no Claude turn, so seed the answer/hints into context for judging.
+    // The change_trivia tool path returns the question to Jarvis directly, so it skips this.
+    if (seedContext) {
+      messagesRef.current = [
+        ...messagesRef.current,
+        {
+          role: 'user',
+          content: `[SYSTEM CONTEXT — not from a chef] The ACTIVE "Big Sam's Trivia" question is on screen as a card — do NOT repost it. Question: "${t.question}" | Answer: "${t.answer}" | Hint 1: "${t.hint1}" | Hint 2: "${t.hint2}" | Fun fact: "${t.funFact}". Judge guesses against THIS (the most recent) question: generous fuzzy matching, hype if basically right, ONE hint at a time when wrong, reveal after 3 wrong guesses or on giving up. To change the question, call change_trivia.`,
+        },
+      ]
+    }
+    return t
+  }
+
+  // Jarvis-driven trivia swap (via the change_trivia tool). Returns the new question, or null.
+  async function applyTriviaChange({ genre = null, topic = null, back = false } = {}) {
+    if (back) return showTrivia({ back: true, seedContext: false })
+    if (topic) {
+      const key = detectTopic(topic)
+      if (key) return showTrivia({ topic: key, seedContext: false })
+      const cat = detectCategory(topic)
+      return showTrivia({ category: cat, fresh: !cat, seedContext: false })
+    }
+    if (genre) {
+      if (/general|random|any/i.test(genre)) return showTrivia({ fresh: true, seedContext: false })
+      const cat = detectCategory(genre)
+      return showTrivia({ category: cat, fresh: !cat, seedContext: false })
+    }
+    return showTrivia({ fresh: triviaActiveRef.current, seedContext: false })
   }
 
   function confirmWrite(toolUse) {
@@ -241,24 +232,6 @@ export default function JarvisWidget() {
   async function send(text) {
     const trimmed = text.trim()
     if (!trimmed || busy) return
-    // Trivia controls: "show me the trivia", "another one", or a genre switch → swap the card.
-    // After trivia is active, bare "another" or a genre word counts as a trivia command.
-    const explicitTrivia = TRIVIA_INTENT.test(trimmed)
-    const wantsGeneral = GENERAL_INTENT.test(trimmed) // "general knowledge" = any topic, fresh
-    const wantsNew = NEW_INTENT.test(trimmed) || wantsGeneral // "too hard" / "easier" also reroll
-    const wantsBack = triviaActiveRef.current && BACK_INTENT.test(trimmed)
-    // A specific topic ("sixers", "eagles", "one piece") beats a broad genre. If they explicitly
-    // said "trivia", any topic/genre word counts; otherwise (mid-game) require a clear switch
-    // request, so a one-word or misspelled ANSWER is judged as a guess instead.
-    const topic = wantsGeneral ? null : (explicitTrivia ? detectTopic(trimmed) : (triviaActiveRef.current ? topicSwitch(trimmed) : null))
-    const cat = (wantsGeneral || topic) ? null : (explicitTrivia ? detectCategory(trimmed) : (triviaActiveRef.current ? categorySwitch(trimmed) : null))
-    if (explicitTrivia || (triviaActiveRef.current && (wantsNew || cat || topic || wantsBack))) {
-      setInput('')
-      // Show the new card FIRST, then echo the command below it (text under the trivia).
-      await showTrivia({ category: cat, topic, fresh: wantsNew, back: wantsBack })
-      pushUI('user', trimmed)
-      return
-    }
     setInput('')
     pushUI('user', trimmed)
     messagesRef.current = [...messagesRef.current, { role: 'user', content: trimmed }]
@@ -276,7 +249,13 @@ export default function JarvisWidget() {
         const toolResults = []
         for (const tu of toolUses) {
           let result
-          if (WRITE_TOOLS.has(tu.name)) {
+          if (tu.name === 'change_trivia') {
+            const t = await applyTriviaChange(tu.input || {})
+            result = t
+              ? { ok: true, question: t.question, answer: t.answer, hint1: t.hint1, hint2: t.hint2, funFact: t.funFact }
+              : { error: 'No previous question to go back to.' }
+            pushUI('tool', t ? '🎯 New trivia question' : '↩️ Nothing to go back to')
+          } else if (WRITE_TOOLS.has(tu.name)) {
             const ok = await confirmWrite(tu)
             if (!ok) { pushUI('tool', '✋ Action cancelled'); result = { error: 'User declined the action.' } }
             else {

@@ -82,15 +82,31 @@ LOGGING PRODUCTION (this order is mess-up-proof — never skip it):
 - SSC is the exception: NOT a double batch (half-trays made the night before) — handle per the SSC rules above.
 
 BIG SAM'S TRIVIA OF THE DAY:
-You run "Big Sam's Trivia of the Day" — a beloved daily kitchen tradition named after the crew's cousin Sam, who used to work here and is now in Poland for a law internship (they miss him; feel free to shout him out). When trivia is active, today's question, answer, hints, and fun fact are given to you as context, and the question is already on screen as a card. Rules:
+You run "Big Sam's Trivia of the Day" — a beloved daily kitchen tradition named after the crew's cousin Sam, who used to work here and is now in Poland for a law internship (they miss him; feel free to shout him out). The current question + answer + hints + fun fact are given to you (as context when the card is shown, or as the change_trivia tool result when you swap it), and the question is already on screen as a card. Rules:
 - Do NOT repost the question — it's already shown. Just react to guesses.
 - Be GENEROUS with fuzzy matching — close spelling or phrasing counts. If they're basically right, give it to them and be HYPE ("LETS GOOO 🔥" energy, celebrate them).
 - If a guess is wrong, give exactly ONE hint at a time (hint 1, then hint 2 on the next wrong guess). Don't reveal early.
 - After 3 wrong guesses in the conversation — or if anyone says "just tell me" / "answer" / "give up" — reveal the answer and share the fun fact.
 - On weekends the question may be a FRESH current-events one fetched just for today. Handle it exactly the same — you have its answer and hints in context, so judge confidently and never say you can't know recent events.
-- The crew can ask for a different question or a specific genre (sports, anime, music, history, food, etc.) — the app swaps the card and hands you a new active question, so just keep judging whichever one is currently active.
+- To SHOW or CHANGE the question, call the change_trivia tool — whenever the chef wants to see/start trivia, or wants a different one ("another", "I don't like this", "too hard"/"too easy"), a genre (sports, anime, music, history, food, pop culture, science, records, or "general" for any topic), a specific team/series ("sixers", "eagles", "phillies", "flyers", "basketball", "one piece", "naruto", etc.), or "go back" to the previous one. UNDERSTAND typos and casual phrasing ("idk if I like this", "swich genres", "gimme sixers", "sixrs"). The tool puts the new card on screen and returns the new question to you — don't repost it yourself, and NEVER tell them to click a button or "swap." Always judge guesses against the MOST RECENT question.
+- Change request vs guess: if they want a different/genre/topic/back question, call change_trivia. If they're trying to ANSWER, judge it (be generous with typos). When it's a one-word reply that clearly names a genre or team they could be requesting (e.g. "sixers", "anime"), treat it as a change request and call change_trivia.
 - On special days the question ties to a holiday or birthday (July 4th, Juneteenth, Michael Jackson's birthday, an Eagles/Phillies/Sixers/One Piece day, etc.) — lean into the occasion when you reveal the fun fact.
 - Keep it fun and a little chaotic. This should spark a 5-minute debate in the kitchen, not feel like a quiz.`
+
+// In-app chat ONLY (not exposed to the MCP server) — drives the Big Sam's Trivia card UI.
+export const CHANGE_TRIVIA_TOOL = {
+  name: 'change_trivia',
+  description: 'Show or swap the Big Sam\'s Trivia question on screen. Call this when the chef wants to SEE/START trivia ("show me the trivia", "question of the day") OR wants a DIFFERENT question — "another" / "I don\'t like this one" / "too hard", a genre (sports, anime, music, history, food, pop culture, science, records, or "general"), a specific team/series ("sixers", "eagles", "phillies", "flyers", "basketball", "football", "baseball", "hockey", "soccer", "one piece", "naruto", "dragon ball"), or "go back" to the previous one. With no arguments it shows the current/today\'s question (or a fresh one if trivia is already up). Handle sloppy spelling and casual phrasing. Do NOT call this when they are ANSWERING/guessing the current question.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      genre: { type: 'string', description: 'Broad genre if they asked for one: sports, anime, music, history, food, pop culture, science, records, or "general".' },
+      topic: { type: 'string', description: 'Specific team/sport/series if they named one, e.g. "sixers", "eagles", "basketball", "one piece".' },
+      back: { type: 'boolean', description: 'True to go back to the previous question.' },
+    },
+    additionalProperties: false,
+  },
+}
 
 export const TOOL_SCHEMAS = [
   {

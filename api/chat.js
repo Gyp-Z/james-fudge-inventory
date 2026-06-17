@@ -6,7 +6,7 @@
 // verifies it before spending any tokens. Owner-only, matching the Jarvis page gating.
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
-import { SYSTEM_PROMPT, TOOL_SCHEMAS } from '../src/core/toolSchemas.js'
+import { SYSTEM_PROMPT, TOOL_SCHEMAS, CHANGE_TRIVIA_TOOL } from '../src/core/toolSchemas.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -52,7 +52,7 @@ export default async function handler(req, res) {
       max_tokens: 4096,
       thinking: { type: 'adaptive' },
       system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
-      tools: TOOL_SCHEMAS,
+      tools: [...TOOL_SCHEMAS, CHANGE_TRIVIA_TOOL],
       messages,
     })
     res.status(200).json({ content: message.content, stop_reason: message.stop_reason })
