@@ -32,7 +32,7 @@ function TriviaCard({ t }) {
       </div>
       <p className="text-sm font-semibold text-store-brown leading-snug">{t.question}</p>
       <p className="text-xs text-store-brown-light mt-2">Drop your guesses below 👇</p>
-      <p className="text-[11px] text-store-brown-light/80 mt-1">Not it? Ask for “another”, a genre (sports, anime…), or “go back”.</p>
+      <p className="text-[11px] text-store-brown-light/80 mt-1">Not it? Ask for “another”, a genre (sports, anime, general knowledge…), or say it’s “too hard”.</p>
     </div>
   )
 }
@@ -61,8 +61,10 @@ function contextFor(path) {
 const MAX_TURNS = 8
 // Phrases that should pull up Big Sam's Trivia instead of a normal chat turn.
 const TRIVIA_INTENT = /\b(trivia|question of the day|big sam'?s?)\b/i
-// "Give me another" / reshuffle the trivia.
-const NEW_INTENT = /\b(another|a new one|new question|different( one)?|switch( it up)?|switch ?up|skip|next( one)?|one more|change it|not feeling|don'?t like|hit me|reroll|refresh)\b/i
+// "Give me another" / reshuffle the trivia — including "too hard / too easy / easier".
+const NEW_INTENT = /\b(another|a new one|new question|different( one| question)?|switch( it up)?|switch ?up|skip|next( one)?|one more|change (it|the question)|not feeling|don'?t like|hit me|reroll|refresh|too (hard|tough|difficult|easy)|easier|harder)\b/i
+// "General knowledge" / random = no specific genre, just a fresh question from any topic.
+const GENERAL_INTENT = /\b(general knowledge|general trivia|general one|something general|random( one| question| trivia)?|surprise me|any topic|anything)\b/i
 // "Go back" to the previous question.
 const BACK_INTENT = /\b(go back|previous|prev|original|bring (it|that) back|today'?s (one|question))\b/i
 // Genre switch-up → map a phrase to a bank category.
@@ -230,11 +232,13 @@ export default function JarvisWidget() {
     // Trivia controls: "show me the trivia", "another one", or a genre switch → swap the card.
     // After trivia is active, bare "another" or a genre word counts as a trivia command.
     const explicitTrivia = TRIVIA_INTENT.test(trimmed)
-    const wantsNew = NEW_INTENT.test(trimmed)
+    const wantsGeneral = GENERAL_INTENT.test(trimmed) // "general knowledge" = any topic, fresh
+    const wantsNew = NEW_INTENT.test(trimmed) || wantsGeneral // "too hard" / "easier" also reroll
     const wantsBack = triviaActiveRef.current && BACK_INTENT.test(trimmed)
     // If they explicitly said "trivia", any genre word counts; otherwise (mid-game) require a
     // clear switch request, so a one-word or misspelled ANSWER is judged as a guess instead.
-    const cat = explicitTrivia ? detectCategory(trimmed) : (triviaActiveRef.current ? categorySwitch(trimmed) : null)
+    // "general knowledge" means no specific genre — just a fresh random question.
+    const cat = wantsGeneral ? null : (explicitTrivia ? detectCategory(trimmed) : (triviaActiveRef.current ? categorySwitch(trimmed) : null))
     if (explicitTrivia || (triviaActiveRef.current && (wantsNew || cat || wantsBack))) {
       setInput('')
       // Show the new card FIRST, then echo the command below it (text under the trivia).
