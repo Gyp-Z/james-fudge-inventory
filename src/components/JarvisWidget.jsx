@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import { useAuth } from '../hooks/useAuth'
 import ConfirmDialog from './ConfirmDialog'
 import { runTool, WRITE_TOOLS, summarizeToolCall } from '../utils/jarvisClientTools'
-import { getDailyTrivia, getRandomTrivia, loadTriviaChoice, saveTriviaChoice } from '../utils/trivia'
+import { getDailyTrivia, getRandomTrivia, getTopicTrivia, detectTopic, loadTriviaChoice, saveTriviaChoice } from '../utils/trivia'
 
 // Themed renderer so Jarvis's markdown becomes intentional, professional UI (no raw ** or #).
 const MD = {
@@ -91,6 +91,13 @@ function categorySwitch(text) {
   if (SWITCH_CUE.test(text) || /\b(trivia|question|one|genre|category)\b/i.test(text)) return cat
   return null
 }
+// Specific topic (sixers/eagles/one piece…) — same cue requirement so a bare answer stays a guess.
+function topicSwitch(text) {
+  const key = detectTopic(text)
+  if (!key) return null
+  if (SWITCH_CUE.test(text) || /\b(trivia|question|one|genre|category)\b/i.test(text)) return key
+  return null
+}
 
 // Conversation persistence for the browser SESSION: survives refresh + page changes, and
 // clears when the tab is closed. The "New chat" button wipes it on demand.
@@ -164,7 +171,7 @@ export default function JarvisWidget() {
   // a special date, weekend → fresh web question, else the daily rotation). Pass { fresh }
   // for "give me another" or { category } to switch genres. Seeds the ACTIVE question's
   // answer into context so Jarvis can judge guesses, hint, and reveal against the right one.
-  async function showTrivia({ category = null, fresh = false, back = false } = {}) {
+  async function showTrivia({ category = null, topic = null, fresh = false, back = false } = {}) {
     let t
     if (back) {
       if (triviaPosRef.current > 0) {
@@ -174,9 +181,14 @@ export default function JarvisWidget() {
         pushUI('tool', '↩️ That’s the first question — nothing to go back to.')
         return
       }
-    } else if (category || fresh) {
+    } else if (topic || category || fresh) {
       const exclude = triviaHistoryRef.current.map((x) => x.question)
-      t = getRandomTrivia({ category, exclude })
+      if (topic) {
+        t = getTopicTrivia(topic, exclude)
+        if (!t) { pushUI('tool', `🤷 No ${topic} questions in the bank yet — here's another.`); t = getRandomTrivia({ exclude }) }
+      } else {
+        t = getRandomTrivia({ category, exclude })
+      }
       if (!t) { pushUI('error', "Couldn't load trivia — try again in a sec."); return }
       triviaHistoryRef.current = [...triviaHistoryRef.current, t]
       triviaPosRef.current = triviaHistoryRef.current.length - 1
@@ -235,14 +247,15 @@ export default function JarvisWidget() {
     const wantsGeneral = GENERAL_INTENT.test(trimmed) // "general knowledge" = any topic, fresh
     const wantsNew = NEW_INTENT.test(trimmed) || wantsGeneral // "too hard" / "easier" also reroll
     const wantsBack = triviaActiveRef.current && BACK_INTENT.test(trimmed)
-    // If they explicitly said "trivia", any genre word counts; otherwise (mid-game) require a
-    // clear switch request, so a one-word or misspelled ANSWER is judged as a guess instead.
-    // "general knowledge" means no specific genre — just a fresh random question.
-    const cat = wantsGeneral ? null : (explicitTrivia ? detectCategory(trimmed) : (triviaActiveRef.current ? categorySwitch(trimmed) : null))
-    if (explicitTrivia || (triviaActiveRef.current && (wantsNew || cat || wantsBack))) {
+    // A specific topic ("sixers", "eagles", "one piece") beats a broad genre. If they explicitly
+    // said "trivia", any topic/genre word counts; otherwise (mid-game) require a clear switch
+    // request, so a one-word or misspelled ANSWER is judged as a guess instead.
+    const topic = wantsGeneral ? null : (explicitTrivia ? detectTopic(trimmed) : (triviaActiveRef.current ? topicSwitch(trimmed) : null))
+    const cat = (wantsGeneral || topic) ? null : (explicitTrivia ? detectCategory(trimmed) : (triviaActiveRef.current ? categorySwitch(trimmed) : null))
+    if (explicitTrivia || (triviaActiveRef.current && (wantsNew || cat || topic || wantsBack))) {
       setInput('')
       // Show the new card FIRST, then echo the command below it (text under the trivia).
-      await showTrivia({ category: cat, fresh: wantsNew, back: wantsBack })
+      await showTrivia({ category: cat, topic, fresh: wantsNew, back: wantsBack })
       pushUI('user', trimmed)
       return
     }

@@ -66,6 +66,43 @@ export function getRandomTrivia({ category = null, exclude = [] } = {}) {
   return { ...pick, date: todayEastern() }
 }
 
+// Specific sub-topics (teams / sports / anime series). `detect` matches the chef's request;
+// `match` filters bank questions by keywords in the question/answer/fun-fact/category.
+const TOPICS = [
+  { key: 'sixers', detect: /\b(sixers|76ers|seventy[- ]?sixers)\b/i, match: /\b(sixers|76ers|embiid|iverson)\b/i },
+  { key: 'eagles', detect: /\beagles\b/i, match: /\b(eagles|jalen hurts|nick foles|philly special|tush push|brotherly shove)\b/i },
+  { key: 'phillies', detect: /\b(phillies|phanatic)\b/i, match: /\b(phillies|phanatic|brad lidge|mike schmidt|phillie)\b/i },
+  { key: 'flyers', detect: /\b(flyers|gritty)\b/i, match: /\b(flyers|gritty|broad street|bobby clarke|stanley cup)\b/i },
+  { key: 'basketball', detect: /\b(basketball|nba|hoops)\b/i, match: /\b(nba|basketball|embiid|iverson|sixers|wilt|chamberlain|klay|thompson)\b/i },
+  { key: 'football', detect: /\b(football|nfl)\b/i, match: /\b(nfl|eagles|jalen hurts|foles|dolphins|super bowl|tush push)\b/i },
+  { key: 'baseball', detect: /\b(baseball|mlb|phillies)\b/i, match: /\b(baseball|phillies|world series|home run|mike schmidt|cycle|lidge)\b/i },
+  { key: 'hockey', detect: /\b(hockey|nhl)\b/i, match: /\b(hockey|nhl|flyers|stanley cup|gritty|bobby clarke)\b/i },
+  { key: 'soccer', detect: /\b(soccer|fifa|premier league)\b/i, match: /\b(soccer|fifa|world cup|messi|maradona|ballon)\b/i },
+  { key: 'one piece', detect: /\bone ?piece\b/i, match: /\b(one piece|luffy|zoro|straw hat|gum-gum|pirate king)\b/i },
+  { key: 'naruto', detect: /\bnaruto\b/i, match: /\b(naruto|kurama|nine-tail|uzumaki)\b/i },
+  { key: 'dragon ball', detect: /\bdragon ?ball\b/i, match: /\b(dragon ball|goku|saiyan|vegeta|kamehameha)\b/i },
+]
+
+// Which specific topic (if any) is the chef asking for? Returns a topic key or null.
+export function detectTopic(text) {
+  for (const t of TOPICS) if (t.detect.test(text)) return t.key
+  return null
+}
+
+// A random question matching a specific topic (e.g. "sixers", "eagles", "one piece").
+// Returns null if the bank has no question for that topic.
+export function getTopicTrivia(topicKey, exclude = []) {
+  const topic = TOPICS.find((t) => t.key === topicKey)
+  if (!topic) return null
+  const exSet = new Set(exclude)
+  const blob = (q) => `${q.question} ${q.answer} ${q.funFact} ${q.category}`
+  const pool = triviaBank.filter((q) => topic.match.test(blob(q)))
+  let candidates = pool.filter((q) => !exSet.has(q.question))
+  if (candidates.length === 0) candidates = pool
+  if (candidates.length === 0) return null
+  return { ...candidates[Math.floor(Math.random() * candidates.length)], date: todayEastern() }
+}
+
 // Today's question: a special-day entry if one exists, otherwise the static rotation.
 export function getTodayTrivia() {
   const special = getSpecialDay()
