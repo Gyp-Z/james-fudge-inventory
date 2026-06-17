@@ -455,8 +455,9 @@ export async function getFlavors(sb) {
         double_batch: !!f.double_batch_reminder && c.role !== 'ssc',
         in_progress_first_round: (!!f.default_yield && c.role !== 'ssc' && f.double_batch_reminder) ? f.default_yield * 2 : 0,
         role: c.role, // base | finish_from_base | own_batch | ssc | popcorn | component
-        // Log production under the flavor ITSELF — each flavor's own recipe covers its base.
-        log_under: f.name,
+        // The BASE batch to LOG (deducts base ingredients): the base for finish-from-base / SSC,
+        // else the flavor itself. Trays/toppings are still recorded under the variant flavor.
+        batch_flavor: c.role === 'finish_from_base' || c.role === 'ssc' ? c.base : f.name,
         is_ssc: c.role === 'ssc',
         toppings: c.toppings,
       }
