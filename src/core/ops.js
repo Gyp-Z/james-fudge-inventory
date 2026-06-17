@@ -529,8 +529,8 @@ export async function getMakeRecommendations(sb, { days = 14, horizon = 2 } = {}
     day_of_week: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dow],
     pace: isWeekend ? 'busy' : isSlowDay ? 'slow' : 'steady',
     suggested_total_batches: isWeekend
-      ? 'up to ~6 for the day (3+ per shift on a busy day)'
-      : '~3–6 batches TOTAL for the whole day (steady/slow weekday); fewer if cleaning eats time',
+      ? 'shoot for around 6 batches today (busy — roughly 3+ per shift)'
+      : 'shoot for around 3–6 batches total today (steady day); fewer if a flavor is a pain to clean up after',
     window_days: days,
     horizon_days: horizon,
     caramel_trays: Number(caramel.toFixed(4)),
