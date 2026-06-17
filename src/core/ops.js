@@ -401,7 +401,11 @@ async function computeCaramelTrays(sb) {
     .gte('shift_reports.report_date', SEASON_START)
   let sscTrays = 0
   for (const e of sscEntries || []) if (isSSC(e.flavors?.name)) sscTrays += e.full_trays ?? 0
-  return Math.max(0, made - sscTrays / 18)
+  // Hand-wrapped caramels also draw down caramel trays (matches Dashboard/Analytics).
+  const { data: handwrap } = await sb.from('caramel_handwrap_logs').select('trays_used').gte('report_date', SEASON_START)
+  let handwrapTrays = 0
+  for (const h of handwrap || []) handwrapTrays += Number(h.trays_used) || 0
+  return Math.max(0, made - sscTrays / 18 - handwrapTrays)
 }
 
 // Classifies every active flavor by how it's produced, so recommendations and logging are
@@ -494,7 +498,9 @@ export async function getMakeRecommendations(sb, { days = 14, horizon = 2 } = {}
       restock_threshold: threshold,
       below_threshold: below,
       makes_per_batch: f.default_yield, // one batch yields this many trays of THIS flavor
-      double_batch: !!f.double_batch_reminder, // needs 2 pours to complete one make
+      // SSC is NOT a double batch: its half-trays are made the night before (so the bottoms
+      // firm up enough to mold the caramel), then topped with caramel the next day.
+      double_batch: !!f.double_batch_reminder && c.role !== 'ssc',
       role: c.role,
       batch_flavor: c.role === 'finish_from_base' || c.role === 'ssc' ? c.base : f.name,
       toppings: c.toppings,
@@ -510,7 +516,21 @@ export async function getMakeRecommendations(sb, { days = 14, horizon = 2 } = {}
   const baseLevels = {}
   for (const f of flavors) if (byId[f.id].role === 'base') baseLevels[f.name] = invMap[f.id]?.tray_count ?? 0
   const anySSC = recs.some((r) => r.is_ssc)
+
+  // Day + a realistic batch budget so the plan isn't "make everything that's low."
+  const todayStr = todayEastern()
+  const [yy, mm, dd] = todayStr.split('-').map(Number)
+  const dow = new Date(Date.UTC(yy, mm - 1, dd)).getUTCDay() // 0 = Sun ... 6 = Sat
+  const isWeekend = dow === 0 || dow === 6
+  const isSlowDay = dow === 1 || dow === 2 // Mon/Tue are the slow days
+
   return {
+    today: todayStr,
+    day_of_week: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dow],
+    pace: isWeekend ? 'busy' : isSlowDay ? 'slow' : 'steady',
+    suggested_total_batches: isWeekend
+      ? 'up to ~6 for the day (3+ per shift on a busy day)'
+      : '~3–6 batches TOTAL for the whole day (steady/slow weekday); fewer if cleaning eats time',
     window_days: days,
     horizon_days: horizon,
     caramel_trays: Number(caramel.toFixed(4)),
