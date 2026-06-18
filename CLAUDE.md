@@ -204,6 +204,7 @@ Added as a popcorn flavor mid-season 2026. Uses Cheddar Kernels (same qty as Che
 | `src/pages/Ingredients.jsx` | Ingredient management + deduction log. Archive button is in the name row (not the data row). |
 | `src/core/ops.js` | **Single source of truth** for all reads/writes. Every DB-touching fn takes a Supabase client as its first arg, so it runs in the browser, the Jarvis chat, and the MCP server. Holds the deduction logic + read/analytics queries + `runTool`/`WRITE_TOOLS`/`summarizeToolCall`. No browser-only imports. |
 | `src/core/toolSchemas.js` | Shared Jarvis tool catalog (`TOOL_SCHEMAS`) + `SYSTEM_PROMPT`, consumed by `api/chat.js` and `mcp/server.js`. |
+| `src/core/productionManual.js` | Full production manual (`PRODUCTION_MANUAL` string): every recipe, scale reading, cooking step, topping, yield, container size + new-chef tips. Returned by the `get_production_manual` tool. Kept OUT of the system prompt to save per-message tokens. Edit here when a recipe/process changes. |
 | `src/utils/autoDeduct.js` | Browser-bound wrappers over `src/core/ops.js` (bind the anon client). Same signatures as before — call sites unchanged. |
 | `src/utils/inventoryActions.js` | Browser-bound wrappers over `src/core/ops.js`. Same signatures. |
 | `api/chat.js` | Vercel function — Claude inference proxy for the in-app Jarvis chat. Holds `ANTHROPIC_API_KEY`, verifies the owner's Supabase token, no DB access. Uses `claude-opus-4-8`. |
@@ -270,13 +271,16 @@ actions by chat, plus an MCP server so the owner's desktop assistant can do the 
 
 - **One shared core, three front-ends.** `src/core/ops.js` is client-agnostic (takes a Supabase
   client). It's used by: the browser app (anon client, via the `inventoryActions`/`autoDeduct`
-  wrappers), the in-app Jarvis chat (`api/chat.js` + `src/pages/Jarvis.jsx`), and the local MCP
+  wrappers), the in-app Jarvis chat (`api/chat.js` + `src/components/JarvisWidget.jsx`, which executes tools via `src/utils/jarvisClientTools.js`), and the local MCP
   server (`mcp/server.js`, service-role client). **Change tool/deduction logic in core only** —
   never duplicate it per front-end.
 - **Tools** are defined once in `src/core/toolSchemas.js` and executed by `runTool` in core.
-  Reads: inventory/low-stock/sales-velocity/ingredient-stock/recent-activity/flavors/ingredients.
-  Writes: `log_batch`, `add_product_entry`, `set_inventory_count`, `set_ingredient_quantity`
-  (all route through the existing deduction helpers — no rounding, two-phase preserved).
+  Reads: inventory/low-stock/sales-velocity/ingredient-stock/recent-activity/flavors/ingredients,
+  plus `get_production_manual` (returns the full recipe/process/scale-weight manual from
+  `src/core/productionManual.js` — for "how do I make X" / training questions; kept out of the
+  base prompt to save tokens).
+  Writes: `log_batch`, `add_product_entry`, `set_inventory_count`, `set_ingredient_quantity`,
+  `log_fudge_pops` (all route through the existing deduction helpers — no rounding, two-phase preserved).
 - **Confirmation:** in-app writes confirm via `ConfirmDialog`; via MCP the desktop client's own
   tool-approval prompt is the gate.
 - **Access:** owner-only. `/jarvis` is behind `AdminRoute`; `api/chat.js` verifies the Supabase

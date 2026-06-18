@@ -10,6 +10,7 @@
 // are thin wrappers that bind the browser client to these functions (signatures unchanged).
 
 import { todayEastern } from '../utils/dates.js'
+import { PRODUCTION_MANUAL } from './productionManual.js'
 
 const SEASON_START = '2026-04-22'
 const CARAMEL_TRAYS_PER_SSC_TRAY = 1 / 18
@@ -809,6 +810,7 @@ export async function runTool(sb, name, input = {}) {
     case 'get_recent_activity': return await getRecentActivity(sb, input.days ?? 7, input.flavor)
     case 'get_flavors': return await getFlavors(sb)
     case 'get_ingredients': return await getIngredients(sb)
+    case 'get_production_manual': return { manual: PRODUCTION_MANUAL }
 
     case 'log_batch': {
       const flavor = await resolveFlavor(sb, input.flavor)
