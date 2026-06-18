@@ -152,6 +152,99 @@ export async function creditCaramelComponent(sb, flavorName, trays) {
   await sb.from('current_inventory').upsert({ flavor_id: caramelFlavor.id, tray_count: newCount }, { onConflict: 'flavor_id' })
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FUDGE POPS — small pops made from a Vanilla or Chocolate base. Not sold
+// individually; logging them records that part of a base batch went to pops. The
+// Products-tab reminder math credits the base trays (~20 pops = 1 tray); here we only
+// deduct the per-pop TOPPINGS. No base-ingredient deduction — the base batch already did
+// that. Each topping = half its per-tray rate across a full POPS_PER_SESSION run, scaled
+// linearly by actual pop count. No rounding in the math (toFixed is display-only).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const POPS_PER_SESSION = 20
+
+// perSession = oz per full ~20-pop run = half the topping's normal per-tray amount.
+// Names must match active ingredient rows; unconfigured/missing ones are skipped, same
+// as the other deduction phases (e.g. Sprinkles before its migration is applied).
+export const FUDGE_POP_TOPPINGS = {
+  vanilla: [
+    { name: 'M&Ms',            unit: 'oz', perSession: 5.6 },
+    { name: 'Chocolate Chips', unit: 'oz', perSession: 3.2 },
+    { name: 'Oreo Pieces',     unit: 'oz', perSession: 3.2 },
+    { name: 'Sprinkles',       unit: 'oz', perSession: 3.2 },
+  ],
+  chocolate: [
+    { name: 'Oreo Pieces',     unit: 'oz', perSession: 3.2 },
+    { name: 'M&Ms',            unit: 'oz', perSession: 5.6 },
+    { name: 'Reeses Pieces',   unit: 'oz', perSession: 5.6 },
+    { name: 'Sprinkles',       unit: 'oz', perSession: 3.2 },
+  ],
+}
+
+// Insert a fudge_pop_logs row and deduct its toppings. Returns the log id + deduction
+// summary. Used by the Products tab; client-agnostic so Jarvis/MCP can call it too.
+export async function logFudgePops(sb, base, popCount, dateStr = todayEastern()) {
+  const key = (base ?? '').toLowerCase()
+  if (!FUDGE_POP_TOPPINGS[key] || !popCount || popCount <= 0) {
+    return { logId: null, deductions: [], negatives: [], skipped: [] }
+  }
+  const { data: log, error } = await sb
+    .from('fudge_pop_logs')
+    .insert({ base: key, pop_count: popCount, report_date: dateStr })
+    .select('id')
+    .single()
+  if (error || !log) return { logId: null, deductions: [], negatives: [], skipped: [], error }
+  const result = await deductFudgePopToppings(sb, key, popCount, log.id)
+  return { logId: log.id, ...result }
+}
+
+export async function deductFudgePopToppings(sb, base, popCount, fudgePopLogId = null) {
+  const key = (base ?? '').toLowerCase()
+  const toppings = FUDGE_POP_TOPPINGS[key]
+  if (!toppings || !popCount || popCount <= 0) return { deductions: [], negatives: [], skipped: [] }
+
+  const sessionFraction = popCount / POPS_PER_SESSION
+  const names = [...new Set(toppings.map((t) => t.name))]
+
+  const { data: activeIngs } = await sb
+    .from('ingredients')
+    .select('id, name, quantity, unit, container_size, container_unit')
+    .in('name', names)
+    .eq('is_active', true)
+
+  const activeIngMap = new Map()
+  for (const ing of activeIngs ?? []) {
+    const existing = activeIngMap.get(ing.name)
+    if (!existing || (ing.container_size != null && existing.container_size == null)) activeIngMap.set(ing.name, ing)
+  }
+
+  const deductions = [], negatives = [], skipped = []
+  for (const t of toppings) {
+    const activeIng = activeIngMap.get(t.name)
+    if (!activeIng) { skipped.push({ name: t.name, reason: 'no active row' }); continue }
+    if (activeIng.container_size == null) { skipped.push({ name: t.name, reason: 'container_size not set' }); continue }
+
+    const totalRecipeQty = t.perSession * sessionFraction
+    const deliveryQty = totalRecipeQty / activeIng.container_size
+    const newQty = (activeIng.quantity ?? 0) - deliveryQty
+    await Promise.all([
+      sb.from('ingredients').update({ quantity: newQty }).eq('id', activeIng.id),
+      sb.from('ingredient_deductions').insert({
+        fudge_pop_log_id: fudgePopLogId,
+        ingredient_id: activeIng.id,
+        quantity_deducted: deliveryQty,
+        unit: activeIng.unit,
+        notes: `${key} fudge pops: ${totalRecipeQty} ${t.unit} (${popCount} pops × ${t.perSession / POPS_PER_SESSION}/pop) ÷ ${activeIng.container_size} = ${deliveryQty.toFixed(4)} ${activeIng.unit}`,
+      }),
+    ])
+    const entry = { ingredient_id: activeIng.id, name: t.name, quantity_deducted: deliveryQty, unit: activeIng.unit, new_quantity: newQty }
+    deductions.push(entry)
+    if (newQty < 0) negatives.push(entry)
+    activeIngMap.set(t.name, { ...activeIng, quantity: newQty })
+  }
+  return { deductions, negatives, skipped }
+}
+
 export async function incrementBarrelCount(sb, flavorId, amount) {
   const { data } = await sb.from('current_inventory').select('barrel_count').eq('flavor_id', flavorId).single()
   const newCount = (data?.barrel_count ?? 0) + amount
@@ -683,7 +776,7 @@ async function resolveIngredient(sb, name) {
   return fuzzy && fuzzy.length === 1 ? fuzzy[0] : null
 }
 
-export const WRITE_TOOLS = new Set(['log_batch', 'add_product_entry', 'set_inventory_count', 'set_ingredient_quantity'])
+export const WRITE_TOOLS = new Set(['log_batch', 'add_product_entry', 'set_inventory_count', 'set_ingredient_quantity', 'log_fudge_pops'])
 
 // One-line human summary of a write action, for the in-app confirmation dialog.
 export function summarizeToolCall(name, input = {}) {
@@ -697,6 +790,8 @@ export function summarizeToolCall(name, input = {}) {
       return { title: 'Overwrite count?', message: `Set ${input.flavor} to ${input.value}${input.reason ? ` — ${input.reason}` : ''}.` }
     case 'set_ingredient_quantity':
       return { title: 'Overwrite quantity?', message: `Set ${input.ingredient} to ${input.value}${input.reason ? ` — ${input.reason}` : ''}.` }
+    case 'log_fudge_pops':
+      return { title: 'Log fudge pops?', message: `${input.pops ?? 0} ${input.base} fudge pops on ${date} (≈${((input.pops ?? 0) / POPS_PER_SESSION).toFixed(2)} tray). Toppings auto-deduct.` }
     default:
       return { title: 'Confirm action?', message: name }
   }
@@ -768,6 +863,18 @@ export async function runTool(sb, name, input = {}) {
       await sb.from('ingredients').update({ quantity: newVal }).eq('id', ing.id)
       await logInventoryAdjustment(sb, { target_type: 'ingredient', target_id: ing.id, field: 'quantity', old_value: oldVal, new_value: newVal, reason: input.reason, adjusted_by: 'jarvis' })
       return { ok: true, message: `${ing.name} set to ${newVal} ${ing.unit} (was ${oldVal}).` }
+    }
+
+    case 'log_fudge_pops': {
+      const base = (input.base ?? '').toLowerCase()
+      if (!FUDGE_POP_TOPPINGS[base]) return { error: 'base must be "vanilla" or "chocolate".' }
+      const pops = Math.floor(Number(input.pops))
+      if (!Number.isFinite(pops) || pops <= 0) return { error: 'pops must be a positive number.' }
+      const date = input.date || todayEastern()
+      const r = await logFudgePops(sb, base, pops, date)
+      if (r.error || !r.logId) return { error: r.error?.message || 'Failed to log fudge pops (is the fudge_pop_logs migration applied?).' }
+      const deducted = (r.deductions ?? []).map(d => d.name).join(', ') || 'none configured'
+      return { ok: true, message: `Logged ${pops} ${base} fudge pops on ${date} (≈${(pops / POPS_PER_SESSION).toFixed(2)} tray). Toppings deducted: ${deducted}.` }
     }
 
     default:

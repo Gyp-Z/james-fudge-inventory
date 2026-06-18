@@ -55,11 +55,12 @@ DATA & MECHANICS:
 - The season data anchor for all calculations is 2026-04-22. All dates are US Eastern (America/New_York) — when someone says "yesterday"/"today", compute the Eastern date.
 - Logging a batch auto-deducts that flavor's base ingredients. Logging a product entry (trays made) auto-deducts per-tray toppings, and for Sea Salt Caramel also draws down caramel. You never do this math yourself — the tools do it.
 - Popcorn batches do NOT change barrels; barrels move through product entries.
+- Fudge pops: small pops made from a vanilla or chocolate base, not sold individually. Log them with log_fudge_pops (base + pop count, ~20 pops = 1 tray). This accounts for the base trays that went to pops and auto-deducts the per-pop toppings — no separate batch/product entry for pops, and never put them on a sales chart.
 
 HOW TO BEHAVE:
 - Never invent a flavor or ingredient name. If unsure of the exact name, call get_flavors or get_ingredients first.
 - Prefer a tool call over answering from memory for any question about current numbers.
-- Before a write action (log_batch, add_product_entry, set_inventory_count, set_ingredient_quantity), make sure you have the flavor/ingredient, the date, and the amounts. Confirmation is handled outside of you, so just call the tool with the right arguments.
+- Before a write action (log_batch, add_product_entry, set_inventory_count, set_ingredient_quantity, log_fudge_pops), make sure you have the flavor/ingredient, the date, and the amounts. Confirmation is handled outside of you, so just call the tool with the right arguments.
 - Lead with the answer; keep it tight. Format every reply as clean, scannable markdown (it renders as styled UI, so don't fuss over raw symbols): short "## Section" headings for groups, bullet/numbered lists for items, **bold** for flavor names and key numbers, one tight line per item. No walls of text. End with a one-line bottom line or a single question when an action is the natural next step.
 
 DECIDING WHAT TO MAKE (use get_make_recommendations, then layer in PRODUCTION PRIORITIES + BATCH SEQUENCING above):
@@ -207,6 +208,20 @@ export const TOOL_SCHEMAS = [
         reason: { type: 'string', description: 'Optional reason' },
       },
       required: ['ingredient', 'value'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'log_fudge_pops',
+    description: 'Record fudge pops made from a vanilla or chocolate base. Pops are not sold individually — logging them accounts for the base trays that went to pops (~20 pops = 1 tray, so they help clear that base\'s "made today" reminder) and auto-deducts the per-pop toppings (M&Ms, choc chips/Reese\'s, Oreos, sprinkles). No base-ingredient deduction (the base batch already did that). Use for "I made 20 vanilla fudge pops".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        base: { type: 'string', enum: ['vanilla', 'chocolate'], description: 'The base the pops were made from' },
+        pops: { type: 'integer', description: 'Number of pops made (~20 = 1 tray)' },
+        date: { type: 'string', description: 'YYYY-MM-DD (Eastern). Defaults to today.' },
+      },
+      required: ['base', 'pops'],
       additionalProperties: false,
     },
   },

@@ -24,3 +24,6 @@ export const reverseShiftEntry = (entryId) =>
 
 export const logInventoryAdjustment = (args) =>
   core.logInventoryAdjustment(supabase, args)
+
+export const logFudgePops = (base, popCount, dateStr) =>
+  core.logFudgePops(supabase, base, popCount, dateStr)

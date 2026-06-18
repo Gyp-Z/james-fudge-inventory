@@ -136,6 +136,20 @@ Recipes are **not currently displayed in the UI**. They were removed from the Sh
 - SSC flavors = 1× base per batch (NOT 2×). Staff log 2 SSC batches per complete make.
 - Seed does delete-then-insert per flavor — safe to re-run
 
+### Fudge Pops
+Small fudge pops made from a **Vanilla or Chocolate** base. Pops are NOT sold individually (too small to track sales) and are NOT on any graph. Added mid-season 2026.
+
+- Logged in the **Products tab** (ShiftReport), in the "Fudge Pops" section just below "Caramels Hand Wrapped". A ±5-pop stepper per base. ~20 pops = 1 tray.
+- **Purpose:** tell the system part of a base batch went to pops. Two effects:
+  1. **Base reminder accounting** — pop tray-equivalents (`pops / POPS_PER_SESSION`, =20) are added to `actualTrays` in `groupAccountedFor` for the `vanilla`/`chocolate` groups. So 2 vanilla trays + 20 pops accounts for a full 3-tray batch and the "made today" reminder clears.
+  2. **Topping deduction** — per-pop toppings auto-deduct on Products submit via `logFudgePops` → `deductFudgePopToppings` in `src/core/ops.js`.
+- **No base-ingredient deduction** — the base *batch* already deducted those when logged. Pops only deduct toppings.
+- **Topping rates** (`FUDGE_POP_TOPPINGS` in core): each topping = **half its per-tray rate** across a full ~20-pop session, scaled linearly by pop count. Vanilla → M&Ms 5.6, Choc Chips 3.2, Oreo Pieces 3.2, Sprinkles 3.2 (oz/session). Chocolate → Oreo Pieces 3.2, M&Ms 5.6, Reeses Pieces 5.6, Sprinkles 3.2. No rounding in the math.
+- **Sprinkles** is a pop-only ingredient: 4 cartons, 96 oz (6 lb) per carton, stored in oz (`container_size = 96`).
+- **Storage:** `fudge_pop_logs` table (`base`, `pop_count`, `report_date`). Topping deductions link back via `ingredient_deductions.fudge_pop_log_id` (audit/future revert). No revert UI yet — use Direct Inventory Correction as the safety net.
+- **Jarvis/MCP:** exposed as the `log_fudge_pops` write tool (`base` + `pops`, in `TOOL_SCHEMAS`, `WRITE_TOOLS`, `runTool`, `summarizeToolCall`). "I made 20 vanilla fudge pops" works by chat and via the MCP server — same core path as the UI.
+- **Migration:** `supabase/migrations/add_fudge_pop_logs.sql` (table + `fudge_pop_log_id` column + Sprinkles row). Code degrades gracefully before it's applied (pop logging no-ops, Sprinkles skipped).
+
 ### Kettle Corn
 Added as a popcorn flavor mid-season 2026. Uses Cheddar Kernels (same qty as Cheddar Corn / White Cheddar Corn). Also uses Kettle Mix (comes in cartons) — qty per batch TBD, `container_size` not yet set so Kettle Mix deduction is skipped until confirmed with staff. When ready: update `qty` in `scripts/seed-recipes.mjs` and set `container_size` on the Kettle Mix ingredient row, then re-run the seeder.
 

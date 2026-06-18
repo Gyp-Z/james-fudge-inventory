@@ -4,7 +4,8 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import Stepper from '../components/Stepper'
 import Collapsible from '../components/Collapsible'
-import { logBatchWithEffects, computeTrayInventory, applyTrayDeductions } from '../utils/inventoryActions'
+import { logBatchWithEffects, computeTrayInventory, applyTrayDeductions, logFudgePops } from '../utils/inventoryActions'
+import { POPS_PER_SESSION } from '../core/ops.js'
 
 export default function ShiftReport() {
   const { session } = useAuth()
@@ -56,6 +57,11 @@ export default function ShiftReport() {
 
   // Products tab — caramel hand-wrapping (integer quarter-tray units; 1 = ¼ tray)
   const [caramelsHandWrapped, setCaramelsHandWrapped] = useState(0)
+
+  // Products tab — fudge pops made this session, by base (count of pops; ~20 = 1 tray)
+  const [fudgePops, setFudgePops] = useState({ vanilla: 0, chocolate: 0 })
+  // Fudge pops already logged earlier today — counts toward the base "made today" reminder
+  const [todayFudgePops, setTodayFudgePops] = useState({ vanilla: 0, chocolate: 0 })
 
   useEffect(() => {
     async function load() {
@@ -205,6 +211,16 @@ export default function ShiftReport() {
         barrelTotalsMap[row.flavor_id] = (barrelTotalsMap[row.flavor_id] ?? 0) + (row.barrels_added ?? 0)
       })
       setTodayBarrelTotals(barrelTotalsMap)
+
+      // Fudge pops already logged today (per base) → feed the base "made today" reminder.
+      // Guard for null (table absent before the migration is applied).
+      const { data: popLogs } = await supabase
+        .from('fudge_pop_logs')
+        .select('base, pop_count')
+        .eq('report_date', todayStr)
+      const popMap = { vanilla: 0, chocolate: 0 }
+      ;(popLogs || []).forEach(p => { if (popMap[p.base] != null) popMap[p.base] += p.pop_count ?? 0 })
+      setTodayFudgePops(popMap)
 
       setLoading(false)
     }
@@ -407,6 +423,13 @@ export default function ShiftReport() {
       })
     }
 
+    // Log fudge pops per base — records the log row and auto-deducts per-pop toppings.
+    // Pops also account for base trays in the reminder math (handled in groupAccountedFor).
+    for (const base of ['vanilla', 'chocolate']) {
+      const count = fudgePops[base] ?? 0
+      if (count > 0) await logFudgePops(base, count, todayStr)
+    }
+
     setSubmitted(true)
     setSubmitting(false)
     setTimeout(() => navigate('/'), 1500)
@@ -503,6 +526,9 @@ export default function ShiftReport() {
       actualTrays += (entries[f.id]?.full_trays ?? 0)
       actualTrays += (entries[f.id]?.in_progress_trays ?? 0) * 0.5
     })
+    // Fudge pops made from this base also consumed batch trays (~20 pops = 1 tray),
+    // so they count toward accounting for today's batches (only vanilla/chocolate bases).
+    actualTrays += ((todayFudgePops[g] ?? 0) + (fudgePops[g] ?? 0)) / POPS_PER_SESSION
     groupAccountedFor[g] = actualTrays >= expectedTrays
   })
 
@@ -757,6 +783,47 @@ export default function ShiftReport() {
                     </div>
                   </div>
                   <p className="text-xs text-store-brown-light">Each step = 1/18 tray. 18 steps = 1 full caramel tray.</p>
+                </div>
+              </div>
+
+              {/* Fudge pops section — logs that part of a base batch went to pops */}
+              <div className="space-y-3">
+                <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide">Fudge Pops</p>
+                <div className="bg-store-cream rounded-xl border border-store-tan p-4 shadow-sm space-y-3">
+                  <p className="text-xs text-store-brown-light">
+                    Log pops so the base batch they came from is accounted for. ~{POPS_PER_SESSION} pops ≈ 1 tray. Toppings auto-deduct.
+                  </p>
+                  {['vanilla', 'chocolate'].map(base => (
+                    <div key={base} className="flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold text-store-brown capitalize">{base}</p>
+                        {fudgePops[base] > 0 && (
+                          <p className="text-xs text-store-brown-light mt-0.5">
+                            ≈ {(fudgePops[base] / POPS_PER_SESSION).toFixed(2)} tray
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setFudgePops(v => ({ ...v, [base]: Math.max(0, v[base] - 5) }))}
+                          className="w-12 h-12 rounded-xl bg-store-tan text-store-brown text-2xl font-bold flex items-center justify-center active:scale-95 transition-transform select-none touch-manipulation"
+                          aria-label="Decrease"
+                        >−</button>
+                        <div className="flex items-baseline gap-0.5 w-16 justify-center">
+                          <span className="text-2xl font-bold text-store-brown tabular-nums select-none">{fudgePops[base]}</span>
+                          <span className="text-sm text-store-brown-light select-none">pops</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setFudgePops(v => ({ ...v, [base]: v[base] + 5 }))}
+                          className="w-12 h-12 rounded-xl bg-store-tan text-store-brown text-2xl font-bold flex items-center justify-center active:scale-95 transition-transform select-none touch-manipulation"
+                          aria-label="Increase"
+                        >+</button>
+                      </div>
+                    </div>
+                  ))}
+                  <p className="text-xs text-store-brown-light">Each step = 5 pops (¼ tray).</p>
                 </div>
               </div>
 
