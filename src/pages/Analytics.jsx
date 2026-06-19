@@ -55,6 +55,7 @@ export default function Analytics() {
   const [bucketLogs, setBucketLogs] = useState([])
   const [currentInventory, setCurrentInventory] = useState([])
   const [handwrapLogs, setHandwrapLogs] = useState([])
+  const [fudgePopLogs, setFudgePopLogs] = useState([])
   const [range, setRange] = useState(7)
   const [specificWeek, setSpecificWeek] = useState(null)
   const [specificDay, setSpecificDay] = useState(null)
@@ -71,6 +72,7 @@ export default function Analytics() {
         { data: bucketData },
         { data: invData },
         { data: handwrapData },
+        { data: fudgePopData },
       ] = await Promise.all([
         supabase
           .from('shift_reports')
@@ -90,6 +92,7 @@ export default function Analytics() {
           .order('logged_at'),
         supabase.from('current_inventory').select('flavor_id, tray_count, barrel_count'),
         supabase.from('caramel_handwrap_logs').select('trays_used, report_date').order('report_date'),
+        supabase.from('fudge_pop_logs').select('base, pop_count, report_date').order('report_date'),
       ])
       const { data: allFlavorsData } = await supabase
         .from('flavors')
@@ -101,6 +104,7 @@ export default function Analytics() {
       setBucketLogs(bucketData || [])
       setCurrentInventory(invData || [])
       setHandwrapLogs(handwrapData || [])
+      setFudgePopLogs(fudgePopData || [])
       setLoading(false)
     }
     load()
@@ -311,6 +315,24 @@ export default function Analytics() {
 
   // Displayed caramel total — historical for week/day, live otherwise
   const displayCaramelTotal = historicalCaramelTotal ?? caramelComputedTotal
+
+  // ── Off-graph "what was also made" for the selected day ───────────────────
+  // Fudge pops and hand-wrapped caramels aren't on any chart, but a day's detail
+  // should still record them so the breakdown reflects everything produced.
+  const dayFudgePops = useMemo(() => {
+    if (!specificDay) return null
+    const m = { vanilla: 0, chocolate: 0 }
+    fudgePopLogs.forEach(p => {
+      if (p.report_date !== specificDay) return
+      if (m[p.base] != null) m[p.base] += p.pop_count ?? 0
+    })
+    return m
+  }, [fudgePopLogs, specificDay])
+
+  const dayHandwrapTrays = useMemo(() => {
+    if (!specificDay) return 0
+    return handwrapLogs.reduce((s, h) => h.report_date === specificDay ? s + (h.trays_used ?? 0) : s, 0)
+  }, [handwrapLogs, specificDay])
 
   // ── Summary card stock values ─────────────────────────────────────────────
   // Use historical end-of-period stock for week/day, live inventory for rolling ranges
@@ -735,6 +757,18 @@ export default function Analytics() {
                 ]}
               />
             ) : empty('No fudge data for this day.')}
+            {dayFudgePops && (dayFudgePops.vanilla > 0 || dayFudgePops.chocolate > 0) && (
+              <p className="text-sm text-store-brown-light mt-3">
+                Fudge pops made:{' '}
+                <span className="font-semibold text-store-brown">
+                  {[
+                    dayFudgePops.vanilla > 0 && `${dayFudgePops.vanilla} vanilla`,
+                    dayFudgePops.chocolate > 0 && `${dayFudgePops.chocolate} chocolate`,
+                  ].filter(Boolean).join(', ')}
+                </span>{' '}
+                <span className="text-xs">(not counted in trays made)</span>
+              </p>
+            )}
           </div>
         ) : (
           // Week / rolling view: full charts + totals
@@ -854,6 +888,11 @@ export default function Analytics() {
           <div>
             <h3 className="font-semibold text-store-brown mb-1">Summary for {formatDate(specificDay)}</h3>
             <p className="text-sm text-store-brown-light">Caramel stock at end of day: <span className="font-semibold text-store-brown">{fmtCaramel(displayCaramelTotal)} trays</span></p>
+            {dayHandwrapTrays > 0 && (
+              <p className="text-sm text-store-brown-light mt-1">
+                Caramels hand-wrapped: used <span className="font-semibold text-store-brown">{fmtCaramel(dayHandwrapTrays)}</span> of a caramel tray
+              </p>
+            )}
           </div>
         ) : (
           <div>
