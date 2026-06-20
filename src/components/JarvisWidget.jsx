@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import { useAuth } from '../hooks/useAuth'
 import ConfirmDialog from './ConfirmDialog'
 import { runTool, WRITE_TOOLS, summarizeToolCall } from '../utils/jarvisClientTools'
-import { getDailyTrivia, getRandomTrivia, getTopicTrivia, detectTopic, loadTriviaChoice, saveTriviaChoice } from '../utils/trivia'
+import { getDailyTrivia, getRandomTrivia, getTopicTrivia, detectTopic, loadTriviaChoice, saveTriviaChoice, generateTrivia, loadRecentQuestions, pushRecentQuestion } from '../utils/trivia'
 
 // Themed renderer so Jarvis's markdown becomes intentional, professional UI (no raw ** or #).
 const MD = {
@@ -147,7 +147,7 @@ export default function JarvisWidget() {
   // a special date, weekend → fresh web question, else the daily rotation). Pass { fresh }
   // for "give me another" or { category } to switch genres. Seeds the ACTIVE question's
   // answer into context so Jarvis can judge guesses, hint, and reveal against the right one.
-  async function showTrivia({ category = null, topic = null, fresh = false, back = false, seedContext = true } = {}) {
+  async function showTrivia({ category = null, topic = null, subject = null, fresh = false, back = false, seedContext = true } = {}) {
     let t
     if (back) {
       if (triviaPosRef.current > 0) {
@@ -156,9 +156,14 @@ export default function JarvisWidget() {
       } else {
         return null // nothing to go back to
       }
-    } else if (topic || category || fresh) {
-      const exclude = triviaHistoryRef.current.map((x) => x.question)
-      t = topic ? (getTopicTrivia(topic, exclude) || getRandomTrivia({ exclude })) : getRandomTrivia({ category, exclude })
+    } else if (topic || category || subject || fresh) {
+      const sessionExcl = triviaHistoryRef.current.map((x) => x.question)
+      // AI generation first (fresh, harder, deduped across days); bank is the fallback.
+      const exclude = [...new Set([...sessionExcl, ...loadRecentQuestions()])]
+      t = await generateTrivia({ subject, exclude, token: session?.access_token })
+      if (!t) {
+        t = topic ? (getTopicTrivia(topic, sessionExcl) || getRandomTrivia({ exclude: sessionExcl })) : getRandomTrivia({ category, exclude: sessionExcl })
+      }
       if (!t) { pushUI('error', "Couldn't load trivia — try again in a sec."); return null }
       triviaHistoryRef.current = [...triviaHistoryRef.current, t]
       triviaPosRef.current = triviaHistoryRef.current.length - 1
@@ -175,6 +180,7 @@ export default function JarvisWidget() {
       }
     }
     triviaActiveRef.current = true
+    pushRecentQuestion(t?.question) // remember across days so we stop repeating
     saveTriviaChoice(triviaHistoryRef.current, triviaPosRef.current)
     // ONE card only: drop any existing trivia card, then show the active one at the bottom.
     setTranscript((tr) => [...tr.filter((m) => m.role !== 'trivia'), { role: 'trivia', trivia: t }])
@@ -195,16 +201,16 @@ export default function JarvisWidget() {
   // Jarvis-driven trivia swap (via the change_trivia tool). Returns the new question, or null.
   async function applyTriviaChange({ genre = null, topic = null, back = false } = {}) {
     if (back) return showTrivia({ back: true, seedContext: false })
+    // Pass the RAW request as `subject` so AI generation can cover it directly; topic/category
+    // (bank fallback keys) come along in case generation is unavailable.
     if (topic) {
       const key = detectTopic(topic)
-      if (key) return showTrivia({ topic: key, seedContext: false })
-      const cat = detectCategory(topic)
-      return showTrivia({ category: cat, fresh: !cat, seedContext: false })
+      return showTrivia({ topic: key, subject: topic, fresh: !key, seedContext: false })
     }
     if (genre) {
       if (/general|random|any/i.test(genre)) return showTrivia({ fresh: true, seedContext: false })
       const cat = detectCategory(genre)
-      return showTrivia({ category: cat, fresh: !cat, seedContext: false })
+      return showTrivia({ category: cat, subject: genre, fresh: !cat, seedContext: false })
     }
     return showTrivia({ fresh: triviaActiveRef.current, seedContext: false })
   }

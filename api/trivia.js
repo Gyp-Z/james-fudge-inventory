@@ -14,7 +14,21 @@ export const config = { maxDuration: 30 }
 // Background generation model. Opus for quality; lower this (e.g. claude-haiku-4-5) if you
 // ever hit function timeouts on your plan.
 const TRIVIA_MODEL = 'claude-opus-4-8'
+// On-demand model (POST): a chef is waiting on a reroll/topic, so favor speed. No web search.
+const ONDEMAND_MODEL = 'claude-sonnet-4-6'
 const REQUIRED = ['question', 'answer', 'hint1', 'hint2', 'category', 'funFact']
+
+// Pull the JSON object out of a model response and validate the required string fields.
+function parseQuestion(text) {
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start === -1 || end === -1) throw new Error('no JSON in model output')
+  const obj = JSON.parse(text.slice(start, end + 1))
+  for (const f of REQUIRED) {
+    if (!obj[f] || typeof obj[f] !== 'string' || !obj[f].trim()) throw new Error(`bad field: ${f}`)
+  }
+  return obj
+}
 
 function todayEastern() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
@@ -47,20 +61,37 @@ async function generate(apiKey) {
     break
   }
   const text = (resp?.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n')
-  const start = text.indexOf('{')
-  const end = text.lastIndexOf('}')
-  if (start === -1 || end === -1) throw new Error('no JSON in model output')
-  const obj = JSON.parse(text.slice(start, end + 1))
-  for (const f of REQUIRED) {
-    if (!obj[f] || typeof obj[f] !== 'string' || !obj[f].trim()) throw new Error(`bad field: ${f}`)
-  }
-  return obj
+  return parseQuestion(text)
+}
+
+// On-demand generation for reroll / genre / topic requests. Single fast call, no web search,
+// mixed medium–hard difficulty, and dedup against recently-asked questions passed by the client.
+function onDemandPrompt(subject, exclude) {
+  const subjLine = subject
+    ? `The question MUST be about: ${subject}.`
+    : 'Pick any fun general-knowledge subject (sports, music, history, pop culture, science, food, world records, wild facts).'
+  const exLines = (exclude || []).slice(0, 40).map((q) => `- ${q}`).join('\n')
+  return `Generate ONE fun, SFW trivia question for a casual kitchen crew. ${subjLine}
+Difficulty: MIXED, medium to hard. A casual fan should NOT be able to answer it instantly — aim for the "huh, didn't know that / oh that's cool" zone. EXPLICITLY AVOID surface-level, super-obvious facts. (For example, for the 76ers do NOT ask what country Joel Embiid is from or what Allen Iverson's nickname is.) Reach for a deeper cut: a specific stat, record, year, lesser-known story, or surprising detail.
+Avoid politics, war, crime, and anything graphic or divisive.${exLines ? `\nDo NOT repeat or closely paraphrase any of these recently-asked questions:\n${exLines}` : ''}
+Output ONLY a JSON object (no prose, no code fences) with EXACTLY these string fields: {"question","answer","hint1","hint2","category","funFact"}. Keep the answer short and unambiguous. hint1 vague, hint2 more revealing. funFact = an extra tidbit for when the answer is revealed.`
+}
+
+async function generateOnDemand(apiKey, { subject = null, exclude = [] } = {}) {
+  const client = new Anthropic({ apiKey })
+  const resp = await client.messages.create({
+    model: ONDEMAND_MODEL,
+    max_tokens: 600,
+    messages: [{ role: 'user', content: onDemandPrompt(subject, exclude) }],
+  })
+  const text = (resp?.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n')
+  return parseQuestion(text)
 }
 
 const shape = (r) => ({ question: r.question, answer: r.answer, hint1: r.hint1, hint2: r.hint2, category: r.category, funFact: r.fun_fact })
 
 export default async function handler(req, res) {
-  if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return }
+  if (req.method !== 'GET' && req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
 
   const auth = req.headers.authorization || ''
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : null
@@ -73,6 +104,21 @@ export default async function handler(req, res) {
     const { data, error } = await sb.auth.getUser(token)
     if (error || !data?.user) { res.status(401).json({ error: 'invalid session' }); return }
   } catch { res.status(401).json({ error: 'auth failed' }); return }
+
+  // POST → on-demand generation (reroll / genre / topic). Not cached; fresh each time.
+  // Returns 204 if no API key so the client falls back to the static bank.
+  if (req.method === 'POST') {
+    const apiKey = process.env.ANTHROPIC_API_KEY
+    if (!apiKey) { res.status(204).end(); return }
+    try {
+      const { subject = null, exclude = [] } = req.body || {}
+      const q = await generateOnDemand(apiKey, { subject, exclude: Array.isArray(exclude) ? exclude : [] })
+      res.status(200).json({ ...q, source: 'ai' })
+    } catch (e) {
+      res.status(502).json({ error: e?.message || 'generation failed' })
+    }
+    return
+  }
 
   const today = todayEastern()
   if (!isFreshDay(today)) { res.status(204).end(); return } // weekday → static bank

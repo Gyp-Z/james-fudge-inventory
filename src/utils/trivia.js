@@ -139,6 +139,48 @@ export async function getDailyTrivia(token) {
   return getTodayTrivia()
 }
 
+// AI-generated question for a reroll / genre / topic. POSTs to /api/trivia, which generates
+// a fresh, harder, non-repeating question. Returns null on any failure so callers fall back
+// to the static bank. `subject` is the raw thing the chef asked ("sixers", "music", null=general).
+export async function generateTrivia({ subject = null, exclude = [], token } = {}) {
+  try {
+    const res = await fetch('/api/trivia', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token ?? ''}` },
+      body: JSON.stringify({ subject, exclude }),
+    })
+    if (res.status !== 200) return null
+    const d = await res.json()
+    if (d?.question && d?.answer) return { ...d, date: todayEastern(), source: 'ai' }
+    return null
+  } catch {
+    return null
+  }
+}
+
+// Recently-shown questions, persisted ACROSS days (the session history resets daily, which is
+// why topics felt repetitive). Used to dedup both AI generation and bank fallback.
+const RECENT_KEY = 'bigsams-trivia-recent'
+const RECENT_MAX = 60
+export function loadRecentQuestions() {
+  try {
+    const a = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]')
+    return Array.isArray(a) ? a : []
+  } catch {
+    return []
+  }
+}
+export function pushRecentQuestion(question) {
+  if (!question) return
+  try {
+    const a = loadRecentQuestions().filter((q) => q !== question)
+    a.push(question)
+    localStorage.setItem(RECENT_KEY, JSON.stringify(a.slice(-RECENT_MAX)))
+  } catch {
+    /* ignore */
+  }
+}
+
 // Has this device already been shown today's trivia?
 export function triviaShownToday() {
   try {
