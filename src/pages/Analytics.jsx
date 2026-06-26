@@ -804,9 +804,6 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* End-of-season sell-down outlook (zero-waste planning) */}
-      <SeasonOutlookPanel />
-
       {/* Filter pills */}
       <div className="flex flex-wrap gap-2">
         {[
@@ -1144,6 +1141,9 @@ export default function Analytics() {
           </>
         )
       )}
+
+      {/* End-of-season sell-down outlook (zero-waste planning) — at the bottom; mainly for late season */}
+      <SeasonOutlookPanel />
 
     </div>
   )
