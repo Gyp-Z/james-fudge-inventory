@@ -22,6 +22,12 @@ export const applyShiftEntry = (flavor, dateStr, values, opts) =>
 export const reverseShiftEntry = (entryId) =>
   core.reverseShiftEntry(supabase, entryId)
 
+export const applyPopcornEntry = (flavor, dateStr, values) =>
+  core.applyPopcornEntry(supabase, flavor, dateStr, values)
+
+export const reversePopcornEntry = (logId) =>
+  core.reversePopcornEntry(supabase, logId)
+
 export const logInventoryAdjustment = (args) =>
   core.logInventoryAdjustment(supabase, args)
 

@@ -4,6 +4,7 @@ import { todayEastern } from '../utils/dates'
 import BackdateBatchSection from '../components/audit/BackdateBatchSection'
 import BatchRevertSection from '../components/audit/BatchRevertSection'
 import ShiftEntrySection from '../components/audit/ShiftEntrySection'
+import PopcornEntrySection from '../components/audit/PopcornEntrySection'
 import InventoryCorrectionSection from '../components/audit/InventoryCorrectionSection'
 import IngredientCorrectionSection from '../components/audit/IngredientCorrectionSection'
 import ActivitySection from '../components/audit/ActivitySection'
@@ -26,6 +27,12 @@ const SECTIONS = [
     label: 'Fix tray counts (made / sold / wasted)',
     blurb: 'Add or fix how many trays were made, sold, or wasted on a day. Use this if an end-of-day report was missed or had a wrong number.',
     icon: '📦',
+  },
+  {
+    key: 'popcorn',
+    label: 'Fix popcorn barrels (added / sold)',
+    blurb: 'Add or remove popcorn barrel movements for a day — barrels put on the shelf, or barrels bucketed off to sell. Use this if a popcorn count was missed or logged wrong.',
+    icon: '🍿',
   },
   {
     key: 'inventory',
@@ -145,6 +152,7 @@ export default function AuditEdit() {
                     {s.key === 'backdate' && <BackdateBatchSection {...sectionProps} />}
                     {s.key === 'revert' && <BatchRevertSection {...sectionProps} />}
                     {s.key === 'entries' && <ShiftEntrySection {...sectionProps} />}
+                    {s.key === 'popcorn' && <PopcornEntrySection {...sectionProps} />}
                     {s.key === 'inventory' && <InventoryCorrectionSection {...sectionProps} />}
                     {s.key === 'ingredients' && <IngredientCorrectionSection {...sectionProps} />}
                     {s.key === 'activity' && <ActivitySection {...sectionProps} />}

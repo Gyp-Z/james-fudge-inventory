@@ -222,6 +222,18 @@ Added as a popcorn flavor mid-season 2026. Uses Cheddar Kernels (same qty as Che
 Season start: **2026-04-22** (`SEASON_START` constant used in Analytics and autoDeduct).
 Pre-season test data is excluded from all charts and caramel calculations.
 
+### Season arc & wind-down (zero-waste closeout)
+
+`SEASON_CONFIG` in `src/core/ops.js` is the single, **year-agnostic** season model — boundaries are MONTH/DAY so the seasonal behavior rolls over every year with no code edits:
+- `openMonthDay '04-22'` · `fudgeWinddownMonthDay '08-14'` · `closeMonthDay '10-13'` · `anchorYear 2026` (the ONLY per-year knob — `SEASON_START` is derived from it for back-compat).
+- `seasonPhase(date)` → `'preseason' | 'peak' | 'winddown' | 'closed'` (compares month/day). `seasonCloseDate(date)` / `daysUntilClose(date)` resolve the close in the date's own year.
+
+**`getSeasonOutlook(sb, { window, asOf })`** is the threshold-free wind-down brain: per fudge flavor it projects, from real recent sales, days of stock left, sellout date, and **projected leftover trays at close** (the waste forecast to drive to zero), plus a verdict (`stop` / `coast` / `make_small`). `make_small` is reserved for **top sellers** (top ~30% by sell-rate) that run dry ≥7 days before close. Pumpkin Spice (late-Oct closeout flavor) is excluded. Popcorn is returned separately with `make_fresh_to_demand: true` — it is **never** part of the fudge sell-down (short shelf life → made fresh to demand right up to close).
+
+This one core fn feeds both the `get_season_outlook` Jarvis tool and the **Analytics "Season Outlook" panel** (`SeasonOutlookPanel` in `Analytics.jsx`) — single source of truth. `getMakeRecommendations` is phase-aware: in wind-down it returns `mode: 'selldown'`, drops threshold-driven fudge recs (only surfaces fudge that genuinely runs dry before close), and keeps popcorn fill logic active.
+
+**Key rule: wind-down supersedes thresholds automatically — `low_tray_threshold` is NEVER auto-edited.** The thresholds are peak-season numbers; they just stop being consulted for fudge in wind-down and stay valid for next season's peak. No manual threshold churn at the transition; the app carries to next season untouched (only new flavors/recipes need adding via `scripts/seed-recipes.mjs`).
+
 ---
 
 ## Auth
@@ -245,7 +257,7 @@ Pre-season test data is excluded from all charts and caramel calculations.
 - `container_unit` = content unit (lbs, oz) NOT the container name. `unit` = delivery container (boxes, bags).
 - The cross-day double-batch carry (`effectiveTotal`/`effectiveBatches`) only applies when `currentInProgress > 0`. Do NOT add `|| totalBatches > 0` back — that caused SSC to show "Both batches done" after a single click.
 - There is no standalone `/batch` route. `Batch.jsx` was deleted. All batch logging goes through ShiftReport Batches tab.
-- **Popcorn batches do NOT change barrels.** `handleBatchSubmit` only deducts ingredients for popcorn; barrels move solely via the Products tab (`barrels_added`/`barrels_used`). `revertBatchLog` was fixed (June 2026) to match — it no longer decrements barrels or deletes shelf_bucket_logs for popcorn. Don't re-add that branch.
+- **Popcorn batches do NOT change barrels.** `handleBatchSubmit` only deducts ingredients for popcorn; barrels move via the Products tab, the Jarvis `add_popcorn_entry` tool, and the Audit & Edit popcorn section — all through `applyPopcornEntry` (`barrels_added`/`barrels_used`). `revertBatchLog` was fixed (June 2026) to match — it no longer decrements barrels or deletes shelf_bucket_logs for popcorn. Don't re-add that branch.
 - **Shared effect helpers are the single source of truth.** `handleBatchSubmit`/`handleProductSubmit` and the Audit & Edit page both call `logBatchWithEffects` / `applyShiftEntry` / `applyTrayDeductions` / `computeTrayInventory` from `src/utils/inventoryActions.js`. Change the effect logic there, not inline, or the two paths drift.
 
 ---
@@ -261,6 +273,7 @@ Owner tool to correct chef mistakes without hand-editing the DB. Six capabilitie
 - **Backdated entries** are grouped under a per-date `shift_reports` row with `report_type = 'manual_adjustment'`. No reads filter by `report_type`, so these count in Analytics/caramel exactly like `'snapshot'` entries.
 - **Audit trail:** every #4/#5 override writes an `inventory_adjustments` row (target_type/target_id/field/old_value/new_value/reason) via `logInventoryAdjustment`.
 - Schema added by `supabase/migrations/add_audit_edit_support.sql` (applied June 2026): `ingredient_deductions.shift_report_entry_id` + the `inventory_adjustments` table.
+- **Popcorn barrels (`PopcornEntrySection.jsx`):** the popcorn equivalent of the tray-count fixer. Add/delete barrel movements for a date via `applyPopcornEntry` / `reversePopcornEntry` (`src/core/ops.js`). `shelf_bucket_logs` has no `report_date` — it's dated by `logged_at`, so backdated movements set `logged_at = {date}T12:00:00` and the section windows the picked day's timestamps. Reverse undoes the net barrel change only (in-progress topping isn't stored — Direct Inventory Correction is the safety net).
 
 ---
 
@@ -279,8 +292,11 @@ actions by chat, plus an MCP server so the owner's desktop assistant can do the 
   plus `get_production_manual` (returns the full recipe/process/scale-weight manual from
   `src/core/productionManual.js` — for "how do I make X" / training questions; kept out of the
   base prompt to save tokens).
-  Writes: `log_batch`, `add_product_entry`, `set_inventory_count`, `set_ingredient_quantity`,
+  Writes: `log_batch`, `add_product_entry`, `add_popcorn_entry`, `set_inventory_count`, `set_ingredient_quantity`,
   `log_fudge_pops` (all route through the existing deduction helpers — no rounding, two-phase preserved).
+  `add_popcorn_entry` is the popcorn analogue of `add_product_entry`: barrels_added/barrels_sold/in_progress_barrels
+  via `applyPopcornEntry`. Sales velocity + make-recommendations fold popcorn barrels_sold from `shelf_bucket_logs`,
+  and `getMakeRecommendations` surfaces all popcorn flavors on weekend/Thu-Fri days (`fill_popcorn_today` flag).
 - **Confirmation:** in-app writes confirm via `ConfirmDialog`; via MCP the desktop client's own
   tool-approval prompt is the gate.
 - **Access:** owner-only. `/jarvis` is behind `AdminRoute`; `api/chat.js` verifies the Supabase

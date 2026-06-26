@@ -4,6 +4,7 @@ import {
   LineChart, Line, CartesianGrid, Legend,
 } from 'recharts'
 import { supabase } from '../lib/supabase'
+import { getSeasonOutlook } from '../core/ops'
 
 const FUDGE_COLORS = [
   '#7C4B2A', '#2D5A1B', '#C4843A', '#5B3A7E', '#2E86AB',
@@ -45,6 +46,96 @@ function ChartWrapper({ children }) {
     return () => document.removeEventListener('touchstart', onTouchStart)
   }, [])
   return <div ref={ref}>{children}</div>
+}
+
+// End-of-season sell-down outlook. Threshold-free — pulls the SAME computation Jarvis uses
+// (getSeasonOutlook in core) so the waste forecast here matches the chat. Fudge sells down
+// to ~zero by close; popcorn is made fresh to demand and is shown separately, not in the math.
+const PHASE_LABEL = {
+  preseason: { text: 'Pre-season', cls: 'bg-store-tan text-store-brown' },
+  peak: { text: 'Peak season', cls: 'bg-store-green text-white' },
+  winddown: { text: 'Wind-down — selling fudge down to close', cls: 'bg-amber-500 text-white' },
+  closed: { text: 'Season closed', cls: 'bg-store-brown text-white' },
+}
+const VERDICT = {
+  stop: { text: 'Stop · sell down', cls: 'bg-red-100 text-red-700' },
+  coast: { text: 'Coast', cls: 'bg-store-tan text-store-brown' },
+  make_small: { text: 'Top seller · make a little', cls: 'bg-amber-100 text-amber-800' },
+}
+
+function SeasonOutlookPanel() {
+  const [outlook, setOutlook] = useState(null)
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    getSeasonOutlook(supabase, {}).then(d => { if (alive) setOutlook(d) }).catch(() => {})
+    return () => { alive = false }
+  }, [])
+
+  if (!outlook) return null
+  const phase = PHASE_LABEL[outlook.phase] || PHASE_LABEL.peak
+  const leftover = outlook.total_projected_leftover_trays
+  const leftoverCls = leftover > 0 ? 'text-red-600' : 'text-store-green'
+
+  return (
+    <div className="bg-white border border-store-tan rounded-xl shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h3 className="text-lg font-bold text-store-brown" style={{ fontFamily: 'var(--font-display)' }}>Season Outlook</h3>
+          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${phase.cls}`}>{phase.text}</span>
+          <span className="text-xs text-store-brown-light">{outlook.days_until_close} days to close ({formatDate(outlook.season_end)})</span>
+        </div>
+        <div className="text-right">
+          <p className={`text-2xl font-bold ${leftoverCls}`}>{leftover}</p>
+          <p className="text-xs text-store-brown-light">projected leftover fudge trays at close</p>
+        </div>
+      </div>
+
+      <button onClick={() => setOpen(o => !o)} className="w-full text-left px-4 py-2 text-xs font-semibold text-store-green hover:bg-store-cream border-t border-store-tan transition-colors">
+        {open ? '▲ Hide per-flavor sell-down' : '▼ Show per-flavor sell-down'}
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 pt-1 space-y-4 border-t border-store-tan bg-store-cream/40">
+          <p className="text-xs text-store-brown-light pt-2">
+            Based on the last {outlook.window_days} days of real sales — not the low-stock thresholds. The goal is to end the season near zero leftover fudge, so flavors marked <span className="font-semibold text-red-700">Stop</span> already have enough to last; sell them down rather than making more. Slow flavors running dry a little early is fine.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-store-brown-light border-b border-store-tan">
+                  <th className="py-2 pr-3">Fudge flavor</th>
+                  <th className="py-2 pr-3 text-right">On hand</th>
+                  <th className="py-2 pr-3 text-right">Sold/day</th>
+                  <th className="py-2 pr-3 text-right">Runs out</th>
+                  <th className="py-2 pr-3 text-right">Left at close</th>
+                  <th className="py-2 pr-0 text-right">Plan</th>
+                </tr>
+              </thead>
+              <tbody>
+                {outlook.fudge.map(r => (
+                  <tr key={r.flavor} className="border-b border-store-tan/60">
+                    <td className="py-2 pr-3 font-medium text-store-brown">{r.flavor}</td>
+                    <td className="py-2 pr-3 text-right text-store-brown">{r.trays}</td>
+                    <td className="py-2 pr-3 text-right text-store-brown-light">{r.per_day_sold || '—'}</td>
+                    <td className="py-2 pr-3 text-right text-store-brown-light">{r.projected_sellout_date ? formatDate(r.projected_sellout_date) : 'no recent sales'}</td>
+                    <td className={`py-2 pr-3 text-right font-semibold ${r.projected_leftover_at_close > 0 ? 'text-red-600' : 'text-store-green'}`}>{r.projected_leftover_at_close}</td>
+                    <td className="py-2 pr-0 text-right">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${(VERDICT[r.verdict] || VERDICT.coast).cls}`}>{(VERDICT[r.verdict] || VERDICT.coast).text}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+            🍿 Popcorn isn’t part of the sell-down — keep making it fresh to demand right through close (short shelf life). On hand: {outlook.popcorn.items.map(p => `${p.flavor} ${p.barrels}`).join(' · ') || 'none'}.
+          </p>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function Analytics() {
@@ -712,6 +803,9 @@ export default function Analytics() {
           <p className="text-xs text-store-brown-light">Batches wasted</p>
         </div>
       </div>
+
+      {/* End-of-season sell-down outlook (zero-waste planning) */}
+      <SeasonOutlookPanel />
 
       {/* Filter pills */}
       <div className="flex flex-wrap gap-2">

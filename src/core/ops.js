@@ -12,9 +12,50 @@
 import { todayEastern } from '../utils/dates.js'
 import { PRODUCTION_MANUAL } from './productionManual.js'
 
-const SEASON_START = '2026-04-22'
+// ─────────────────────────────────────────────────────────────────────────────
+// SEASON MODEL — year-agnostic so the app transitions itself season after season
+// with NO code edits. Boundaries are MONTH/DAY: they apply to whatever year a date
+// falls in. The ONLY per-year value is `anchorYear` (excludes that year's pre-season
+// test data). NOTHING here ever writes a threshold — seasonPhase only chooses which
+// logic path runs; stored low_tray_threshold values are read-only and simply stop
+// being consulted for fudge once wind-down begins.
+// ─────────────────────────────────────────────────────────────────────────────
+export const SEASON_CONFIG = {
+  openMonthDay: '04-22',          // season opens (~late April)
+  fudgeWinddownMonthDay: '08-14', // fudge sell-down begins (sharp taper; top sellers only after)
+  closeMonthDay: '10-13',         // store closes; target ~zero leftover fudge
+  anchorYear: 2026,               // ONLY per-year knob — the running-total / test-data anchor
+}
+
+// Back-compat: existing callers import/use this string. Derived from the config.
+const SEASON_START = `${SEASON_CONFIG.anchorYear}-${SEASON_CONFIG.openMonthDay}`
 const CARAMEL_TRAYS_PER_SSC_TRAY = 1 / 18
 const isSSC = (name) => (name ?? '').toLowerCase().includes('sea salt')
+
+// Phase from a date's month/day (default: today Eastern). Year-agnostic.
+//   preseason → before the season opens (e.g. winter / early spring)
+//   peak      → open through the day before fudge wind-down
+//   winddown  → fudge sell-down window (mid-Aug through close day)
+//   closed    → after the store closes for the year
+export function seasonPhase(dateStr = todayEastern()) {
+  const md = (dateStr ?? '').slice(5, 10) // 'MM-DD'
+  if (!md) return 'peak'
+  if (md < SEASON_CONFIG.openMonthDay) return 'preseason'
+  if (md < SEASON_CONFIG.fudgeWinddownMonthDay) return 'peak'
+  if (md <= SEASON_CONFIG.closeMonthDay) return 'winddown'
+  return 'closed'
+}
+
+// Close date resolved in the SAME year as the given date, and whole days until it.
+export function seasonCloseDate(dateStr = todayEastern()) {
+  const year = (dateStr ?? '').slice(0, 4) || String(SEASON_CONFIG.anchorYear)
+  return `${year}-${SEASON_CONFIG.closeMonthDay}`
+}
+export function daysUntilClose(dateStr = todayEastern()) {
+  const close = seasonCloseDate(dateStr)
+  const ms = new Date(`${close}T00:00:00`) - new Date(`${dateStr}T00:00:00`)
+  return Math.round(ms / 86400000)
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BATCH-PHASE DEDUCTION
@@ -250,6 +291,72 @@ export async function incrementBarrelCount(sb, flavorId, amount) {
   const { data } = await sb.from('current_inventory').select('barrel_count').eq('flavor_id', flavorId).single()
   const newCount = (data?.barrel_count ?? 0) + amount
   await sb.from('current_inventory').upsert({ flavor_id: flavorId, barrel_count: newCount }, { onConflict: 'flavor_id' })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POPCORN BARREL ENTRIES — the popcorn equivalent of applyShiftEntry. Barrels move
+// only here, never at batch time (popcorn batches deduct ingredients only). Mirrors the
+// ShiftReport Products-tab popcorn submit: barrels_added top up the shelf (and "top" any
+// in-progress barrels), barrels_sold (= bucketing popcorn off the shelf, e.g. bucketing
+// Caramel Corn, which is a SALE) draw it down, in_progress_barrels stage half-made barrels.
+// Movement is logged to shelf_bucket_logs so it shows in Analytics + sales velocity.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function applyPopcornEntry(sb, flavor, dateStr, values) {
+  const barrelsAdded = values.barrels_added ?? 0
+  const barrelsSold = values.barrels_sold ?? 0
+  const newInProgBarrels = values.in_progress_barrels ?? 0
+
+  const { data: inv } = await sb
+    .from('current_inventory')
+    .select('barrel_count, in_progress_barrel_count')
+    .eq('flavor_id', flavor.id)
+    .single()
+  const existingInProg = inv?.in_progress_barrel_count ?? 0
+  const topped = Math.min(barrelsAdded, existingInProg)
+  const netChange = barrelsAdded - barrelsSold
+  const newBarrels = Math.max(0, (inv?.barrel_count ?? 0) + netChange)
+  const newInProg = Math.max(0, existingInProg + newInProgBarrels - topped)
+
+  if (netChange !== 0 || newInProgBarrels !== 0 || topped !== 0) {
+    await sb.from('current_inventory').upsert(
+      { flavor_id: flavor.id, barrel_count: newBarrels, in_progress_barrel_count: newInProg, updated_at: new Date().toISOString() },
+      { onConflict: 'flavor_id' }
+    )
+  }
+
+  // Log barrel movement. shelf_bucket_logs is dated by logged_at only (no report_date),
+  // so backdate the timestamp when fixing a past day.
+  let logId = null
+  if (barrelsAdded > 0 || barrelsSold > 0) {
+    const logEntry = { flavor_id: flavor.id }
+    if (barrelsAdded > 0) logEntry.barrels_added = barrelsAdded
+    if (barrelsSold > 0) logEntry.barrels_used = barrelsSold
+    if (dateStr && dateStr !== todayEastern()) logEntry.logged_at = `${dateStr}T12:00:00`
+    const { data: log } = await sb.from('shelf_bucket_logs').insert(logEntry).select('id').single()
+    logId = log?.id ?? null
+  }
+  return { logId, newBarrels, newInProg, topped }
+}
+
+// Reverse a single shelf_bucket_logs movement: undo its net barrel change and delete the
+// row. The in-progress "topping" at log time isn't stored, so that term can't be perfectly
+// inverted — the Direct Inventory Correction tool is the safety net for in-progress drift.
+export async function reversePopcornEntry(sb, logId) {
+  const { data: log } = await sb
+    .from('shelf_bucket_logs')
+    .select('flavor_id, barrels_added, barrels_used')
+    .eq('id', logId)
+    .single()
+  if (!log) return { success: false, error: 'Barrel movement not found' }
+  const net = (log.barrels_added ?? 0) - (log.barrels_used ?? 0)
+  if (net !== 0) {
+    const { data: inv } = await sb.from('current_inventory').select('barrel_count').eq('flavor_id', log.flavor_id).single()
+    if (inv) await sb.from('current_inventory').update({ barrel_count: Math.max(0, (inv.barrel_count ?? 0) - net) }).eq('flavor_id', log.flavor_id)
+  }
+  const { error: delErr } = await sb.from('shelf_bucket_logs').delete().eq('id', logId)
+  if (delErr) return { success: false, error: delErr.message }
+  return { success: true }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -573,6 +680,25 @@ export async function getMakeRecommendations(sb, { days = 14, horizon = 2 } = {}
   const perDay = {}
   for (const v of vel.velocity) perDay[v.flavor] = v.per_day
 
+  // Day + a realistic batch budget so the plan isn't "make everything that's low."
+  const todayStr = todayEastern()
+  const [yy, mm, dd] = todayStr.split('-').map(Number)
+  const dow = new Date(Date.UTC(yy, mm - 1, dd)).getUTCDay() // 0 = Sun ... 6 = Sat
+  const isWeekend = dow === 0 || dow === 6
+  const isSlowDay = dow === 1 || dow === 2 // Mon/Tue are the slow days
+  // Popcorn has a short shelf life and sells best on weekends, so shelves get filled into
+  // the rush. On weekends AND the Thu/Fri lead-in, surface every popcorn flavor for a
+  // refill — even ones not under threshold — so they make it into the day's plan.
+  const fillPopcornDay = isWeekend || dow === 4 || dow === 5
+
+  // Season phase decides whether thresholds drive fudge (peak) or we sell down to ~zero
+  // by close (wind-down). In wind-down thresholds are NOT consulted for fudge — we only
+  // surface fudge that will actually run dry before close. Popcorn is unaffected (made
+  // fresh to demand all season).
+  const phase = seasonPhase(todayStr)
+  const sellDown = phase === 'winddown' || phase === 'closed'
+  const daysToClose = Math.max(0, daysUntilClose(todayStr))
+
   const recs = []
   for (const f of flavors) {
     if (f.is_component) continue
@@ -584,8 +710,19 @@ export async function getMakeRecommendations(sb, { days = 14, horizon = 2 } = {}
     const daysLeft = pd > 0 ? Number((count / pd).toFixed(1)) : null
     const threshold = f.low_tray_threshold ?? 0
     const below = count <= threshold
-    if (!(below || (daysLeft != null && daysLeft <= horizon))) continue
+    const popcornFill = isPop && fillPopcornDay // busy-day popcorn refill, even if not low
+    const sellsOutBeforeClose = pd > 0 ? count / pd <= daysToClose : false
+    let include
+    if (sellDown && !isPop) {
+      // Wind-down fudge: ignore threshold; only flavors that genuinely run dry before close.
+      include = sellsOutBeforeClose
+    } else {
+      include = below || (daysLeft != null && daysLeft <= horizon) || popcornFill
+    }
+    if (!include) continue
     recs.push({
+      winddown: sellDown && !isPop,
+      sells_out_before_close: sellsOutBeforeClose,
       flavor: f.name,
       type: f.product_type,
       count,
@@ -594,6 +731,9 @@ export async function getMakeRecommendations(sb, { days = 14, horizon = 2 } = {}
       days_left: daysLeft,
       restock_threshold: threshold,
       below_threshold: below,
+      // Flagged when included only because it's a busy popcorn-fill day (not actually low):
+      // keep popcorn shelves topped off heading into the weekend.
+      weekend_popcorn_fill: popcornFill && !below,
       makes_per_batch: f.default_yield, // one batch yields this many trays of THIS flavor
       // SSC is NOT a double batch: its half-trays are made the night before (so the bottoms
       // firm up enough to mold the caramel), then topped with caramel the next day.
@@ -614,13 +754,6 @@ export async function getMakeRecommendations(sb, { days = 14, horizon = 2 } = {}
   for (const f of flavors) if (byId[f.id].role === 'base') baseLevels[f.name] = invMap[f.id]?.tray_count ?? 0
   const anySSC = recs.some((r) => r.is_ssc)
 
-  // Day + a realistic batch budget so the plan isn't "make everything that's low."
-  const todayStr = todayEastern()
-  const [yy, mm, dd] = todayStr.split('-').map(Number)
-  const dow = new Date(Date.UTC(yy, mm - 1, dd)).getUTCDay() // 0 = Sun ... 6 = Sat
-  const isWeekend = dow === 0 || dow === 6
-  const isSlowDay = dow === 1 || dow === 2 // Mon/Tue are the slow days
-
   return {
     today: todayStr,
     day_of_week: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dow],
@@ -633,7 +766,108 @@ export async function getMakeRecommendations(sb, { days = 14, horizon = 2 } = {}
     caramel_trays: Number(caramel.toFixed(4)),
     base_levels: baseLevels, // current base stock (Vanilla/Chocolate/Peanut Butter) for finishing variants
     needs_caramel_attention: anySSC && caramel < 1,
+    // True on weekends + the Thu/Fri lead-in: fill popcorn shelves for the rush (short shelf
+    // life — keep barrels topped off, don't let them sit empty).
+    fill_popcorn_today: fillPopcornDay,
+    season_phase: phase, // preseason | peak | winddown | closed
+    season_end: seasonCloseDate(todayStr),
+    days_until_close: daysToClose,
+    // 'restock' = peak (thresholds drive fudge). 'selldown' = wind-down: fudge thresholds
+    // are off, sell existing stock to ~zero by close; only top sellers worth occasional makes.
+    mode: sellDown ? 'selldown' : 'restock',
+    ...(sellDown ? { winddown_note: 'Wind-down: thresholds no longer drive fudge. Use get_season_outlook for the sell-down plan (projected leftovers at close). Fudge listed here will actually run dry before close. Keep making popcorn fresh to demand.' } : {}),
     recommendations: recs,
+  }
+}
+
+// Add whole days to a 'YYYY-MM-DD' string (UTC-safe, no tz drift).
+function addDays(dateStr, n) {
+  const [y, m, d] = (dateStr ?? '').split('-').map(Number)
+  if (!y) return null
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  dt.setUTCDate(dt.getUTCDate() + n)
+  return dt.toISOString().slice(0, 10)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SEASON OUTLOOK — the wind-down brain. THRESHOLD-FREE: projects, from real sales +
+// production data, how long current fudge stock lasts and what's likely left over at
+// close (the "waste forecast" the owner wants near zero). Fudge sells down to ~zero;
+// popcorn is NOT part of the sell-down (short shelf life → made fresh to demand all the
+// way to close). Shared by the get_season_outlook tool and the Analytics panel.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function getSeasonOutlook(sb, { window = 14, asOf } = {}) {
+  const asOfDate = asOf || todayEastern()
+  const phase = seasonPhase(asOfDate)
+  const closeDate = seasonCloseDate(asOfDate)
+  const daysLeft = Math.max(0, daysUntilClose(asOfDate))
+
+  const { flavors } = await classifyFlavors(sb)
+  const [{ data: inv }, vel] = await Promise.all([
+    sb.from('current_inventory').select('flavor_id, tray_count, barrel_count, in_progress_count'),
+    getSalesVelocity(sb, window),
+  ])
+  const invMap = {}
+  ;(inv || []).forEach((r) => { invMap[r.flavor_id] = r })
+  const perDay = {}
+  for (const v of vel.velocity) perDay[v.flavor] = v.per_day
+
+  const isPumpkin = (name) => (name ?? '').toLowerCase().includes('pumpkin')
+  const fudge = flavors.filter((f) => f.product_type === 'fudge' && !f.is_component && !isPumpkin(f.name))
+
+  // Top tier = the ~top 30% of fudge by recent sell-rate — the only flavors still worth
+  // producing in wind-down. Everything below coasts/sells down.
+  const rates = fudge.map((f) => perDay[f.name] ?? 0).filter((x) => x > 0).sort((a, b) => b - a)
+  const topCutoff = rates.length ? rates[Math.max(0, Math.ceil(rates.length * 0.3) - 1)] : Infinity
+
+  const fudgeItems = []
+  let totalLeftover = 0
+  for (const f of fudge) {
+    const row = invMap[f.id] || {}
+    const trays = (row.tray_count ?? 0) + (row.in_progress_count ?? 0)
+    const pd = perDay[f.name] ?? 0
+    const daysOfStock = pd > 0 ? Number((trays / pd).toFixed(1)) : null
+    const selloutDate = pd > 0 ? addDays(asOfDate, Math.ceil(trays / pd)) : null
+    const projectedLeftover = pd > 0 ? Math.max(0, Number((trays - pd * daysLeft).toFixed(1))) : trays
+    const sellsOutBeforeClose = pd > 0 ? trays / pd <= daysLeft : false
+    const isTop = pd > 0 && pd >= topCutoff
+    // Verdict: stop = will be left over (waste risk) → don't make, push to sell.
+    // make_small = a TOP seller that'll run dry well before close (≥7 days early) → OK to
+    // make occasionally. coast = everything else (let it ride; running dry early is fine).
+    let verdict
+    if (projectedLeftover > 1) verdict = 'stop'
+    else if (isTop && daysOfStock != null && daysLeft - daysOfStock >= 7) verdict = 'make_small'
+    else verdict = 'coast'
+    totalLeftover += projectedLeftover
+    fudgeItems.push({
+      flavor: f.name,
+      trays,
+      per_day_sold: pd,
+      days_of_stock_left: daysOfStock,
+      projected_sellout_date: selloutDate,
+      projected_leftover_at_close: projectedLeftover,
+      sells_out_before_close: sellsOutBeforeClose,
+      is_top_seller: isTop,
+      verdict,
+    })
+  }
+  fudgeItems.sort((a, b) => b.projected_leftover_at_close - a.projected_leftover_at_close)
+
+  const popcorn = flavors
+    .filter((f) => f.product_type === 'popcorn' && !f.is_component)
+    .map((f) => ({ flavor: f.name, barrels: invMap[f.id]?.barrel_count ?? 0, per_day_sold: perDay[f.name] ?? 0 }))
+
+  return {
+    as_of: asOfDate,
+    phase, // preseason | peak | winddown | closed
+    season_end: closeDate,
+    days_until_close: daysLeft,
+    window_days: window,
+    // The number to drive toward zero: total fudge trays projected unsold at close.
+    total_projected_leftover_trays: Number(totalLeftover.toFixed(1)),
+    fudge: fudgeItems,
+    // Popcorn is made fresh to demand right up to close — never part of the sell-down.
+    popcorn: { make_fresh_to_demand: true, items: popcorn },
   }
 }
 
@@ -684,18 +918,32 @@ export async function getLowStock(sb) {
 
 export async function getSalesVelocity(sb, days = 7) {
   const start = daysAgoEastern(days)
-  const { data } = await sb
-    .from('shift_report_entries')
-    .select('trays_sold, flavors!inner(name, product_type), shift_reports!inner(report_date)')
-    .gte('shift_reports.report_date', start)
+  // Fudge sells in trays (shift_report_entries); popcorn sells in barrels — a popcorn
+  // "sale" is a barrel bucketed off the shelf, logged in shelf_bucket_logs.barrels_used.
+  // Fold both so popcorn isn't invisible to velocity / make recommendations.
+  const [{ data: entries }, { data: bucketLogs }, { data: popFlavors }] = await Promise.all([
+    sb.from('shift_report_entries').select('trays_sold, flavors!inner(name, product_type), shift_reports!inner(report_date)').gte('shift_reports.report_date', start),
+    sb.from('shelf_bucket_logs').select('flavor_id, barrels_used, logged_at').gte('logged_at', `${start}T00:00:00`),
+    sb.from('flavors').select('id, name, product_type').eq('product_type', 'popcorn'),
+  ])
   const totals = {}
-  for (const e of data || []) {
+  const unitByFlavor = {}
+  for (const e of entries || []) {
     const name = e.flavors?.name
     if (!name) continue
     totals[name] = (totals[name] ?? 0) + (e.trays_sold ?? 0)
+    unitByFlavor[name] = e.flavors?.product_type === 'popcorn' ? 'barrels' : 'trays'
+  }
+  const popById = {}
+  for (const f of popFlavors || []) popById[f.id] = f.name
+  for (const b of bucketLogs || []) {
+    const name = popById[b.flavor_id]
+    if (!name) continue
+    totals[name] = (totals[name] ?? 0) + (b.barrels_used ?? 0)
+    unitByFlavor[name] = 'barrels'
   }
   const velocity = Object.entries(totals)
-    .map(([flavor, sold]) => ({ flavor, total_sold: sold, per_day: Number((sold / days).toFixed(2)) }))
+    .map(([flavor, sold]) => ({ flavor, total_sold: sold, per_day: Number((sold / days).toFixed(2)), unit: unitByFlavor[flavor] ?? 'trays' }))
     .sort((a, b) => b.total_sold - a.total_sold)
   return { window_days: days, since: start, velocity }
 }
@@ -777,7 +1025,7 @@ async function resolveIngredient(sb, name) {
   return fuzzy && fuzzy.length === 1 ? fuzzy[0] : null
 }
 
-export const WRITE_TOOLS = new Set(['log_batch', 'add_product_entry', 'set_inventory_count', 'set_ingredient_quantity', 'log_fudge_pops'])
+export const WRITE_TOOLS = new Set(['log_batch', 'add_product_entry', 'add_popcorn_entry', 'set_inventory_count', 'set_ingredient_quantity', 'log_fudge_pops'])
 
 // One-line human summary of a write action, for the in-app confirmation dialog.
 export function summarizeToolCall(name, input = {}) {
@@ -787,6 +1035,8 @@ export function summarizeToolCall(name, input = {}) {
       return { title: 'Log batch?', message: `${input.count ?? 1} batch(es) of ${input.flavor}${input.is_wasted ? ' (wasted)' : ''} on ${date}. Base ingredients auto-deduct.` }
     case 'add_product_entry':
       return { title: 'Add product entry?', message: `${input.flavor} on ${date}: made ${input.full_trays ?? 0}, sold ${input.trays_sold ?? 0}, wasted ${input.trays_wasted ?? 0}, in-progress ${input.in_progress_trays ?? 0}. Per-tray ingredients auto-deduct.` }
+    case 'add_popcorn_entry':
+      return { title: 'Record popcorn barrels?', message: `${input.flavor} on ${date}: added ${input.barrels_added ?? 0}, sold ${input.barrels_sold ?? 0}, in-progress ${input.in_progress_barrels ?? 0} barrels.` }
     case 'set_inventory_count':
       return { title: 'Overwrite count?', message: `Set ${input.flavor} to ${input.value}${input.reason ? ` — ${input.reason}` : ''}.` }
     case 'set_ingredient_quantity':
@@ -805,6 +1055,7 @@ export async function runTool(sb, name, input = {}) {
     case 'get_inventory': return await getInventory(sb)
     case 'get_low_stock': return await getLowStock(sb)
     case 'get_make_recommendations': return await getMakeRecommendations(sb, { days: input.days ?? 14, horizon: input.horizon ?? 2 })
+    case 'get_season_outlook': return await getSeasonOutlook(sb, { window: input.window ?? 14, asOf: input.as_of })
     case 'get_sales_velocity': return await getSalesVelocity(sb, input.days ?? 7)
     case 'get_ingredient_stock': return await getIngredientStock(sb, input.days ?? 14)
     case 'get_recent_activity': return await getRecentActivity(sb, input.days ?? 7, input.flavor)
@@ -841,6 +1092,23 @@ export async function runTool(sb, name, input = {}) {
       const r = await applyShiftEntry(sb, flavor, date, values)
       if (r.error) return { error: r.error }
       return { ok: true, message: `Added entry for ${flavor.name} on ${date} (made ${values.full_trays}, sold ${values.trays_sold}, wasted ${values.trays_wasted}).` }
+    }
+
+    case 'add_popcorn_entry': {
+      const flavor = await resolveFlavor(sb, input.flavor)
+      if (!flavor) return { error: `No single flavor matches "${input.flavor}". Call get_flavors for exact names.` }
+      if (flavor.product_type !== 'popcorn') return { error: `${flavor.name} is not a popcorn flavor; use add_product_entry for fudge.` }
+      const date = input.date || todayEastern()
+      const values = {
+        barrels_added: Math.max(0, Math.floor(input.barrels_added ?? 0)),
+        barrels_sold: Math.max(0, Math.floor(input.barrels_sold ?? 0)),
+        in_progress_barrels: Math.max(0, Math.floor(input.in_progress_barrels ?? 0)),
+      }
+      if (values.barrels_added === 0 && values.barrels_sold === 0 && values.in_progress_barrels === 0) {
+        return { error: 'Nothing to record — set at least one of barrels_added, barrels_sold, or in_progress_barrels.' }
+      }
+      const res = await applyPopcornEntry(sb, flavor, date, values)
+      return { ok: true, message: `Recorded ${flavor.name} barrels on ${date} (added ${values.barrels_added}, sold ${values.barrels_sold}, in-progress ${values.in_progress_barrels}). Now ${res.newBarrels} on the shelf.` }
     }
 
     case 'set_inventory_count': {
