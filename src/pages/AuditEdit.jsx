@@ -13,13 +13,13 @@ const SECTIONS = [
   {
     key: 'backdate',
     label: 'Add a batch you forgot to log',
-    blurb: 'Made a batch on an earlier day but never logged it? Add it here and the ingredients come out automatically — just like if you’d logged it that day.',
+    blurb: 'Made a batch on an earlier day but never logged it? Add it here and the ingredients come out automatically — just like if you’d logged it that day. This is also how you add Caramel — pick Caramel and each batch adds 1 caramel tray.',
     icon: '🍫',
   },
   {
     key: 'revert',
     label: 'Undo a batch logged by mistake',
-    blurb: 'Logged a batch that wasn’t really made, or picked the wrong flavor? Remove it and the ingredients go back.',
+    blurb: 'Logged a batch that wasn’t really made, or picked the wrong flavor? Remove it and the ingredients go back. This is also how you fix Caramel — remove an extra Caramel batch (each one is 1 caramel tray) and the count drops.',
     icon: '↩️',
   },
   {
