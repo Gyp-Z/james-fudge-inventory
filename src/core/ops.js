@@ -382,6 +382,29 @@ export async function logBatchWithEffects(sb, flavor, dateStr, { isWasted = fals
   return { batchLogId: inserted.id, ...result }
 }
 
+// Correct the production DATE on already-logged batches: move up to `count` batches of a
+// flavor from one date to another. Ingredient deductions already happened and are stock-
+// correct regardless of date, so we only change batch_date (the date used in history,
+// analytics, and the day-by-day caramel walk). Moves the most-recently-created batches first
+// ("the ones I just logged"). `count = null` moves every batch on fromDate.
+export async function moveBatchDate(sb, flavor, fromDate, toDate, count = null) {
+  const fromNext = addDays(fromDate, 1)
+  const { data: batches, error } = await sb
+    .from('batch_logs')
+    .select('id, batch_date, created_at')
+    .eq('flavor_id', flavor.id)
+    .gte('batch_date', fromDate)
+    .lt('batch_date', fromNext)
+    .order('created_at', { ascending: false })
+  if (error) return { moved: 0, error: error.message }
+  if (!batches || batches.length === 0) return { moved: 0, available: 0 }
+  const toMove = count != null ? batches.slice(0, count) : batches
+  const ids = toMove.map((b) => b.id)
+  const { error: upErr } = await sb.from('batch_logs').update({ batch_date: toDate }).in('id', ids)
+  if (upErr) return { moved: 0, error: upErr.message }
+  return { moved: ids.length, available: batches.length, ids }
+}
+
 export async function revertBatchLog(sb, batchLogId) {
   const { data: batch, error: bErr } = await sb
     .from('batch_logs')
@@ -1025,7 +1048,7 @@ async function resolveIngredient(sb, name) {
   return fuzzy && fuzzy.length === 1 ? fuzzy[0] : null
 }
 
-export const WRITE_TOOLS = new Set(['log_batch', 'add_product_entry', 'add_popcorn_entry', 'set_inventory_count', 'set_ingredient_quantity', 'log_fudge_pops'])
+export const WRITE_TOOLS = new Set(['log_batch', 'add_product_entry', 'add_popcorn_entry', 'set_inventory_count', 'set_ingredient_quantity', 'log_fudge_pops', 'move_batches'])
 
 // Repair a conversation so every assistant `tool_use` block is answered by a matching
 // `tool_result` in the very next message. If a tool throws or the page closes mid-loop, the
@@ -1085,6 +1108,8 @@ export function summarizeToolCall(name, input = {}) {
       return { title: 'Overwrite quantity?', message: `Set ${input.ingredient} to ${input.value}${input.reason ? ` — ${input.reason}` : ''}.` }
     case 'log_fudge_pops':
       return { title: 'Log fudge pops?', message: `${input.pops ?? 0} ${input.base} fudge pops on ${date} (≈${((input.pops ?? 0) / POPS_PER_SESSION).toFixed(2)} tray). Toppings auto-deduct.` }
+    case 'move_batches':
+      return { title: 'Fix batch date?', message: `Move ${input.count ?? 'all'} ${input.flavor} batch(es) from ${input.from_date} to ${input.to_date}. Ingredient deductions are unchanged — only the date is fixed.` }
     default:
       return { title: 'Confirm action?', message: name }
   }
@@ -1187,6 +1212,21 @@ export async function runTool(sb, name, input = {}) {
       if (r.error || !r.logId) return { error: r.error?.message || 'Failed to log fudge pops (is the fudge_pop_logs migration applied?).' }
       const deducted = (r.deductions ?? []).map(d => d.name).join(', ') || 'none configured'
       return { ok: true, message: `Logged ${pops} ${base} fudge pops on ${date} (≈${(pops / POPS_PER_SESSION).toFixed(2)} tray). Toppings deducted: ${deducted}.` }
+    }
+
+    case 'move_batches': {
+      const flavor = await resolveFlavor(sb, input.flavor)
+      if (!flavor) return { error: `No single flavor matches "${input.flavor}". Call get_flavors for exact names.` }
+      const fromDate = input.from_date
+      const toDate = input.to_date
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate ?? '') || !/^\d{4}-\d{2}-\d{2}$/.test(toDate ?? '')) {
+        return { error: 'from_date and to_date are required as YYYY-MM-DD.' }
+      }
+      const count = input.count != null ? Math.max(1, Math.floor(input.count)) : null
+      const r = await moveBatchDate(sb, flavor, fromDate, toDate, count)
+      if (r.error) return { error: r.error }
+      if (r.moved === 0) return { error: `No ${flavor.name} batches found on ${fromDate}.` }
+      return { ok: true, message: `Moved ${r.moved} ${flavor.name} batch(es) from ${fromDate} to ${toDate} (${r.available} were on ${fromDate}). Ingredient stock is unchanged — only the date was fixed.` }
     }
 
     default:

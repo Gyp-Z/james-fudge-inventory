@@ -293,7 +293,9 @@ actions by chat, plus an MCP server so the owner's desktop assistant can do the 
   `src/core/productionManual.js` — for "how do I make X" / training questions; kept out of the
   base prompt to save tokens).
   Writes: `log_batch`, `add_product_entry`, `add_popcorn_entry`, `set_inventory_count`, `set_ingredient_quantity`,
-  `log_fudge_pops` (all route through the existing deduction helpers — no rounding, two-phase preserved).
+  `log_fudge_pops`, `move_batches` (all route through the existing deduction helpers — no rounding, two-phase preserved).
+  `move_batches` (`moveBatchDate` in core) fixes the DATE batches were logged for (wrong-day correction) — it only
+  updates `batch_logs.batch_date`; ingredient stock is untouched since the deductions already happened and stay correct.
   `add_popcorn_entry` is the popcorn analogue of `add_product_entry`: barrels_added/barrels_sold/in_progress_barrels
   via `applyPopcornEntry`. Sales velocity + make-recommendations fold popcorn barrels_sold from `shelf_bucket_logs`,
   and `getMakeRecommendations` surfaces all popcorn flavors on weekend/Thu-Fri days (`fill_popcorn_today` flag).

@@ -88,7 +88,8 @@ DATA & MECHANICS:
 HOW TO BEHAVE:
 - Never invent a flavor or ingredient name. If unsure of the exact name, call get_flavors or get_ingredients first.
 - Prefer a tool call over answering from memory for any question about current numbers.
-- Before a write action (log_batch, add_product_entry, add_popcorn_entry, set_inventory_count, set_ingredient_quantity, log_fudge_pops), make sure you have the flavor/ingredient, the date, and the amounts. Confirmation is handled outside of you, so just call the tool with the right arguments.
+- Before a write action (log_batch, add_product_entry, add_popcorn_entry, set_inventory_count, set_ingredient_quantity, log_fudge_pops, move_batches), make sure you have the flavor/ingredient, the date, and the amounts. Confirmation is handled outside of you, so just call the tool with the right arguments.
+- Wrong-day fix: if a chef logged batches on the wrong date ("the 3 peanut butter I logged today were really yesterday"), use move_batches (flavor + from_date + to_date, and a count if only some of them). It just corrects the date — ingredient stock stays as-is, so don't re-log or re-deduct. "Today"/"yesterday" are Eastern dates.
 - Lead with the answer; keep it tight. Format every reply as clean, scannable markdown (it renders as styled UI, so don't fuss over raw symbols): short "## Section" headings for groups, bullet/numbered lists for items, **bold** for flavor names and key numbers, one tight line per item. No walls of text. End with a one-line bottom line or a single question when an action is the natural next step.
 
 SEASON ARC & WIND-DOWN (the back-half job — minimize end-of-season waste):
@@ -239,6 +240,21 @@ export const TOOL_SCHEMAS = [
         in_progress_barrels: { type: 'integer', description: 'In-progress (half-made) barrels staged' },
       },
       required: ['flavor'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'move_batches',
+    description: 'Fix the DATE that batches were logged for — move batches of a flavor from one date to another. Use for "the 3 peanut butter I logged today were actually made yesterday" or "those batches should be on a different day". Moves the most-recently-logged batches first. It only changes the production date used in history/analytics — ingredient stock is NOT touched (the deductions already happened and stay correct). For fixing tray counts or barrels, use add_product_entry / add_popcorn_entry instead; this is specifically for the batch date.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        flavor: { type: 'string', description: 'Exact flavor name' },
+        from_date: { type: 'string', description: 'YYYY-MM-DD the batches are currently logged on (Eastern)' },
+        to_date: { type: 'string', description: 'YYYY-MM-DD they should be moved to (Eastern)' },
+        count: { type: 'integer', description: 'How many batches to move (default: all of that flavor on from_date)' },
+      },
+      required: ['flavor', 'from_date', 'to_date'],
       additionalProperties: false,
     },
   },
