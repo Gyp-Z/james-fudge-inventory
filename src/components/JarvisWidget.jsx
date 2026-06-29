@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { useAuth } from '../hooks/useAuth'
 import ConfirmDialog from './ConfirmDialog'
-import { runTool, WRITE_TOOLS, summarizeToolCall } from '../utils/jarvisClientTools'
+import { runTool, WRITE_TOOLS, summarizeToolCall, sanitizeMessages } from '../utils/jarvisClientTools'
 import { getDailyTrivia, getRandomTrivia, getTopicTrivia, detectTopic, loadTriviaChoice, saveTriviaChoice, generateTrivia, loadRecentQuestions, pushRecentQuestion } from '../utils/trivia'
 
 // Themed renderer so Jarvis's markdown becomes intentional, professional UI (no raw ** or #).
@@ -119,7 +119,9 @@ export default function JarvisWidget() {
     const convo = loadConvo()
     if (convo) {
       setTranscript(convo.transcript)
-      messagesRef.current = convo.messages
+      // Repair any orphaned tool_use left by a conversation that broke mid-loop, so a stale
+      // sessionStorage doesn't 400 every message until it's cleared.
+      messagesRef.current = sanitizeMessages(convo.messages)
       if (convo.transcript.some((m) => m.role === 'trivia')) triviaActiveRef.current = true
     }
     const saved = loadTriviaChoice()
@@ -226,7 +228,7 @@ export default function JarvisWidget() {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
-      body: JSON.stringify({ messages: messagesRef.current }),
+      body: JSON.stringify({ messages: sanitizeMessages(messagesRef.current) }),
     })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
@@ -255,22 +257,29 @@ export default function JarvisWidget() {
         const toolResults = []
         for (const tu of toolUses) {
           let result
-          if (tu.name === 'change_trivia') {
-            const t = await applyTriviaChange(tu.input || {})
-            result = t
-              ? { ok: true, question: t.question, answer: t.answer, hint1: t.hint1, hint2: t.hint2, funFact: t.funFact }
-              : { error: 'No previous question to go back to.' }
-            pushUI('tool', t ? '🎯 New trivia question' : '↩️ Nothing to go back to')
-          } else if (WRITE_TOOLS.has(tu.name)) {
-            const ok = await confirmWrite(tu)
-            if (!ok) { pushUI('tool', '✋ Action cancelled'); result = { error: 'User declined the action.' } }
-            else {
+          // Each tool MUST yield a result — a thrown tool would otherwise leave this tool_use
+          // unanswered and 400 every future turn. Catch so a failure becomes an error result.
+          try {
+            if (tu.name === 'change_trivia') {
+              const t = await applyTriviaChange(tu.input || {})
+              result = t
+                ? { ok: true, question: t.question, answer: t.answer, hint1: t.hint1, hint2: t.hint2, funFact: t.funFact }
+                : { error: 'No previous question to go back to.' }
+              pushUI('tool', t ? '🎯 New trivia question' : '↩️ Nothing to go back to')
+            } else if (WRITE_TOOLS.has(tu.name)) {
+              const ok = await confirmWrite(tu)
+              if (!ok) { pushUI('tool', '✋ Action cancelled'); result = { error: 'User declined the action.' } }
+              else {
+                result = await runTool(tu.name, tu.input)
+                pushUI('tool', result?.error ? `⚠️ ${result.error}` : `✅ ${result?.message || 'Done'}`)
+              }
+            } else {
               result = await runTool(tu.name, tu.input)
-              pushUI('tool', result?.error ? `⚠️ ${result.error}` : `✅ ${result?.message || 'Done'}`)
+              pushUI('tool', `🔎 ${labelForRead(tu.name)}`)
             }
-          } else {
-            result = await runTool(tu.name, tu.input)
-            pushUI('tool', `🔎 ${labelForRead(tu.name)}`)
+          } catch (e) {
+            result = { error: e?.message || 'Tool failed' }
+            pushUI('tool', `⚠️ ${result.error}`)
           }
           toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(result), is_error: !!result?.error })
         }

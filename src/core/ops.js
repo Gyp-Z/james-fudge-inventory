@@ -1027,6 +1027,48 @@ async function resolveIngredient(sb, name) {
 
 export const WRITE_TOOLS = new Set(['log_batch', 'add_product_entry', 'add_popcorn_entry', 'set_inventory_count', 'set_ingredient_quantity', 'log_fudge_pops'])
 
+// Repair a conversation so every assistant `tool_use` block is answered by a matching
+// `tool_result` in the very next message. If a tool throws or the page closes mid-loop, the
+// stored conversation can end up with an ORPHANED tool_use — and the Anthropic API then 400s
+// ("tool_use ids were found without tool_result blocks") on every subsequent turn, which
+// looks like "Jarvis is broken" until the chat is cleared. We self-heal by inserting synthetic
+// error tool_results for any unanswered tool_use. Pure function; used by the chat proxy
+// (server safety net) and the in-app widget (on load + before each send). Does not mutate input.
+export function sanitizeMessages(messages) {
+  if (!Array.isArray(messages)) return messages
+  const out = []
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    const toolUseIds = (msg?.role === 'assistant' && Array.isArray(msg.content))
+      ? msg.content.filter((b) => b?.type === 'tool_use').map((b) => b.id)
+      : []
+    if (toolUseIds.length === 0) { out.push(msg); continue }
+
+    out.push(msg)
+    const next = messages[i + 1]
+    const nextIsResults = next?.role === 'user' && Array.isArray(next.content)
+    const answered = new Set(
+      (nextIsResults ? next.content : []).filter((b) => b?.type === 'tool_result').map((b) => b.tool_use_id)
+    )
+    const missing = toolUseIds.filter((id) => !answered.has(id))
+    if (missing.length === 0) continue
+
+    const synthetic = missing.map((id) => ({
+      type: 'tool_result',
+      tool_use_id: id,
+      content: JSON.stringify({ error: 'Tool did not finish (interrupted) — ask again.' }),
+      is_error: true,
+    }))
+    if (nextIsResults) {
+      out.push({ ...next, content: [...synthetic, ...next.content] }) // merge into the existing results message
+      i += 1 // we've consumed messages[i+1]
+    } else {
+      out.push({ role: 'user', content: synthetic }) // no results message followed — insert one
+    }
+  }
+  return out
+}
+
 // One-line human summary of a write action, for the in-app confirmation dialog.
 export function summarizeToolCall(name, input = {}) {
   const date = input.date || 'today'

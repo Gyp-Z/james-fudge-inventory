@@ -7,6 +7,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 import { SYSTEM_PROMPT, TOOL_SCHEMAS, CHANGE_TRIVIA_TOOL } from '../src/core/toolSchemas.js'
+import { sanitizeMessages } from '../src/core/ops.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -39,11 +40,15 @@ export default async function handler(req, res) {
     return
   }
 
-  const messages = req.body?.messages
-  if (!Array.isArray(messages) || messages.length === 0) {
+  const rawMessages = req.body?.messages
+  if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
     res.status(400).json({ error: 'messages array required' })
     return
   }
+  // Safety net: repair any orphaned tool_use (a tool that never got a tool_result) so a
+  // conversation that broke mid-loop doesn't 400 forever. Fixes already-stuck clients on
+  // their next message, no reload needed.
+  const messages = sanitizeMessages(rawMessages)
 
   try {
     const client = new Anthropic({ apiKey })
