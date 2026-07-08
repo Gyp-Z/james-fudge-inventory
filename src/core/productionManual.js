@@ -144,6 +144,32 @@ Individual wrapped caramel pieces sold as candy.
 
 ---
 
+## TOFFEE (cooked in the same FireMixer-14 kettle as fudge)
+Almond toffee — Formula 296 as dialed in July 2026. Aidan is the toffee chef (usually a Thursday make). This recipe DROPPED the soy lecithin and ADDED corn syrup, which fixed the separation without it.
+
+**Per batch (~14 lb):** 5 lb dairy butter · 6 lb granulated sugar · 1 pt warm water · 2 cups corn syrup · 12 oz chopped almonds · then at the very end off-heat: 2 oz salt + ~1 lb Bakers' Special (superfine) sugar.
+(In the app, Toffee deducts butter, sugar, almonds, and corn syrup per batch. Salt and the small Bakers' Special add are not tracked. Bought cake note: N/A.)
+
+1. Butter + 6 lb sugar + water together from cold, scrapers ON, High Cook. Add the 2 cups corn syrup.
+2. Bring to a boil and confirm the sugar is FULLY dissolved (clear, no grit on the scraper) before letting the temp climb toward 250°F — undissolved sugar seeds bad grit.
+3. At ~250°F add the chopped almonds. Ease the heat around 280–290°F.
+4. Finish at 310–312°F (hard crack ≈ 300°F; the reading crawls the last few degrees — don't chase it with more heat, watch the kettle SKIN temp so the butter doesn't scorch).
+5. THE FINISH: at 312°F → cut heat + open the water-flush at the same instant → immediately add the 2 oz salt + ~1 lb Bakers' Special sugar → let the scrapers fold ~15–30 sec (just until uniform) → tilt and pour onto a well-oiled slab, spread fast, score before it sets.
+- Done toffee is deep amber/golden (Heath-bar interior). Too pale/foamy = underdone, keep cooking. Butter weeping = separation: bump agitator speed, knock heat down, or a small splash of hot water stirred in hard.
+
+---
+
+## DOT CAKE FROSTING
+Small decorated cakes. We BUY the cake part — we only make the frosting, and one batch of frosting decorates a lot of cakes. In the app this item is called **Dot Cake Frosting** and exists only to deduct the butter.
+
+**Frosting per batch:** ¾ of a 1-lb stick of butter (0.75 lb) · heavy cream (a splash — not tracked) · powdered sugar (not tracked).
+(In the app, "Dot Cake Frosting" deducts 0.75 lb butter per batch. Cream and powdered sugar are used but not tracked. Log one batch each time you whip up a batch of frosting.)
+
+1. Whip the butter, add powdered sugar and a splash of heavy cream to the frosting consistency you want.
+2. Frost the store-bought cakes and decorate.
+
+---
+
 ## PER-TRAY TOPPINGS (added after pouring fudge into trays)
 | Topping | Qty Per Tray | Used In |
 |---|---|---|

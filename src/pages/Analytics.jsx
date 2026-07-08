@@ -203,7 +203,7 @@ export default function Analytics() {
 
   // ── Flavor lists ──────────────────────────────────────────────────────────
   const fudgeFlavors = useMemo(
-    () => flavors.filter(f => f.product_type !== 'popcorn' && !f.is_component),
+    () => flavors.filter(f => f.product_type === 'fudge' && !f.is_component),
     [flavors]
   )
   const popcornFlavors = useMemo(
@@ -225,7 +225,7 @@ export default function Analytics() {
     [groupFlavors, selectedFlavors]
   )
   const visibleFudgeFlavors = useMemo(
-    () => visibleFlavors.filter(f => f.product_type !== 'popcorn'),
+    () => visibleFlavors.filter(f => f.product_type === 'fudge'),
     [visibleFlavors]
   )
   const viewPopcornFlavors = useMemo(

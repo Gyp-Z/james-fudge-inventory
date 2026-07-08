@@ -33,3 +33,9 @@ export const logInventoryAdjustment = (args) =>
 
 export const logFudgePops = (base, popCount, dateStr) =>
   core.logFudgePops(supabase, base, popCount, dateStr)
+
+export const revertBatchLog = (batchLogId) =>
+  core.revertBatchLog(supabase, batchLogId)
+
+export const revertFudgePopLog = (logId) =>
+  core.revertFudgePopLog(supabase, logId)

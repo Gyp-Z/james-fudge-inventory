@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { useAuth } from '../hooks/useAuth'
-import ConfirmDialog from './ConfirmDialog'
 import { runTool, WRITE_TOOLS, summarizeToolCall, sanitizeMessages } from '../utils/jarvisClientTools'
 import { getDailyTrivia, getRandomTrivia, getTopicTrivia, detectTopic, loadTriviaChoice, saveTriviaChoice, generateTrivia, loadRecentQuestions, pushRecentQuestion } from '../utils/trivia'
 
@@ -48,7 +47,7 @@ const GENERIC_EXAMPLES = [
 
 const PAGE_CONTEXT = {
   '/':            { label: 'the Dashboard',   examples: ['What should I make today?', 'What do I need to order?', 'Which flavors are running low?'] },
-  '/report':      { label: 'the Shift Report', examples: ['Log 2 trays of vanilla I made today', 'How many SSC trays can I make right now?', 'What still needs topping?'] },
+  '/report':      { label: 'the Shift Report', examples: ['Made 2 batches of vanilla', 'Bucketed 3 caramel corn', 'Remove that batch I logged by mistake'] },
   '/ingredients': { label: 'Ingredients',     examples: ['What do I need to order?', 'When do we run out of butter?', 'Which ingredients are below threshold?'] },
   '/analytics':   { label: 'Analytics',       examples: ["What's my best seller this season?", 'Which flavors get wasted most?', 'How fast is caramel selling?'] },
   '/admin':       { label: 'Products',        examples: ["What's selling slowest?", 'Which flavors underperform?', 'Set the alert threshold for vanilla'] },
@@ -98,17 +97,20 @@ export default function JarvisWidget() {
   const { session } = useAuth()
   const location = useLocation()
   const [open, setOpen] = useState(false)
-  const [transcript, setTranscript] = useState([]) // { role, text }
+  const [transcript, setTranscript] = useState([]) // { role, text } | { role:'confirm', … } | { role:'trivia', … }
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
-  const [confirm, setConfirm] = useState(null)
+  const [listening, setListening] = useState(false)
   const scrollRef = useRef(null)
   const messagesRef = useRef([])
+  const confirmResolveRef = useRef(null)
+  const recognitionRef = useRef(null)
   const triviaActiveRef = useRef(false)
   const triviaHistoryRef = useRef([]) // trivia objects shown this session (for reroll + go-back)
   const triviaPosRef = useRef(-1)     // index of the active question within the history
 
   const pageCtx = contextFor(location.pathname)
+  const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)
 
   useEffect(() => {
     if (open) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
@@ -118,9 +120,10 @@ export default function JarvisWidget() {
   useEffect(() => {
     const convo = loadConvo()
     if (convo) {
-      setTranscript(convo.transcript)
-      // Repair any orphaned tool_use left by a conversation that broke mid-loop, so a stale
+      // Any confirm card left pending by a refresh is dead — mark it cancelled. Also repair
+      // any orphaned tool_use left by a conversation that broke mid-loop, so a stale
       // sessionStorage doesn't 400 every message until it's cleared.
+      setTranscript(convo.transcript.map((m) => (m.role === 'confirm' && m.status === 'pending' ? { ...m, status: 'cancelled' } : m)))
       messagesRef.current = sanitizeMessages(convo.messages)
       if (convo.transcript.some((m) => m.role === 'trivia')) triviaActiveRef.current = true
     }
@@ -217,11 +220,48 @@ export default function JarvisWidget() {
     return showTrivia({ fresh: triviaActiveRef.current, seedContext: false })
   }
 
+  // Renders an INLINE confirmation card in the transcript and waits for the tap —
+  // reads as part of the conversation instead of a modal jumping over it.
   function confirmWrite(toolUse) {
     return new Promise((resolve) => {
       const { title, message } = summarizeToolCall(toolUse.name, toolUse.input)
-      setConfirm({ title, message, resolve })
+      confirmResolveRef.current = resolve
+      setTranscript((t) => [...t, { role: 'confirm', title, message, status: 'pending' }])
     })
+  }
+
+  function settleConfirm(ok) {
+    const resolve = confirmResolveRef.current
+    confirmResolveRef.current = null
+    setTranscript((t) => {
+      const idx = t.findLastIndex((m) => m.role === 'confirm' && m.status === 'pending')
+      if (idx === -1) return t
+      const next = [...t]
+      next[idx] = { ...next[idx], status: ok ? 'confirmed' : 'cancelled' }
+      return next
+    })
+    resolve?.(ok)
+  }
+
+  function toggleMic() {
+    if (!SR) return
+    if (listening) {
+      recognitionRef.current?.stop()
+      return
+    }
+    const rec = new SR()
+    rec.lang = 'en-US'
+    rec.interimResults = true
+    rec.continuous = false
+    rec.onresult = (ev) => {
+      const text = Array.from(ev.results).map((r) => r[0].transcript).join('')
+      setInput(text)
+    }
+    rec.onend = () => setListening(false)
+    rec.onerror = () => setListening(false)
+    recognitionRef.current = rec
+    setListening(true)
+    rec.start()
   }
 
   async function callClaude() {
@@ -268,10 +308,17 @@ export default function JarvisWidget() {
               pushUI('tool', t ? '🎯 New trivia question' : '↩️ Nothing to go back to')
             } else if (WRITE_TOOLS.has(tu.name)) {
               const ok = await confirmWrite(tu)
-              if (!ok) { pushUI('tool', '✋ Action cancelled'); result = { error: 'User declined the action.' } }
+              if (!ok) { result = { error: 'User declined the action.' } }
               else {
                 result = await runTool(tu.name, tu.input)
-                pushUI('tool', result?.error ? `⚠️ ${result.error}` : `✅ ${result?.message || 'Done'}`)
+                if (result?.error) {
+                  pushUI('tool', `⚠️ ${result.error}`)
+                } else {
+                  setTranscript((t) => [...t, { role: 'applied', text: result?.message || 'Done' }])
+                  // Let the page under the widget react — the Shift Report refreshes its
+                  // numbers and flashes the affected flavor card when a write lands.
+                  window.dispatchEvent(new CustomEvent('jarvis-applied', { detail: { name: tu.name, input: tu.input || {} } }))
+                }
               }
             } else {
               result = await runTool(tu.name, tu.input)
@@ -291,6 +338,8 @@ export default function JarvisWidget() {
       setBusy(false)
     }
   }
+
+  const hasPendingConfirm = transcript.some((m) => m.role === 'confirm' && m.status === 'pending')
 
   if (!open) {
     return (
@@ -367,11 +416,44 @@ export default function JarvisWidget() {
                 <ReactMarkdown components={MD}>{m.text}</ReactMarkdown>
               </div>
             )
+            if (m.role === 'confirm') return (
+              <div key={i} className={`rounded-xl border px-3.5 py-3 shadow-sm animate-pop-in ${
+                m.status === 'confirmed' ? 'bg-store-green-light border-store-green/50'
+                : m.status === 'cancelled' ? 'bg-store-cream border-store-tan opacity-70'
+                : 'bg-store-gold/10 border-store-gold/50'
+              }`}>
+                <p className="text-[11px] font-extrabold uppercase tracking-wide text-store-brown mb-1">
+                  {m.status === 'confirmed' ? '✓ ' : m.status === 'cancelled' ? '✕ ' : ''}{m.title}
+                </p>
+                <p className="text-sm text-store-brown leading-snug whitespace-pre-wrap">{m.message}</p>
+                {m.status === 'pending' && (
+                  <div className="flex gap-2 mt-2.5">
+                    <button
+                      onClick={() => settleConfirm(true)}
+                      className="press flex-1 bg-store-green hover:bg-store-green-dark text-white py-2.5 rounded-xl text-sm font-bold touch-manipulation shadow-sm"
+                    >
+                      ✓ Do it
+                    </button>
+                    <button
+                      onClick={() => settleConfirm(false)}
+                      className="press flex-1 bg-white border border-store-tan text-store-brown-light py-2.5 rounded-xl text-sm font-semibold touch-manipulation hover:text-store-brown"
+                    >
+                      Skip
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+            if (m.role === 'applied') return (
+              <div key={i} className="flex justify-center animate-pop-in">
+                <span className="text-xs font-semibold text-store-green bg-store-green/10 border border-store-green/30 rounded-full px-3 py-1">✅ {m.text}</span>
+              </div>
+            )
             if (m.role === 'tool') return <div key={i} className="text-center text-xs text-store-brown-light animate-fade-in">{m.text}</div>
             return <div key={i} className="text-center text-xs text-store-coral bg-store-coral/10 border border-store-coral/30 rounded-lg px-2.5 py-1 animate-fade-in">{m.text}</div>
           })}
 
-          {busy && (
+          {busy && !hasPendingConfirm && (
             <div className="flex items-center gap-1.5 text-store-green pl-1">
               <span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" />
               <span className="text-xs text-store-brown-light ml-1">Jarvis is thinking…</span>
@@ -381,12 +463,25 @@ export default function JarvisWidget() {
 
         {/* Input */}
         <form onSubmit={(e) => { e.preventDefault(); send(input) }} className="p-2.5 flex items-center gap-2 border-t border-store-tan bg-white shrink-0">
+          {SR && (
+            <button
+              type="button"
+              onClick={toggleMic}
+              disabled={busy}
+              title={listening ? 'Stop listening' : 'Speak instead of typing'}
+              className={`press w-10 h-10 rounded-full shrink-0 flex items-center justify-center text-lg touch-manipulation ${
+                listening ? 'bg-store-coral text-white animate-pulse-glow' : 'bg-store-cream text-store-brown-light hover:text-store-green'
+              }`}
+            >
+              🎙️
+            </button>
+          )}
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask Jarvis…"
-            disabled={busy}
+            placeholder={listening ? 'Listening…' : 'Ask Jarvis…'}
+            disabled={busy && hasPendingConfirm}
             className="flex-1 min-w-0 border border-store-tan rounded-full px-4 py-2 text-sm bg-store-cream text-store-brown focus:outline-none focus:ring-2 focus:ring-store-green disabled:opacity-60"
           />
           <button type="submit" disabled={busy || !input.trim()} className="press bg-store-green hover:bg-store-green-dark text-white w-10 h-10 rounded-full text-sm font-semibold disabled:opacity-50 shrink-0 flex items-center justify-center shadow-sm">
@@ -394,17 +489,6 @@ export default function JarvisWidget() {
           </button>
         </form>
       </div>
-
-      <ConfirmDialog
-        open={!!confirm}
-        title={confirm?.title}
-        message={confirm?.message}
-        isDangerous
-        confirmText="Do it"
-        cancelText="Cancel"
-        onConfirm={() => { confirm?.resolve(true); setConfirm(null) }}
-        onCancel={() => { confirm?.resolve(false); setConfirm(null) }}
-      />
     </>
   )
 }
@@ -417,6 +501,8 @@ function labelForRead(name) {
     case 'get_sales_velocity': return 'Checked sales'
     case 'get_ingredient_stock': return 'Checked ingredients'
     case 'get_recent_activity': return 'Checked recent activity'
+    case 'get_season_recap': return 'Added up the season'
+    case 'get_season_outlook': return 'Checked the season outlook'
     case 'get_flavors': return 'Looked up flavors'
     case 'get_ingredients': return 'Looked up ingredients'
     default: return 'Looked something up'

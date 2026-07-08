@@ -287,6 +287,26 @@ export async function deductFudgePopToppings(sb, base, popCount, fudgePopLogId =
   return { deductions, negatives, skipped }
 }
 
+// Exact inverse of logFudgePops: refund every topping deduction linked to the log row
+// (via ingredient_deductions.fudge_pop_log_id), then delete the deductions and the log.
+// Powers the staff "Undo last submission" — pops have no other revert UI.
+export async function revertFudgePopLog(sb, logId) {
+  if (!logId) return { success: false, error: 'No fudge pop log id' }
+  const { data: deductions } = await sb.from('ingredient_deductions').select('*').eq('fudge_pop_log_id', logId)
+  if (deductions && deductions.length > 0) {
+    const ingIds = deductions.map((d) => d.ingredient_id)
+    const { data: activeIngs } = await sb.from('ingredients').select('id, quantity').in('id', ingIds).eq('is_active', true)
+    for (const d of deductions) {
+      const ing = (activeIngs || []).find((i) => i.id === d.ingredient_id)
+      if (ing) await sb.from('ingredients').update({ quantity: (ing.quantity ?? 0) + d.quantity_deducted }).eq('id', ing.id)
+    }
+    await sb.from('ingredient_deductions').delete().eq('fudge_pop_log_id', logId)
+  }
+  const { error: delErr } = await sb.from('fudge_pop_logs').delete().eq('id', logId)
+  if (delErr) return { success: false, error: delErr.message }
+  return { success: true }
+}
+
 export async function incrementBarrelCount(sb, flavorId, amount) {
   const { data } = await sb.from('current_inventory').select('barrel_count').eq('flavor_id', flavorId).single()
   const newCount = (data?.barrel_count ?? 0) + amount
@@ -403,6 +423,31 @@ export async function moveBatchDate(sb, flavor, fromDate, toDate, count = null) 
   const { error: upErr } = await sb.from('batch_logs').update({ batch_date: toDate }).in('id', ids)
   if (upErr) return { moved: 0, error: upErr.message }
   return { moved: ids.length, available: batches.length, ids }
+}
+
+// Remove up to `count` batches of a flavor logged on a date — the "I logged a batch I
+// didn't make" fix. Each removal goes through revertBatchLog, so ingredient deductions
+// are refunded (and a component batch's +1 caramel tray is walked back). Most-recently-
+// logged batches go first ("the one I just logged"). `count = null` removes all on the date.
+export async function removeBatchLogs(sb, flavor, dateStr, count = null) {
+  const fromNext = addDays(dateStr, 1)
+  const { data: batches, error } = await sb
+    .from('batch_logs')
+    .select('id, created_at, is_wasted')
+    .eq('flavor_id', flavor.id)
+    .gte('batch_date', dateStr)
+    .lt('batch_date', fromNext)
+    .order('created_at', { ascending: false })
+  if (error) return { removed: 0, error: error.message }
+  if (!batches || batches.length === 0) return { removed: 0, available: 0 }
+  const toRemove = count != null ? batches.slice(0, count) : batches
+  let removed = 0
+  for (const b of toRemove) {
+    const r = await revertBatchLog(sb, b.id)
+    if (r.success) removed++
+    else return { removed, available: batches.length, error: r.error }
+  }
+  return { removed, available: batches.length }
 }
 
 export async function revertBatchLog(sb, batchLogId) {
@@ -724,7 +769,7 @@ export async function getMakeRecommendations(sb, { days = 14, horizon = 2 } = {}
 
   const recs = []
   for (const f of flavors) {
-    if (f.is_component) continue
+    if (f.is_component || f.product_type === 'extra') continue // extras (toffee, dot cakes) aren't stocked/recommended
     const c = byId[f.id]
     const row = invMap[f.id] || {}
     const isPop = f.product_type === 'popcorn'
@@ -907,7 +952,9 @@ export async function getInventory(sb) {
   const invMap = {}
   ;(inv || []).forEach((r) => { invMap[r.flavor_id] = r })
   const items = (flavors || [])
-    .filter((f) => !f.is_component)
+    // Skip components (Caramel — reported separately) and 'extra' items (toffee, dot
+    // cakes — batch-only, not stocked/sold).
+    .filter((f) => !f.is_component && f.product_type !== 'extra')
     .map((f) => {
       const row = invMap[f.id] || {}
       return f.product_type === 'popcorn'
@@ -920,7 +967,7 @@ export async function getInventory(sb) {
 
 export async function getLowStock(sb) {
   const [{ data: flavors }, { data: inv }, { data: ings }] = await Promise.all([
-    sb.from('flavors').select('id, name, product_type, low_tray_threshold').eq('is_active', true).eq('is_component', false),
+    sb.from('flavors').select('id, name, product_type, low_tray_threshold').eq('is_active', true).eq('is_component', false).neq('product_type', 'extra'),
     sb.from('current_inventory').select('flavor_id, tray_count, barrel_count'),
     sb.from('ingredients').select('name, unit, quantity, low_stock_threshold').eq('is_active', true),
   ])
@@ -1029,6 +1076,175 @@ export async function getRecentActivity(sb, days = 7, flavorName) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SEASON RECAP — the year's story once the store closes (also useful mid-season).
+// One core fn feeds the /season-recap page AND the get_season_recap Jarvis tool.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Supabase caps a select at 1000 rows; a full season of entries/batches can exceed
+// that, so recap queries page until a short page comes back.
+async function fetchAllRows(makeQuery) {
+  const out = []
+  const page = 1000
+  for (let from = 0; ; from += page) {
+    const { data, error } = await makeQuery().range(from, from + page - 1)
+    if (error || !data || data.length === 0) break
+    out.push(...data)
+    if (data.length < page) break
+  }
+  return out
+}
+
+// Season-to-date trays sold per flavor_id — the shop's "most sold" order. Shared by the
+// Dashboard and Shift Report so fudge lists everywhere sort best-seller-first (owner
+// request July 2026: faster than alphabetical because the top sellers are what chefs
+// touch every day). Ties fall back to name order at the call site.
+export async function getSeasonSoldTotals(sb) {
+  const rows = await fetchAllRows(() => sb
+    .from('shift_report_entries')
+    .select('flavor_id, trays_sold, shift_reports!inner(report_date)')
+    .gte('shift_reports.report_date', SEASON_START)
+    .order('id', { ascending: true }))
+  const sold = {}
+  for (const r of rows) sold[r.flavor_id] = (sold[r.flavor_id] ?? 0) + (r.trays_sold ?? 0)
+  return sold
+}
+
+// Comparator factory: most-sold first, alphabetical tie-break.
+export function bySoldDesc(soldMap) {
+  return (a, b) => (soldMap[b.id] ?? 0) - (soldMap[a.id] ?? 0) || a.name.localeCompare(b.name)
+}
+
+export async function getSeasonRecap(sb, { year } = {}) {
+  const today = todayEastern()
+  // Default to the most recently *started* season: in preseason (Jan–Apr) that's last year.
+  const resolvedYear = year ?? (
+    today.slice(5, 10) < SEASON_CONFIG.openMonthDay
+      ? Number(today.slice(0, 4)) - 1
+      : Number(today.slice(0, 4))
+  )
+  const start = `${resolvedYear}-${SEASON_CONFIG.openMonthDay}`
+  const end = `${resolvedYear}-${SEASON_CONFIG.closeMonthDay}`
+
+  const { data: flavorRows } = await sb.from('flavors').select('id, name, product_type, is_component')
+  const flavorById = {}
+  ;(flavorRows || []).forEach((f) => { flavorById[f.id] = f })
+
+  const [batches, entries, barrelLogs, handwrap, popLogs] = await Promise.all([
+    fetchAllRows(() => sb.from('batch_logs')
+      .select('flavor_id, is_wasted, batch_date')
+      .gte('batch_date', start).lt('batch_date', `${end}T23:59:59`)
+      .order('id', { ascending: true })),
+    fetchAllRows(() => sb.from('shift_report_entries')
+      .select('flavor_id, full_trays, trays_sold, trays_wasted, in_progress_trays, shift_reports!inner(report_date)')
+      .gte('shift_reports.report_date', start).lte('shift_reports.report_date', end)
+      .order('id', { ascending: true })),
+    fetchAllRows(() => sb.from('shelf_bucket_logs')
+      .select('flavor_id, barrels_added, barrels_used, logged_at')
+      .gte('logged_at', `${start}T00:00:00`).lte('logged_at', `${end}T23:59:59`)
+      .order('id', { ascending: true })),
+    fetchAllRows(() => sb.from('caramel_handwrap_logs')
+      .select('trays_used, report_date')
+      .gte('report_date', start).lte('report_date', end)
+      .order('id', { ascending: true })),
+    fetchAllRows(() => sb.from('fudge_pop_logs')
+      .select('base, pop_count, report_date')
+      .gte('report_date', start).lte('report_date', end)
+      .order('id', { ascending: true })),
+  ])
+
+  // Per-flavor rollup
+  const per = {}
+  const rowFor = (fid) => {
+    if (!per[fid]) {
+      const f = flavorById[fid] || {}
+      per[fid] = {
+        name: f.name || 'Unknown', type: f.is_component ? 'component' : (f.product_type === 'popcorn' ? 'popcorn' : 'fudge'),
+        batches: 0, batchesWasted: 0, made: 0, sold: 0, wasted: 0,
+        barrelsAdded: 0, barrelsSold: 0,
+      }
+    }
+    return per[fid]
+  }
+
+  const activeDates = new Set()
+  for (const b of batches) {
+    const r = rowFor(b.flavor_id)
+    if (b.is_wasted) r.batchesWasted++
+    else r.batches++
+    activeDates.add((b.batch_date ?? '').slice(0, 10))
+  }
+  const soldByDate = {}
+  for (const e of entries) {
+    const r = rowFor(e.flavor_id)
+    r.made += e.full_trays ?? 0
+    r.sold += e.trays_sold ?? 0
+    r.wasted += e.trays_wasted ?? 0
+    const d = e.shift_reports?.report_date
+    if (d) {
+      activeDates.add(d)
+      soldByDate[d] = (soldByDate[d] ?? 0) + (e.trays_sold ?? 0)
+    }
+  }
+  for (const l of barrelLogs) {
+    const r = rowFor(l.flavor_id)
+    r.barrelsAdded += l.barrels_added ?? 0
+    r.barrelsSold += l.barrels_used ?? 0
+    const d = (l.logged_at ?? '').slice(0, 10)
+    if (d) {
+      activeDates.add(d)
+      soldByDate[d] = (soldByDate[d] ?? 0) + (l.barrels_used ?? 0)
+    }
+  }
+
+  const perFlavor = Object.values(per)
+  const fudge = perFlavor.filter((r) => r.type === 'fudge')
+  const popcorn = perFlavor.filter((r) => r.type === 'popcorn')
+  const caramel = perFlavor.filter((r) => r.type === 'component')
+
+  const sum = (arr, k) => arr.reduce((s, r) => s + (r[k] ?? 0), 0)
+  const fudgeMade = sum(fudge, 'made')
+  const fudgeSold = sum(fudge, 'sold')
+  const fudgeWasted = sum(fudge, 'wasted')
+  const handwrapTrays = handwrap.reduce((s, h) => s + (Number(h.trays_used) || 0), 0)
+  const totalPops = popLogs.reduce((s, p) => s + (p.pop_count ?? 0), 0)
+
+  let busiestDay = null
+  for (const [date, sold] of Object.entries(soldByDate)) {
+    if (!busiestDay || sold > busiestDay.sold) busiestDay = { date, sold }
+  }
+
+  const bySold = [...fudge].sort((a, b) => b.sold - a.sold)
+  const byWaste = [...fudge].sort((a, b) => b.wasted - a.wasted)
+  const popcornBySold = [...popcorn].sort((a, b) => b.barrelsSold - a.barrelsSold)
+
+  return {
+    year: resolvedYear,
+    window: { start, end },
+    season_phase: seasonPhase(today),
+    totals: {
+      batches: sum(perFlavor, 'batches'),
+      batches_wasted: sum(perFlavor, 'batchesWasted'),
+      fudge_trays_made: fudgeMade,
+      fudge_trays_sold: fudgeSold,
+      fudge_trays_wasted: fudgeWasted,
+      waste_rate_pct: fudgeMade > 0 ? Math.round((fudgeWasted / fudgeMade) * 1000) / 10 : 0,
+      popcorn_barrels_added: sum(popcorn, 'barrelsAdded'),
+      popcorn_barrels_sold: sum(popcorn, 'barrelsSold'),
+      caramel_batches: sum(caramel, 'batches'),
+      caramels_handwrapped_trays: Math.round(handwrapTrays * 100) / 100,
+      fudge_pops: totalPops,
+      active_days: activeDates.size,
+    },
+    top_sellers: bySold.slice(0, 5).map((r) => ({ name: r.name, sold: r.sold })),
+    slowest_sellers: bySold.filter((r) => r.made > 0 || r.sold > 0).slice(-3).reverse().map((r) => ({ name: r.name, sold: r.sold })),
+    most_wasted: byWaste.filter((r) => r.wasted > 0).slice(0, 5).map((r) => ({ name: r.name, wasted: r.wasted })),
+    top_popcorn: popcornBySold.slice(0, 3).map((r) => ({ name: r.name, barrels_sold: r.barrelsSold })),
+    busiest_day: busiestDay,
+    per_flavor: perFlavor.sort((a, b) => (a.type === b.type ? b.sold + b.barrelsSold - (a.sold + a.barrelsSold) : a.type.localeCompare(b.type))),
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // NAME RESOLUTION + TOOL DISPATCH (shared by chat + MCP)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1048,7 +1264,7 @@ async function resolveIngredient(sb, name) {
   return fuzzy && fuzzy.length === 1 ? fuzzy[0] : null
 }
 
-export const WRITE_TOOLS = new Set(['log_batch', 'add_product_entry', 'add_popcorn_entry', 'set_inventory_count', 'set_ingredient_quantity', 'log_fudge_pops', 'move_batches'])
+export const WRITE_TOOLS = new Set(['log_batch', 'add_product_entry', 'add_popcorn_entry', 'set_inventory_count', 'set_ingredient_quantity', 'log_fudge_pops', 'move_batches', 'remove_batches'])
 
 // Repair a conversation so every assistant `tool_use` block is answered by a matching
 // `tool_result` in the very next message. If a tool throws or the page closes mid-loop, the
@@ -1110,6 +1326,8 @@ export function summarizeToolCall(name, input = {}) {
       return { title: 'Log fudge pops?', message: `${input.pops ?? 0} ${input.base} fudge pops on ${date} (≈${((input.pops ?? 0) / POPS_PER_SESSION).toFixed(2)} tray). Toppings auto-deduct.` }
     case 'move_batches':
       return { title: 'Fix batch date?', message: `Move ${input.count ?? 'all'} ${input.flavor} batch(es) from ${input.from_date} to ${input.to_date}. Ingredient deductions are unchanged — only the date is fixed.` }
+    case 'remove_batches':
+      return { title: 'Remove batch?', message: `Remove ${input.count ?? 1} ${input.flavor} batch(es) logged on ${date}. Ingredient deductions are refunded — use only for batches logged by mistake.` }
     default:
       return { title: 'Confirm action?', message: name }
   }
@@ -1123,6 +1341,7 @@ export async function runTool(sb, name, input = {}) {
     case 'get_low_stock': return await getLowStock(sb)
     case 'get_make_recommendations': return await getMakeRecommendations(sb, { days: input.days ?? 14, horizon: input.horizon ?? 2 })
     case 'get_season_outlook': return await getSeasonOutlook(sb, { window: input.window ?? 14, asOf: input.as_of })
+    case 'get_season_recap': return await getSeasonRecap(sb, { year: input.year })
     case 'get_sales_velocity': return await getSalesVelocity(sb, input.days ?? 7)
     case 'get_ingredient_stock': return await getIngredientStock(sb, input.days ?? 14)
     case 'get_recent_activity': return await getRecentActivity(sb, input.days ?? 7, input.flavor)
@@ -1227,6 +1446,18 @@ export async function runTool(sb, name, input = {}) {
       if (r.error) return { error: r.error }
       if (r.moved === 0) return { error: `No ${flavor.name} batches found on ${fromDate}.` }
       return { ok: true, message: `Moved ${r.moved} ${flavor.name} batch(es) from ${fromDate} to ${toDate} (${r.available} were on ${fromDate}). Ingredient stock is unchanged — only the date was fixed.` }
+    }
+
+    case 'remove_batches': {
+      const flavor = await resolveFlavor(sb, input.flavor)
+      if (!flavor) return { error: `No single flavor matches "${input.flavor}". Call get_flavors for exact names.` }
+      const date = input.date || todayEastern()
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'date must be YYYY-MM-DD.' }
+      const count = input.count != null ? Math.max(1, Math.floor(input.count)) : 1
+      const r = await removeBatchLogs(sb, flavor, date, count)
+      if (r.error) return { error: r.error }
+      if (r.removed === 0) return { error: `No ${flavor.name} batches found on ${date}.` }
+      return { ok: true, message: `Removed ${r.removed} ${flavor.name} batch(es) from ${date} (${r.available} were logged). Ingredient deductions refunded.` }
     }
 
     default:

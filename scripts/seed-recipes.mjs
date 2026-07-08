@@ -199,6 +199,30 @@ const FLAVOR_RECIPES = [
   // ── CARAMEL (TREY) ────────────────────────────────────────────────────────
   { flavorName: 'Caramel', ingredients: CARAMEL_BASE },
 
+  // ── EXTRAS (product_type 'extra' — batch-log only, not sold/tracked) ────────
+  // Toffee: Formula 296 as dialed in July 2026 — corn syrup added, soy lecithin
+  // dropped. Bakers' Special superfine sugar (~1 lb late add) is intentionally NOT
+  // deducted. Salt has no pack size set, so like the fudge salt it won't deduct.
+  {
+    flavorName: 'Toffee',
+    ingredients: [
+      { name: 'Butter',     unit: 'lbs',  qty: 5 },
+      { name: 'Sugar',      unit: 'lbs',  qty: 6 },
+      { name: 'Almonds',    unit: 'lbs',  qty: 0.75 }, // 12 oz chopped
+      { name: 'Corn Syrup', unit: 'cups', qty: 2 },
+      { name: 'Salt',       unit: 'cups', qty: 0.125 }, // ~2 oz; no-ops (no container size)
+    ],
+  },
+  // Dot Cake Frosting: cakes are bought — this is ONLY the frosting recipe (one batch
+  // of frosting decorates many cakes). 3/4 of a 1-lb butter stick per batch. Heavy
+  // cream + powdered sugar are used but not tracked. Exists purely for butter deduction.
+  {
+    flavorName: 'Dot Cake Frosting',
+    ingredients: [
+      { name: 'Butter', unit: 'lbs', qty: 0.75 },
+    ],
+  },
+
   // ── POPCORN FLAVORS ───────────────────────────────────────────────────────
   {
     flavorName: 'Caramel Corn',
@@ -250,12 +274,15 @@ const FLAVOR_RECIPES = [
     ],
   },
   // ── KETTLE CORN ───────────────────────────────────────────────────────────
-  // Uses same Cheddar Kernels and qty (32 oz) as both Cheddar Corn flavors.
-  // Kettle Mix: add { name: 'Kettle Mix', unit: 'cartons', qty: X } once qty per batch is confirmed.
+  // Confirmed with staff July 2026: mixed kernels (Caramel 64 oz + Cheddar 21.33 oz)
+  // plus 1 lb of Kettle Mix per batch. Kettle Mix cartons hold 3.25 lbs
+  // (container_size = 3.25 on the ingredient row) → ≈0.31 cartons deduct per batch.
   {
     flavorName: 'Kettle Corn',
     ingredients: [
-      { name: 'Cheddar Kernels', unit: 'oz', qty: 32 },
+      { name: 'Caramel Kernels', unit: 'oz',  qty: 64 },
+      { name: 'Cheddar Kernels', unit: 'oz',  qty: 21.3333 },
+      { name: 'Kettle Mix',      unit: 'lbs', qty: 1 },
     ],
   },
 ]

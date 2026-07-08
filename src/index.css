@@ -76,6 +76,13 @@
   0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
   40%           { transform: translateY(-4px); opacity: 1; }
 }
+/* Green wash that fades out — plays on a card the moment a chat action or
+   refresh lands on it, so updates are visibly "added" to the list. */
+@keyframes flash-update {
+  0%   { background-color: rgba(107, 143, 114, 0.28); box-shadow: 0 0 0 2px rgba(107, 143, 114, 0.55); }
+  60%  { background-color: rgba(107, 143, 114, 0.14); }
+  100% { background-color: transparent; box-shadow: 0 0 0 2px rgba(107, 143, 114, 0); }
+}
 
 /* =============================================================================
    GLOBAL BASE
@@ -192,6 +199,17 @@ body {
 /* Hide scrollbar but keep scrollability (used by the tablet top nav) */
 .no-scrollbar { scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* Update flash — applied (keyed) to a card when a chat write lands on it */
+.flash-update {
+  animation: flash-update 1.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  border-radius: 0.75rem;
+}
+
+/* Report sections scroll under the sticky header + utility bar */
+.report-section {
+  scroll-margin-top: 118px;
+}
 
 /* Jarvis typing indicator dots */
 .typing-dot {

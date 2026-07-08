@@ -133,7 +133,7 @@ Recipes are **not currently displayed in the UI**. They were removed from the Sh
 ### Recipes
 - Seeded by `scripts/seed-recipes.mjs`
 - Supports `{ flavorName, ingredients }` (single-base) and `{ flavorName, pours: [{label, ingredients}] }` (multi-base)
-- SSC flavors = 1× base per batch (NOT 2×). Staff log 2 SSC batches per complete make.
+- SSC flavors = 1× base per batch (NOT 2×). USUAL flow (confirmed July 2026): bottoms set overnight, so each pour is logged as the BASE flavor's batch and SSC only gets tray entries — the SSC batch recipes fire only on the RARE same-day make logged under the SSC flavor itself. Never both for the same pour (double-deducts).
 - Seed does delete-then-insert per flavor — safe to re-run
 
 ### Fudge Pops
@@ -151,7 +151,16 @@ Small fudge pops made from a **Vanilla or Chocolate** base. Pops are NOT sold in
 - **Migration:** `supabase/migrations/add_fudge_pop_logs.sql` (table + `fudge_pop_log_id` column + Sprinkles row). Code degrades gracefully before it's applied (pop logging no-ops, Sprinkles skipped).
 
 ### Kettle Corn
-Added as a popcorn flavor mid-season 2026. Uses Cheddar Kernels (same qty as Cheddar Corn / White Cheddar Corn). Also uses Kettle Mix (comes in cartons) — qty per batch TBD, `container_size` not yet set so Kettle Mix deduction is skipped until confirmed with staff. When ready: update `qty` in `scripts/seed-recipes.mjs` and set `container_size` on the Kettle Mix ingredient row, then re-run the seeder.
+Added as a popcorn flavor mid-season 2026. Recipe confirmed with staff/owner July 2026: **Caramel Kernels 64 oz + Cheddar Kernels 21.3333 oz + Kettle Mix 1 lb per batch**. Kettle Mix comes in **3.25 lb cartons** (`container_size = 3.25`, `container_unit = 'lbs'`) → 1/3.25 ≈ 0.31 cartons deduct per batch. DB recipe rows and `scripts/seed-recipes.mjs` are in sync — do NOT revert the seeder's Kettle Corn entry to the old Cheddar-Kernels-only version.
+
+### Extras — `product_type = 'extra'` (Toffee, Dot Cake Frosting)
+Added July 2026. **Batch-log-only items**: you make them (a batch deducts ingredients) but they are NOT sold/tracked as shelf stock — no tray/barrel count, no Dashboard card, no sales, no Analytics graph, no make-recommendations. This is a THIRD product_type alongside `fudge` and `popcorn`, chosen so the fudge filters (now tightened from `!== 'popcorn'` to **`=== 'fudge'`** in Dashboard/ShiftReport/Analytics and core `getInventory`/`getLowStock`/`getMakeRecommendations`) exclude them without a schema migration. `is_component = false`.
+- They render in the ShiftReport **Batches tab** under a "Toffee & Extras" section (`extraFlavors = product_type === 'extra'`), simple made/wasted steppers like the Caramel batch section. Excluded from the Products tab and the "Today" smart-list.
+- Jarvis logs them via **`log_batch`** (they're in `get_flavors` with role `own_batch`); `add_product_entry` rejects them (not fudge). System prompt has an "Extras" rule.
+- **Toffee** recipe (batch phase): Butter 5 lb, Sugar 6 lb, Almonds 12 oz (0.75 lb), Corn Syrup 2 cups. Salt ~2 oz and the ~1 lb Bakers' Special superfine sugar are intentionally NOT deducted (salt has no `container_size`; Bakers' Special isn't stocked). Formula 296, dialed in July 2026 — corn syrup added, soy lecithin dropped. Toffee is made in the same FireMixer-14 kettle as fudge; Aidan makes it ~weekly (Thursdays).
+- **Dot Cake Frosting** recipe (batch phase): Butter 0.75 lb (¾ of a 1-lb stick). Named "Dot Cake Frosting" (not "Dot Cakes") on purpose — the cake part is BOUGHT, one batch of frosting decorates many cakes, and this item exists purely for the butter deduction. Heavy cream + powdered sugar are used but not tracked.
+- If you need to add another non-sold made item, this is the pattern: `product_type='extra'`, add a batch recipe to `seed-recipes.mjs`, done.
+- Historical batches (pre-feature) were logged as records only via `scripts/log-toffee-dotcake-history.mjs` with **no deductions** (so they don't distort current stock).
 
 ### Ingredient Container Schema
 - `ingredients.unit` = **delivery unit** (boxes, bags, sticks) — what stock is counted in
@@ -248,7 +257,7 @@ This one core fn feeds both the `get_season_outlook` Jarvis tool and the **Analy
 
 - `useFlavors` filters `is_active = true` — if you need ALL flavors, query `flavors` directly.
 - `batch_date` is `timestamptz` — slice to 10 chars before comparing to date strings.
-- SSC recipes are 1× base (NOT 2×). Staff log 2 batches for a complete SSC make.
+- SSC recipes are 1× base (NOT 2×). Usual overnight flow: pours are logged as BASE batches (SSC gets tray entries only); a batch under the SSC flavor is only correct for a rare same-day make. Both for the same pour = double-deduction.
 - `deductCaramelComponent` fires in `handleProductSubmit`, NOT `handleBatchSubmit`. Don't move it back.
 - `autoDeductIngredients` filters `deduction_phase = 'batch'`. Don't remove that filter.
 - **Never round deduction quantities.** `deliveryQty = recipe_qty / container_size` — full float. Rounding caused a silent zero-deduction bug all of early season 2026.

@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useFlavors } from '../hooks/useFlavors'
+import { seasonPhase, getSeasonSoldTotals, bySoldDesc } from '../core/ops.js'
 
 export default function Dashboard() {
   const { flavors, loading: flavorsLoading } = useFlavors()
@@ -10,6 +12,11 @@ export default function Dashboard() {
   const [ingredientsLoading, setIngredientsLoading] = useState(true)
   const [yesterdayEntries, setYesterdayEntries] = useState({})
   const [yesterdayBarrels, setYesterdayBarrels] = useState({})
+  const [soldMap, setSoldMap] = useState({})
+
+  useEffect(() => {
+    getSeasonSoldTotals(supabase).then(setSoldMap).catch(() => {})
+  }, [])
 
   useEffect(() => {
     async function loadIngredients() {
@@ -147,7 +154,9 @@ export default function Dashboard() {
   const loading = flavorsLoading || reportFound === null
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
 
-  const fudgeFlavors = flavors.filter(f => f.product_type !== 'popcorn' && f.is_component !== true)
+  // Best-seller-first (season-to-date trays sold) — same order as the Shift Report lists.
+  // 'extra' items (toffee, dot cakes) are batch-only and never shown as stock here.
+  const fudgeFlavors = flavors.filter(f => f.product_type === 'fudge' && f.is_component !== true).sort(bySoldDesc(soldMap))
   const componentFlavors = flavors.filter(f => f.is_component === true)
   const popcornFlavors = flavors.filter(f => f.product_type === 'popcorn')
 
@@ -252,6 +261,23 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
+
+      {/* ── SEASON CLOSED — observe mode banner ───────────────── */}
+      {seasonPhase() === 'closed' && (
+        <Link
+          to="/season-recap"
+          className="press card-lift block bg-gradient-to-r from-store-green to-store-green-dark text-white rounded-2xl px-5 py-4 shadow-md"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">🌅</span>
+            <div className="flex-1">
+              <p className="font-bold" style={{ fontFamily: 'var(--font-display)' }}>Season's a wrap</p>
+              <p className="text-xs text-white/80">The store is closed for the year — tap to see the full Season Recap.</p>
+            </div>
+            <span className="text-white/80">→</span>
+          </div>
+        </Link>
+      )}
 
       {/* ── FUDGE ─────────────────────────────────────────────── */}
       <div className="space-y-4">

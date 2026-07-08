@@ -7,6 +7,7 @@ import Analytics from './pages/Analytics'
 import Admin from './pages/Admin'
 import Ingredients from './pages/Ingredients'
 import AuditEdit from './pages/AuditEdit'
+import SeasonRecap from './pages/SeasonRecap'
 import NavBar from './components/NavBar'
 import JarvisWidget from './components/JarvisWidget'
 
@@ -28,6 +29,7 @@ function AnimatedRoutes() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/dashboard" element={<Navigate to="/" replace />} />
           <Route path="/report" element={<ShiftReport />} />
+          <Route path="/season-recap" element={<SeasonRecap />} />
           <Route path="/ingredients" element={<AdminRoute><Ingredients /></AdminRoute>} />
           <Route path="/analytics" element={<AdminRoute><Analytics /></AdminRoute>} />
           <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />

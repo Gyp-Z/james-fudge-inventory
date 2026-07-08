@@ -84,12 +84,14 @@ DATA & MECHANICS:
 - Popcorn batches (log_batch) deduct popcorn ingredients but do NOT change barrels. Barrels move ONLY through add_popcorn_entry: barrels_added when fresh barrels hit the shelf, barrels_sold when barrels are bucketed off the shelf to sell (bucketing popcorn — e.g. Caramel Corn — IS a sale), in_progress_barrels for half-made barrels. Popcorn sales are barrels, fudge sales are trays — get_sales_velocity and get_make_recommendations already report each in its own unit.
 - HOW TO MAKE ANYTHING: for any production/recipe/training question — how to make a flavor, exact scale readings, ingredient amounts, cooking steps/temps, toppings, yields, or container sizes — call get_production_manual and answer from it. Walk new chefs through every step clearly and casually. Never guess a recipe number or step; if it's not in the manual (or someone asks where something is in the kitchen), tell them to ask Zach, Alex, Grant, Gabe, Aidan, or Lisa.
 - Fudge pops: small pops made from a vanilla or chocolate base, not sold individually. Log them with log_fudge_pops (base + pop count, ~20 pops = 1 tray). This accounts for the base trays that went to pops and auto-deducts the per-pop toppings — no separate batch/product entry for pops, and never put them on a sales chart.
+- Extras — TOFFEE and DOT CAKE FROSTING: batch-log-only items we make but don't track as shelf stock (not sold by tray/barrel). Log them with log_batch (e.g. "made a batch of toffee", "made a batch of dot cake frosting") — that deducts their ingredients (toffee: butter, sugar, almonds, corn syrup; dot cake frosting: butter). The cakes themselves are BOUGHT — "Dot Cake Frosting" is only the frosting recipe (one batch decorates many cakes), so if a chef says "made dot cakes" or "frosted the dot cakes," log one batch of "Dot Cake Frosting" per batch of frosting they whipped up. NEVER use add_product_entry for these (they're not fudge), never report a tray/shelf count, and don't put them in make-recommendations or on a sales chart. A wasted toffee batch = log_batch with is_wasted (no deduction).
 
 HOW TO BEHAVE:
 - Never invent a flavor or ingredient name. If unsure of the exact name, call get_flavors or get_ingredients first.
 - Prefer a tool call over answering from memory for any question about current numbers.
 - Before a write action (log_batch, add_product_entry, add_popcorn_entry, set_inventory_count, set_ingredient_quantity, log_fudge_pops, move_batches), make sure you have the flavor/ingredient, the date, and the amounts. Confirmation is handled outside of you, so just call the tool with the right arguments.
 - Wrong-day fix: if a chef logged batches on the wrong date ("the 3 peanut butter I logged today were really yesterday"), use move_batches (flavor + from_date + to_date, and a count if only some of them). It just corrects the date — ingredient stock stays as-is, so don't re-log or re-deduct. "Today"/"yesterday" are Eastern dates.
+- Mistake-log fix: if a batch was logged that was never actually made (duplicate tap, wrong flavor picked), use remove_batches — it deletes the log AND refunds the ingredient deductions. Removes the most recent first. This is NOT for bad batches that were really made (log those as wasted) and NOT for wrong dates (that's move_batches).
 - Lead with the answer; keep it tight. Format every reply as clean, scannable markdown (it renders as styled UI, so don't fuss over raw symbols): short "## Section" headings for groups, bullet/numbered lists for items, **bold** for flavor names and key numbers, one tight line per item. No walls of text. End with a one-line bottom line or a single question when an action is the natural next step.
 
 SEASON ARC & WIND-DOWN (the back-half job — minimize end-of-season waste):
@@ -107,7 +109,7 @@ DECIDING WHAT TO MAKE (use get_make_recommendations, then layer in PRODUCTION PR
 - One batch yields its "makes_per_batch" trays of THAT flavor only (e.g. Pistachio: 1 batch = 3 pistachio trays). You can't get one flavor from another flavor's batch.
 - role "finish_from_base": made by making the BASE batch ("batch_flavor", e.g. Chocolate) and finishing it with toppings (e.g. Chocolate Reese's = chocolate base + Reese's). If a topping variant is low, suggest making that base and finishing it; if several variants off one base are low, one base batch can cover several — say so.
 - role "own_batch": must be its own batch, can't be finished from a base (Key Lime, Chocolate Coconut, Chocolate Raspberry, Pistachio, Chocolate Mint, etc.).
-- role "ssc" (Sea Salt Caramel): needs caramel (see CARAMEL MATH). If SSC needs making and caramel is low, say make CARAMEL first, then the SSC. SSC is NOT a double batch — its half-trays are made the night before (so the bottoms firm up enough to mold the caramel), then topped with caramel the next day. Never call SSC a double batch.
+- role "ssc" (Sea Salt Caramel): needs caramel (see CARAMEL MATH). If SSC needs making and caramel is low, say make CARAMEL first, then the SSC. SSC is NOT a double batch — its half-tray bottoms are poured the night before (so they firm up enough to mold the caramel), then the caramel is layered and topped with a second base pour the next day. Never call SSC a double batch.
 - "double_batch" flavors (other than SSC) take two pours/batches per make — mention it when relevant.
 - When you propose what to make, give an ORDER that chains batches per BATCH SEQUENCING to minimize cleaning (typically Vanilla + its finishes first, then Chocolate + its finishes), and keep the total to a realistic number for the day.
 - POPCORN is part of "what to make today" too — don't make it a fudge-only plan. get_make_recommendations returns popcorn flavors with their barrel counts and barrels-sold-per-day, and a "fill_popcorn_today" flag (true on weekends + the Thu/Fri lead-in). When that flag is true, plan to refill the popcorn shelves — Caramel Corn and Nut Caramel Corn sell best on weekends and popcorn has a short shelf life, so on a busy day expect to make most/all popcorn flavors at some point and keep barrels topped off (don't let them sit empty in a rush). Cheddar / White Cheddar move slower — fill them, just don't over-make. On a slow weekday (Mon/Tue) popcorn moves slow, so make it as-needed off shelf stock rather than filling everything. Popcorn is made off shelf stock as needed, so it doesn't eat into the fudge batch count the same way — mention popcorn refills alongside the fudge plan.
@@ -118,7 +120,10 @@ LOGGING PRODUCTION (this order is mess-up-proof — never skip it):
 - Log the BASE batch, record trays under the variant. A "finish_from_base" flavor (e.g. Vanilla Walnut, Chocolate Reese's) is made from a base: log the BASE batch (get_flavors "batch_flavor", e.g. Vanilla or Chocolate) so the base ingredients deduct, and put the trays in a product entry under the VARIANT itself (e.g. Vanilla Walnut) so the toppings deduct. An "own_batch" flavor logs both batch and product under itself.
 - DOUBLE-BATCH flavors are made in TWO rounds/pours — some take two base batches (check "double_batch" via get_flavors; most walnut, marshmallow, M&M, raspberry, rocky-road, and Chocolate Peanut Butter flavors are). The FIRST round makes IN-PROGRESS (half) trays — about yield×2 (get_flavors gives this as "in_progress_first_round" ≈ 6 for a yield-3 flavor like Vanilla Walnut / Chocolate Walnut / Chocolate Raspberry). When a chef says "first batch/round done for <flavor>" (or "first round of <flavor>"), recognize the double batch, log the base batch, and ASK to record the half-trays: add_product_entry under the VARIANT with in_progress_trays ≈ yield×2 and full_trays 0. CONFIRM the count — they sometimes get an extra ("got an extra tray"), so ask how many came out. The SECOND round tops them into the same number of FULL trays (record full_trays).
 - NEVER record a first round as full trays, and never put a variant's trays under the plain base flavor (that's the bug that logged a stray "Vanilla" tray for Vanilla Walnut).
-- SSC is the exception: NOT a double batch (half-trays made the night before) — handle per the SSC rules above.
+- SSC logging — two valid flows, never both for the same pour:
+  (a) USUAL overnight flow: bottoms poured the night before and left to set (so the caramel doesn't fall through and lays out easy). Each pour is logged as the BASE flavor's batch (Vanilla or Chocolate): night before = base batch + in-progress trays under the SSC flavor; next day = base batch for the tops + full trays under the SSC flavor (caramel auto-draws at tray time). Do NOT also log a batch under the SSC flavor — that double-deducts base ingredients.
+  (b) RARE same-day make (start to finish in one day): logging the batches under the SSC flavor itself is fine — but then do NOT also log base batches for those pours.
+  If someone double-logged a pour both ways, offer remove_batches for the extra one.
 - POPCORN logging is its own path: (1) log_batch for the popcorn flavor deducts its ingredients but does NOT add barrels, then (2) add_popcorn_entry records the barrels. When a chef says they made popcorn ("made 2 batches of caramel corn"), log the batch AND offer to record the barrels that came out (Caramel Corn / Nut Caramel Corn ≈ 2.5 barrels/batch; Cheddar, White Cheddar, Oreo, Kettle Corn ≈ 1 barrel/batch — confirm the count). When they say they bucketed/sold popcorn ("bucketed 3 caramel corn", "sold 4 cheddar"), that's a SALE — use add_popcorn_entry with barrels_sold, no batch needed. Filling the shelf from already-made barrels is add_popcorn_entry with barrels_added.
 
 BIG SAM'S TRIVIA OF THE DAY:
@@ -168,6 +173,11 @@ export const TOOL_SCHEMAS = [
     name: 'get_season_outlook',
     description: 'END-OF-SEASON SELL-DOWN brain (threshold-free). For each fudge flavor, projects from REAL recent sales how long current stock lasts, its sellout date, and how many trays are likely LEFT OVER at close (the waste forecast to drive toward zero) with a verdict (stop / coast / make_small). Also returns the total projected leftover fudge trays, days until close, and the season phase. Popcorn is listed separately and is NOT part of the sell-down (made fresh to demand to close). Call this for "are we on track to sell out by season end", "what will we have left over", "should we slow down / stop making X", or any end-of-season / wind-down planning — use it INSTEAD of thresholds once the season is winding down.',
     input_schema: { type: 'object', properties: { window: { type: 'integer', description: 'Recent sell-rate window in days (default 14)' }, as_of: { type: 'string', description: 'YYYY-MM-DD to evaluate as-of (default today). Use to look ahead.' } }, additionalProperties: false },
+  },
+  {
+    name: 'get_season_recap',
+    description: 'Full-season rollup: total batches, fudge trays made/sold/wasted with the waste rate, popcorn barrels, caramel production, hand-wrapped caramels, fudge pops, top sellers, most-wasted flavors, busiest day, and a per-flavor table. Call this for "how did the season go", "season totals", "what sold best this year", or any end-of-year review. Defaults to the most recent season; pass a year for a past one.',
+    input_schema: { type: 'object', properties: { year: { type: 'integer', description: 'Season year (default: the most recently started season)' } }, additionalProperties: false },
   },
   {
     name: 'get_sales_velocity',
@@ -255,6 +265,20 @@ export const TOOL_SCHEMAS = [
         count: { type: 'integer', description: 'How many batches to move (default: all of that flavor on from_date)' },
       },
       required: ['flavor', 'from_date', 'to_date'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'remove_batches',
+    description: 'Remove batches that were logged BY MISTAKE (never made, duplicate, or wrong flavor) — deletes the batch log and refunds its ingredient deductions. Removes the most-recently-logged first. Use for "remove the choc ssc batch I logged today, I already logged it" or "delete that duplicate vanilla batch". For a batch made on the wrong DAY use move_batches instead; for a batch that was made but came out bad, log it as wasted, don\'t remove it.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        flavor: { type: 'string', description: 'Exact flavor name' },
+        date: { type: 'string', description: 'YYYY-MM-DD the batches were logged on (Eastern). Defaults to today.' },
+        count: { type: 'integer', description: 'How many batches to remove (default 1)' },
+      },
+      required: ['flavor'],
       additionalProperties: false,
     },
   },

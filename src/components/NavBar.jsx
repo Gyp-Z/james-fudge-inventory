@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { seasonPhase } from '../core/ops.js'
 
 const staffTabs = [
   { to: '/', label: '📋', title: 'Dashboard', end: true },
@@ -17,12 +18,18 @@ const adminMainTabs = [
   { to: '/audit-edit', label: '🛠️', title: 'Fixes' },
 ]
 
+// Once the season closes the app flips to observe mode — the Recap becomes a
+// first-class tab for everyone until spring.
+const recapTab = { to: '/season-recap', label: '🌅', title: 'Recap' }
+
 export default function NavBar() {
   const { session } = useAuth()
   const navigate = useNavigate()
   const [scrolled, setScrolled] = useState(false)
 
-  const tabs = session ? adminMainTabs : staffTabs
+  const closed = seasonPhase() === 'closed'
+  const baseTabs = session ? adminMainTabs : staffTabs
+  const tabs = closed ? [...baseTabs.slice(0, 2), recapTab, ...baseTabs.slice(2)] : baseTabs
 
   // Subtle shadow under the header once the page scrolls (website behavior).
   useEffect(() => {
