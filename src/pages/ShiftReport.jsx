@@ -607,7 +607,7 @@ export default function ShiftReport() {
 
   const componentBatchFlavors = allFlavors.filter((f) => f.is_component === true)
   const fudgeFlavors = allFlavors.filter((f) => f.product_type === 'fudge' && !f.is_component).sort(bySoldDesc(soldMap))
-  const popcornFlavors = allFlavors.filter((f) => f.product_type === 'popcorn')
+  const popcornFlavors = allFlavors.filter((f) => f.product_type === 'popcorn').sort(bySoldDesc(soldMap))
   // Extras (Toffee, Dot Cakes): batch-log-only items — you log a batch, ingredients
   // deduct, but they're not sold/tracked (no Dashboard card, no sales, no graph).
   const extraFlavors = allFlavors.filter((f) => f.product_type === 'extra')
@@ -667,7 +667,15 @@ export default function ShiftReport() {
 
     const totalMadeToday = (todayTotals[f.id]?.made ?? 0) + (e.full_trays ?? 0)
     const defaultYield = f.default_yield ?? 3
-    const estimatedBatches = totalMadeToday > 0 ? Math.round(totalMadeToday / defaultYield) : 0
+    // Batch estimate counts TRAY-EQUIVALENTS, not raw full trays. An in-progress tray is
+    // half a tray (its base came from an earlier batch), so TOPPING it into a full tray
+    // only adds the second half — it counts as 0.5, not 1. Otherwise topping 6 half-trays
+    // reads as 2 batches (6/3) when it's really the finish of ~1 batch's worth.
+    const madeFull = e.full_trays ?? 0
+    const toppedNow = Math.min(madeFull, inProgCount) // finishing existing half-trays
+    const freshFull = madeFull - toppedNow            // genuinely new full trays
+    const equivMadeToday = (todayTotals[f.id]?.made ?? 0) + freshFull + toppedNow * 0.5
+    const estimatedBatches = equivMadeToday > 0 ? Math.round(equivMadeToday / defaultYield) : 0
 
     const baseGroups = f.base_groups || []
     const groupHasBatch = baseGroups.some((g) => (baseGroupMap[g] || []).some((fid) => (todayBatchCounts[fid] ?? 0) > 0))
@@ -983,7 +991,9 @@ export default function ShiftReport() {
                         <p className="text-xs text-store-brown-light">
                           {totalBatches} {totalBatches === 1 ? 'batch' : 'batches'} today
                           {f.is_base_trigger
-                            ? <span className="text-store-green font-medium"> · ≈ {totalBatches * yield_} full or {totalBatches * yield_ * 2} in-progress trays</span>
+                            // A base batch can be poured as full trays OR split into twice as many
+                            // half-trays, so the tray count lands anywhere in this range.
+                            ? <span className="text-store-green font-medium"> · ≈ {totalBatches * yield_}–{totalBatches * yield_ * 2} trays ({totalBatches * yield_} full or {totalBatches * yield_ * 2} half)</span>
                             : <span className="text-store-green font-medium"> · ≈ {totalBatches * yield_} full trays</span>
                           }
                         </p>

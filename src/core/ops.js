@@ -1094,18 +1094,29 @@ async function fetchAllRows(makeQuery) {
   return out
 }
 
-// Season-to-date trays sold per flavor_id — the shop's "most sold" order. Shared by the
-// Dashboard and Shift Report so fudge lists everywhere sort best-seller-first (owner
+// Season-to-date units sold per flavor_id — the shop's "most sold" order. Shared by the
+// Dashboard and Shift Report so fudge AND popcorn lists sort best-seller-first (owner
 // request July 2026: faster than alphabetical because the top sellers are what chefs
-// touch every day). Ties fall back to name order at the call site.
+// touch every day). Fudge sells in trays (shift_report_entries.trays_sold); popcorn
+// sells in barrels (shelf_bucket_logs.barrels_used). Both fold into one map keyed by
+// flavor_id — a flavor is only ever one or the other, so there's no unit collision.
+// Ties fall back to name order at the call site.
 export async function getSeasonSoldTotals(sb) {
-  const rows = await fetchAllRows(() => sb
-    .from('shift_report_entries')
-    .select('flavor_id, trays_sold, shift_reports!inner(report_date)')
-    .gte('shift_reports.report_date', SEASON_START)
-    .order('id', { ascending: true }))
+  const [trayRows, barrelRows] = await Promise.all([
+    fetchAllRows(() => sb
+      .from('shift_report_entries')
+      .select('flavor_id, trays_sold, shift_reports!inner(report_date)')
+      .gte('shift_reports.report_date', SEASON_START)
+      .order('id', { ascending: true })),
+    fetchAllRows(() => sb
+      .from('shelf_bucket_logs')
+      .select('flavor_id, barrels_used, logged_at')
+      .gte('logged_at', SEASON_START)
+      .order('id', { ascending: true })),
+  ])
   const sold = {}
-  for (const r of rows) sold[r.flavor_id] = (sold[r.flavor_id] ?? 0) + (r.trays_sold ?? 0)
+  for (const r of trayRows) sold[r.flavor_id] = (sold[r.flavor_id] ?? 0) + (r.trays_sold ?? 0)
+  for (const r of barrelRows) sold[r.flavor_id] = (sold[r.flavor_id] ?? 0) + (r.barrels_used ?? 0)
   return sold
 }
 

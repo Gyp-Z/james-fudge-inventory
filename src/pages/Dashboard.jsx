@@ -158,7 +158,7 @@ export default function Dashboard() {
   // 'extra' items (toffee, dot cakes) are batch-only and never shown as stock here.
   const fudgeFlavors = flavors.filter(f => f.product_type === 'fudge' && f.is_component !== true).sort(bySoldDesc(soldMap))
   const componentFlavors = flavors.filter(f => f.is_component === true)
-  const popcornFlavors = flavors.filter(f => f.product_type === 'popcorn')
+  const popcornFlavors = flavors.filter(f => f.product_type === 'popcorn').sort(bySoldDesc(soldMap))
 
   const needsMaking = fudgeFlavors.filter((f) => (entries[f.id]?.full_trays ?? 0) <= (f.low_tray_threshold ?? 2))
   const stockedFlavors = fudgeFlavors.filter((f) => (entries[f.id]?.full_trays ?? 0) > (f.low_tray_threshold ?? 2))
