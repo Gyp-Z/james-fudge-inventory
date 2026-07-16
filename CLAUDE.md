@@ -173,7 +173,7 @@ Added July 2026. **Batch-log-only items**: you make them (a batch deducts ingred
 - `ingredients.container_size` = how many content units per delivery unit
 - Display format: `{container_size} {container_unit} per {singularize(unit)}` e.g. "25 lbs per box"
 - Deduction formula: `deliveryQty = recipe_qty / container_size` (no rounding)
-- Ingredients with `container_size = null` are skipped by auto-deduct — this is intentional for ingredients not yet configured (e.g. Kettle Mix)
+- Ingredients with `container_size = null` are skipped by auto-deduct — this is intentional for (a) ingredients not yet configured and (b) **PINCH ingredients that barely get used and don't need tracking: Salt and Cinnamon** (Cinnamon fixed July 2026 — Snickerdoodle was wrongly dropping it ~0.5 container/batch; setting `container_size = null` makes it skip like Salt). Do NOT put a `container_size` on Salt or Cinnamon or they over-deduct.
 
 ### Shelf Bucket Logs
 `shelf_bucket_logs` now only used for barrel tracking. Columns `barrels_added` and `barrels_used` are active. Bucket columns (small_buckets_made, etc.) are set to 0 — do not write to them.
