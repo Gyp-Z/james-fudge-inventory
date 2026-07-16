@@ -114,7 +114,9 @@ function SeasonOutlookPanel() {
                 </tr>
               </thead>
               <tbody>
-                {outlook.fudge.map(r => (
+                {/* Ordered by sales rate (best sellers first), matching the rest of the app.
+                    The "left at close" waste number is still per-row for each flavor. */}
+                {[...outlook.fudge].sort((a, b) => (b.per_day_sold ?? 0) - (a.per_day_sold ?? 0) || a.flavor.localeCompare(b.flavor)).map(r => (
                   <tr key={r.flavor} className="border-b border-store-tan/60">
                     <td className="py-2 pr-3 font-medium text-store-brown">{r.flavor}</td>
                     <td className="py-2 pr-3 text-right text-store-brown">{r.trays}</td>
@@ -212,13 +214,31 @@ export default function Analytics() {
   }, [])
 
   // ── Flavor lists ──────────────────────────────────────────────────────────
+  // Season-to-date units sold per flavor_id (trays for fudge, barrels for popcorn) — used
+  // to order the flavor filter buttons best-seller-first instead of alphabetically, matching
+  // the Dashboard and Shift Report. Computed from already-loaded reports + bucket logs.
+  const soldMap = useMemo(() => {
+    const m = {}
+    reports.forEach(r => {
+      if ((r.report_date ?? '') < SEASON_START) return
+      r.shift_report_entries?.forEach(e => { m[e.flavor_id] = (m[e.flavor_id] ?? 0) + (e.trays_sold ?? 0) })
+    })
+    bucketLogs.forEach(b => {
+      const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+      if (d < SEASON_START) return
+      m[b.flavor_id] = (m[b.flavor_id] ?? 0) + (b.barrels_used ?? 0)
+    })
+    return m
+  }, [reports, bucketLogs])
+  const bySold = useMemo(() => (a, b) => (soldMap[b.id] ?? 0) - (soldMap[a.id] ?? 0) || a.name.localeCompare(b.name), [soldMap])
+
   const fudgeFlavors = useMemo(
-    () => flavors.filter(f => f.product_type === 'fudge' && !f.is_component),
-    [flavors]
+    () => flavors.filter(f => f.product_type === 'fudge' && !f.is_component).sort(bySold),
+    [flavors, bySold]
   )
   const popcornFlavors = useMemo(
-    () => flavors.filter(f => f.product_type === 'popcorn'),
-    [flavors]
+    () => flavors.filter(f => f.product_type === 'popcorn').sort(bySold),
+    [flavors, bySold]
   )
   const componentFlavors = useMemo(
     () => flavors.filter(f => f.is_component === true),
@@ -306,6 +326,33 @@ export default function Analytics() {
     }
     return logs
   }, [bucketLogs, cutoffStr, cutoffEndStr])
+
+  // Extras made in the selected period (Toffee, Dot Cake Frosting, Fudge Pops, Wrapped
+  // Caramels). These are batch-log/production-only — never on the stock graphs — so we just
+  // report how much got MADE in the window at the bottom of the page.
+  const inPeriod = (dateStr) => (!cutoffStr || dateStr >= cutoffStr) && (!cutoffEndStr || dateStr <= cutoffEndStr)
+  const extrasProduced = useMemo(() => {
+    const extraNames = new Map(flavors.filter(f => f.product_type === 'extra').map(f => [f.id, f.name]))
+    const batches = {} // name -> { made, wasted }
+    filteredBatchLogs.forEach(b => {
+      const name = extraNames.get(b.flavor_id)
+      if (!name) return
+      const rec = (batches[name] ||= { made: 0, wasted: 0 })
+      if (b.is_wasted) rec.wasted += 1; else rec.made += 1
+    })
+    const pops = fudgePopLogs.reduce((s, p) => s + (inPeriod(p.report_date ?? '') ? (p.pop_count ?? 0) : 0), 0)
+    const handwrapTrays = handwrapLogs.reduce((s, h) => s + (inPeriod(h.report_date ?? '') ? (Number(h.trays_used) || 0) : 0), 0)
+    const rows = []
+    // Stable, meaningful order: toffee & dot cake frosting (by name), then pops, then caramels.
+    Object.keys(batches).sort().forEach(name => rows.push({
+      label: name,
+      value: `${batches[name].made} ${batches[name].made === 1 ? 'batch' : 'batches'}${batches[name].wasted ? ` · ${batches[name].wasted} wasted` : ''}`,
+      empty: batches[name].made === 0 && batches[name].wasted === 0,
+    }))
+    rows.push({ label: 'Fudge Pops', value: `${pops} ${pops === 1 ? 'pop' : 'pops'}`, empty: pops === 0 })
+    rows.push({ label: 'Wrapped Caramels', value: `${Math.round(handwrapTrays * 18)} caramels (≈ ${handwrapTrays.toFixed(2)} trays)`, empty: handwrapTrays === 0 })
+    return rows
+  }, [flavors, filteredBatchLogs, fudgePopLogs, handwrapLogs, cutoffStr, cutoffEndStr]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Week / Day dropdown options ───────────────────────────────────────────
   const availableWeeks = useMemo(() => {
@@ -776,6 +823,7 @@ export default function Analytics() {
   const showCaramel = groupFilter === 'caramel'
   const isRolling = !specificWeek && !specificDay
   const isSpecificPeriod = specificWeek || specificDay
+  const rangeNoun = specificDay ? 'day' : specificWeek ? 'week' : range ? `${range} days` : 'season'
 
   function setRollingRange(days) {
     setRange(days)
@@ -1223,6 +1271,21 @@ export default function Analytics() {
           </>
         )
       )}
+
+      {/* Extras made this period — Toffee, Dot Cake Frosting, Fudge Pops, Wrapped Caramels.
+          Production-only items (no stock graph), so we just show what got made in the window. */}
+      <div className="bg-white rounded-2xl border border-store-tan shadow-sm p-4 sm:p-5">
+        <h3 className="text-sm font-bold text-store-brown mb-0.5" style={{ fontFamily: 'var(--font-display)' }}>Extras made this {rangeNoun}</h3>
+        <p className="text-xs text-store-brown-light mb-3">Toffee, dot cake frosting, fudge pops &amp; wrapped caramels aren’t sold by tray — this is just how much got made.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {extrasProduced.map(r => (
+            <div key={r.label} className={`flex items-center justify-between rounded-xl border px-3.5 py-2.5 ${r.empty ? 'border-store-tan/60 bg-store-cream/40' : 'border-store-tan bg-store-cream'}`}>
+              <span className="text-sm font-medium text-store-brown">{r.label}</span>
+              <span className={`text-sm tabular-nums ${r.empty ? 'text-store-brown-light' : 'text-store-green font-semibold'}`}>{r.empty ? 'none' : r.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* End-of-season sell-down outlook (zero-waste planning) — at the bottom; mainly for late season */}
       <SeasonOutlookPanel />

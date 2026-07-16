@@ -32,6 +32,12 @@ const SEASON_START = `${SEASON_CONFIG.anchorYear}-${SEASON_CONFIG.openMonthDay}`
 const CARAMEL_TRAYS_PER_SSC_TRAY = 1 / 18
 const isSSC = (name) => (name ?? '').toLowerCase().includes('sea salt')
 
+// Flavors Lisa (owner's mom, ops) paused in July 2026 — too much hassle to make alongside
+// everything else; letting them run dry lets the other flavors sell faster. Never surfaced
+// in make-recommendations (they can run low/out on purpose). Match by lowercased name.
+const PAUSED_FLAVORS = new Set(['key lime', 'vanilla chocolate chip', 'chocolate rocky road'])
+const isPaused = (name) => PAUSED_FLAVORS.has((name ?? '').trim().toLowerCase())
+
 // Phase from a date's month/day (default: today Eastern). Year-agnostic.
 //   preseason → before the season opens (e.g. winter / early spring)
 //   peak      → open through the day before fudge wind-down
@@ -770,6 +776,7 @@ export async function getMakeRecommendations(sb, { days = 14, horizon = 2 } = {}
   const recs = []
   for (const f of flavors) {
     if (f.is_component || f.product_type === 'extra') continue // extras (toffee, dot cakes) aren't stocked/recommended
+    if (isPaused(f.name)) continue // Lisa paused these — never recommend making them
     const c = byId[f.id]
     const row = invMap[f.id] || {}
     const isPop = f.product_type === 'popcorn'

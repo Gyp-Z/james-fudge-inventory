@@ -6,7 +6,6 @@ import ShiftReport from './pages/ShiftReport'
 import Analytics from './pages/Analytics'
 import Admin from './pages/Admin'
 import Ingredients from './pages/Ingredients'
-import AuditEdit from './pages/AuditEdit'
 import SeasonRecap from './pages/SeasonRecap'
 import NavBar from './components/NavBar'
 import JarvisWidget from './components/JarvisWidget'
@@ -33,7 +32,8 @@ function AnimatedRoutes() {
           <Route path="/ingredients" element={<AdminRoute><Ingredients /></AdminRoute>} />
           <Route path="/analytics" element={<AdminRoute><Analytics /></AdminRoute>} />
           <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
-          <Route path="/audit-edit" element={<AdminRoute><AuditEdit /></AdminRoute>} />
+          {/* Fixes page (/audit-edit) removed July 2026 — Jarvis is the fix bot now. */}
+          <Route path="/audit-edit" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
     </main>

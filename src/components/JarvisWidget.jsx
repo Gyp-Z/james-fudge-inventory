@@ -51,7 +51,6 @@ const PAGE_CONTEXT = {
   '/ingredients': { label: 'Ingredients',     examples: ['What do I need to order?', 'When do we run out of butter?', 'Which ingredients are below threshold?'] },
   '/analytics':   { label: 'Analytics',       examples: ["What's my best seller this season?", 'Which flavors get wasted most?', 'How fast is caramel selling?'] },
   '/admin':       { label: 'Products',        examples: ["What's selling slowest?", 'Which flavors underperform?', 'Set the alert threshold for vanilla'] },
-  '/audit-edit':  { label: 'Fixes',           examples: ['Revert the last batch of chocolate', "Fix yesterday's vanilla count", 'What changed today?'] },
 }
 function contextFor(path) {
   return PAGE_CONTEXT[path] || { label: "James' Fudge", examples: GENERIC_EXAMPLES }

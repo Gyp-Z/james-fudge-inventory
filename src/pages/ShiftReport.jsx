@@ -13,6 +13,13 @@ import {
 } from '../utils/inventoryActions'
 import { POPS_PER_SESSION, seasonPhase, getSeasonSoldTotals, bySoldDesc } from '../core/ops.js'
 
+// Sea Salt Caramel is NEVER a same-day double batch — its half-tray bottoms are poured
+// the night before, then topped the next day. So even though SSC flavors carry
+// double_batch_reminder=true in the DB, the double-batch UI (amber "1 of 2", etc.) must
+// never fire for them. This guard matches getFlavors, which already excludes SSC.
+const isSSC = (name) => (name ?? '').toLowerCase().includes('sea salt')
+const isDoubleBatch = (f) => !!f.double_batch_reminder && !isSSC(f.name)
+
 // The staff report screen. Three big UX ideas layered on the original form:
 //   1. SMART LIST — flavors with activity today ("Today" section) render first and
 //      expanded; everything else is a collapsed row that expands on tap. A sticky
@@ -146,7 +153,7 @@ export default function ShiftReport() {
     setTodayBatchCounts(priorCounts)
 
     // Double-batch flavors: batch count on the most recent prior day (cross-day carry)
-    const doubleBatchIds = all.filter((f) => f.double_batch_reminder).map((f) => f.id)
+    const doubleBatchIds = all.filter((f) => isDoubleBatch(f)).map((f) => f.id)
     if (doubleBatchIds.length > 0) {
       const sevenDaysAgoStr = (() => {
         const d = new Date(); d.setDate(d.getDate() - 7)
@@ -638,7 +645,12 @@ export default function ShiftReport() {
       if (!(f.base_groups || []).includes(g)) return
       actualTrays += (todayTotals[f.id]?.made ?? 0)
       actualTrays += (todayTotals[f.id]?.in_progress ?? 0) * 0.5
-      actualTrays += (entries[f.id]?.full_trays ?? 0)
+      // A full tray that TOPS a pre-existing in-progress tray counts as 0.5 — its first
+      // half came from an earlier batch, so it doesn't re-credit today's base batch (this
+      // is what kept the base-batch reminder from clearing too early when topping halves).
+      const liveFull = entries[f.id]?.full_trays ?? 0
+      const toppedFromPrior = Math.min(liveFull, currentInProgress[f.id] ?? 0)
+      actualTrays += (liveFull - toppedFromPrior) + toppedFromPrior * 0.5
       actualTrays += (entries[f.id]?.in_progress_trays ?? 0) * 0.5
     })
     // Fudge pops made from this base also consumed batch trays (~20 pops = 1 tray).
@@ -684,9 +696,10 @@ export default function ShiftReport() {
     )
     const showBaseReminder =
       (todayBatchCounts[f.id] ?? 0) === 0 && groupHasBatch && !groupFullyAccounted
+    const dbl = isDoubleBatch(f)
     const showSelfReminder =
       (todayBatchCounts[f.id] ?? 0) > 0 &&
-      !f.double_batch_reminder &&
+      !dbl &&
       (f.is_base_trigger
         ? !groupFullyAccounted
         : !(e.full_trays > 0) && !(todayTotals[f.id]?.made > 0))
@@ -695,8 +708,8 @@ export default function ShiftReport() {
     const effectiveBatches = (prevDayCount === 1 && inProgCount > 0) ? prevDayCount + (todayBatchCounts[f.id] ?? 0) : (todayBatchCounts[f.id] ?? 0)
 
     const showInProg = liveInProg > 0
-    const showDouble1 = f.double_batch_reminder && effectiveBatches === 1 && !(e.full_trays > 0) && !(e.in_progress_trays > 0) && !(liveInProg > 0)
-    const showDouble2 = f.double_batch_reminder && effectiveBatches >= 2 && !(e.full_trays > 0) && liveInProg > 0
+    const showDouble1 = dbl && effectiveBatches === 1 && !(e.full_trays > 0) && !(e.in_progress_trays > 0) && !(liveInProg > 0)
+    const showDouble2 = dbl && effectiveBatches >= 2 && !(e.full_trays > 0) && liveInProg > 0
     const anyReminder = showInProg || showBaseReminder || showSelfReminder || showDouble1 || showDouble2
 
     return {
@@ -978,8 +991,9 @@ export default function ShiftReport() {
                   const prevInProg = currentInProgress[f.id] ?? 0
                   const prevDayCount = prevDayBatchCounts[f.id] ?? 0
                   const effectiveTotal = (prevDayCount === 1 && prevInProg > 0) ? prevDayCount + totalBatches : totalBatches
-                  const showAmber = f.double_batch_reminder && effectiveTotal === 1
-                  const showGreen = f.double_batch_reminder && effectiveTotal >= 2
+                  const dbl = isDoubleBatch(f) // SSC is never a double batch
+                  const showAmber = dbl && effectiveTotal === 1
+                  const showGreen = dbl && effectiveTotal >= 2
                   const yield_ = f.default_yield ?? 3
                   return (
                     <div key={f.id} className={`bg-white rounded-xl border px-4 py-3 shadow-sm space-y-2 ${showGreen ? 'border-store-green' : 'border-store-tan'}`}>
@@ -987,7 +1001,7 @@ export default function ShiftReport() {
                         <span className="text-sm font-medium text-store-brown">{f.name}</span>
                         <Stepper value={batchCounts[f.id] ?? 0} onChange={(v) => setBatchCounts((prev) => ({ ...prev, [f.id]: v }))} />
                       </div>
-                      {totalBatches > 0 && !f.double_batch_reminder && (
+                      {totalBatches > 0 && !dbl && (
                         <p className="text-xs text-store-brown-light">
                           {totalBatches} {totalBatches === 1 ? 'batch' : 'batches'} today
                           {f.is_base_trigger

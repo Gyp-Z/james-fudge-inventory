@@ -49,6 +49,9 @@ When helping with this codebase, keep this business context in mind:
 - **SSC caramel deduction fires at tray-submit time**, not batch time. `deductCaramelComponent` is called in `handleProductSubmit`, not `handleBatchSubmit`.
 - **No rounding in deduction math.** `deliveryQty = recipe_qty / container_size` — full float, no rounding. Rounding is visual only (display). A prior bug using `Math.round(x * 10) / 10` caused small fractions to round to 0, silently skipping deductions all season. Fixed May 2026 via `scripts/fix-zero-deductions.mjs`. Do not re-introduce any rounding to calculation paths.
 - **`is_base_trigger = true`** on Vanilla, Chocolate, and Peanut Butter. These are plain bases that can produce a mix of full and in-progress trays (e.g. PB half-trays feed Choc PB). Used for two things: (1) cross-flavor "base batch made today" reminders in Products tab, and (2) showing the "≈ X full or Y in-progress trays" range estimate in Batches tab instead of a single full-tray count.
+- **Topping an in-progress (half) tray into a full tray counts as 0.5, not 1**, everywhere production is estimated — its first half came from an earlier batch. Applied in ShiftReport `deriveFudge` (`estimatedBatches`) AND `computeGroupAccounting` (base-batch reminder), so `toppedFromPrior = min(full_trays, currentInProgress)` is discounted to half. Without this the base-batch reminder cleared too early and the batch estimate double-counted.
+- **Paused flavors (Lisa's call, July 2026): Key Lime, Vanilla Chocolate Chip, Chocolate Rocky Road.** Too much hassle to make alongside everything else — let them run dry. `PAUSED_FLAVORS`/`isPaused` in `src/core/ops.js` excludes them from `getMakeRecommendations`; the Jarvis system prompt has a "PAUSED FLAVORS" rule (never recommend making them; only make if one hits zero AND Zach cleared it with Lisa). Not a schema flag — just the name set + prompt.
+- **"Logged" = "reported."** The crew uses them interchangeably. If asked "what was logged," answer with reported activity (`get_recent_activity`). The system prompt says so; don't build a distinction.
 
 ---
 
@@ -99,6 +102,8 @@ Recipes have a `deduction_phase` column: `'batch'` or `'tray'`.
 
 ### Double-Batch Reminder System
 `flavors.double_batch_reminder = true` on 16 flavors that require 2 physical pours per complete make.
+
+**SSC is NEVER a same-day double batch** even though both Sea Salt Caramel flavors carry `double_batch_reminder = true` in the DB (its half-tray bottoms are poured the night before, then topped next day). ShiftReport guards this with `isDoubleBatch(f) = double_batch_reminder && !isSSC(f.name)` — the double-batch amber/green/"1 of 2" UI must never fire for SSC. This matches `getFlavors` (which already excludes SSC from `double_batch`). Symptom if the guard is removed: Choc SSC shows "1 of 2 — ≈ 12 in-progress trays" whenever a Choc SSC batch exists.
 
 In **Batches tab**:
 - After 1st batch (amber): "1 of 2 — ≈ {yield×2} in-progress trays" — first pour fills double the tray count as half-trays
@@ -219,7 +224,7 @@ Added July 2026. **Batch-log-only items**: you make them (a batch deducts ingred
 | `api/chat.js` | Vercel function — Claude inference proxy for the in-app Jarvis chat. Holds `ANTHROPIC_API_KEY`, verifies the owner's Supabase token, no DB access. Uses `claude-opus-4-8`. |
 | `src/pages/Jarvis.jsx` | Admin-only chat page (`/jarvis`). Client-side agentic loop; executes tools via `jarvisClientTools` (anon client), confirms writes via `ConfirmDialog`. |
 | `mcp/server.js` | Local stdio MCP server for the owner's desktop assistant. Runs the same `runTool` with a service-role client. See `mcp/README.md`. |
-| `src/pages/AuditEdit.jsx` | Admin-only Audit & Edit page (`/audit-edit`). Date picker + 6 accordion sections under `src/components/audit/`. |
+| ~~`src/pages/AuditEdit.jsx`~~ | **REMOVED July 2026** — the Fixes page and `src/components/audit/` are deleted; Jarvis is the fix bot now (see below). `/audit-edit` redirects to `/`. |
 | `src/hooks/useFlavors.js` | Loads active flavors (`is_active = true`). Does NOT include inactive flavors. |
 | `scripts/seed-recipes.mjs` | Recipe seeder. Needs `SUPABASE_SERVICE_ROLE_KEY`. Run with `node --env-file=.env scripts/seed-recipes.mjs`. |
 | `scripts/fix-zero-deductions.mjs` | One-off season correction (May 2026). Parsed `ingredient_deductions.notes` to recover and apply deductions that were rounded to 0 by the old rounding bug. Keep for reference. |
@@ -271,9 +276,11 @@ This one core fn feeds both the `get_season_outlook` Jarvis tool and the **Analy
 
 ---
 
-## Audit & Edit Page (admin-only, `/audit-edit`)
+## Audit & Edit Page — REMOVED July 2026 (Jarvis is the fix bot)
 
-Owner tool to correct chef mistakes without hand-editing the DB. Six capabilities, all scoped to a picked date: backdate a batch, revert a batch, add/edit/delete product (shift) entries, direct inventory count override, ingredient quantity override, and a read-only activity log.
+The `/audit-edit` page and all `src/components/audit/*` files were **deleted** at the owner's request — Jarvis already does the same corrections by chat, and the fast-paced kitchen prefers one tool. `/audit-edit` now redirects to `/`. Jarvis covers the equivalents: `log_batch` (with a date = backdate), `remove_batches` (revert/delete a mistake batch, refunds deductions), `add_product_entry` / `add_popcorn_entry` (fix a report), `set_inventory_count` (recount override — writes `inventory_adjustments`), `set_ingredient_quantity`, `move_batches` (wrong-day), and `get_recent_activity` (the activity log).
+
+**The underlying effect helpers in `src/utils/inventoryActions.js` and `src/core/ops.js` still exist and are still used** — by the ShiftReport undo buttons and by Jarvis/MCP (`reverseShiftEntry`, `revertBatchLog`, `applyPopcornEntry`, `applyShiftEntry`, `logInventoryAdjustment`, etc.). Do NOT delete those. Only the page UI was removed. The notes below are retained for how those helpers behave:
 
 - **Single source of truth:** all side effects go through `src/utils/inventoryActions.js`, which wraps the existing `autoDeduct.js` primitives. Backdating fires identical effects to live logging; no rounding is introduced.
 - **Tray-phase deductions are now reversible.** `ingredient_deductions.shift_report_entry_id` links each tray deduction to its entry (set by `autoDeductTrayIngredients`'s 3rd arg). `reverseShiftEntry` refunds via that link; legacy entries (pre-column) fall back to recomputing the refund from the recipe and flag `legacy: true`.
