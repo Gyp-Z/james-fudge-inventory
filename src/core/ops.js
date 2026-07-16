@@ -339,7 +339,9 @@ export async function applyPopcornEntry(sb, flavor, dateStr, values) {
     .eq('flavor_id', flavor.id)
     .single()
   const existingInProg = inv?.in_progress_barrel_count ?? 0
-  const topped = Math.min(barrelsAdded, existingInProg)
+  // Negative values are corrections (undo/un-log): barrels_sold = -3 gives back 3 sales,
+  // barrels_added = -3 removes 3 that were put out. Topping only happens on POSITIVE adds.
+  const topped = Math.max(0, Math.min(barrelsAdded, existingInProg))
   const netChange = barrelsAdded - barrelsSold
   const newBarrels = Math.max(0, (inv?.barrel_count ?? 0) + netChange)
   const newInProg = Math.max(0, existingInProg + newInProgBarrels - topped)
@@ -352,12 +354,13 @@ export async function applyPopcornEntry(sb, flavor, dateStr, values) {
   }
 
   // Log barrel movement. shelf_bucket_logs is dated by logged_at only (no report_date),
-  // so backdate the timestamp when fixing a past day.
+  // so backdate the timestamp when fixing a past day. A correction logs a negative movement
+  // so Analytics + sales velocity net it out (e.g. −3 barrels_used removes 3 phantom sales).
   let logId = null
-  if (barrelsAdded > 0 || barrelsSold > 0) {
+  if (barrelsAdded !== 0 || barrelsSold !== 0) {
     const logEntry = { flavor_id: flavor.id }
-    if (barrelsAdded > 0) logEntry.barrels_added = barrelsAdded
-    if (barrelsSold > 0) logEntry.barrels_used = barrelsSold
+    if (barrelsAdded !== 0) logEntry.barrels_added = barrelsAdded
+    if (barrelsSold !== 0) logEntry.barrels_used = barrelsSold
     if (dateStr && dateStr !== todayEastern()) logEntry.logged_at = `${dateStr}T12:00:00`
     const { data: log } = await sb.from('shelf_bucket_logs').insert(logEntry).select('id').single()
     logId = log?.id ?? null
@@ -1334,8 +1337,13 @@ export function summarizeToolCall(name, input = {}) {
       return { title: 'Log batch?', message: `${input.count ?? 1} batch(es) of ${input.flavor}${input.is_wasted ? ' (wasted)' : ''} on ${date}. Base ingredients auto-deduct.` }
     case 'add_product_entry':
       return { title: 'Add product entry?', message: `${input.flavor} on ${date}: made ${input.full_trays ?? 0}, sold ${input.trays_sold ?? 0}, wasted ${input.trays_wasted ?? 0}, in-progress ${input.in_progress_trays ?? 0}. Per-tray ingredients auto-deduct.` }
-    case 'add_popcorn_entry':
-      return { title: 'Record popcorn barrels?', message: `${input.flavor} on ${date}: added ${input.barrels_added ?? 0}, sold ${input.barrels_sold ?? 0}, in-progress ${input.in_progress_barrels ?? 0} barrels.` }
+    case 'add_popcorn_entry': {
+      const anyNeg = (input.barrels_added ?? 0) < 0 || (input.barrels_sold ?? 0) < 0 || (input.in_progress_barrels ?? 0) < 0
+      return {
+        title: anyNeg ? 'Undo popcorn barrels?' : 'Record popcorn barrels?',
+        message: `${input.flavor} on ${date}: added ${input.barrels_added ?? 0}, sold ${input.barrels_sold ?? 0}, in-progress ${input.in_progress_barrels ?? 0} barrels.${anyNeg ? ' (negatives take these back)' : ''}`,
+      }
+    }
     case 'set_inventory_count':
       return { title: 'Overwrite count?', message: `Set ${input.flavor} to ${input.value}${input.reason ? ` — ${input.reason}` : ''}.` }
     case 'set_ingredient_quantity':
@@ -1403,16 +1411,19 @@ export async function runTool(sb, name, input = {}) {
       if (!flavor) return { error: `No single flavor matches "${input.flavor}". Call get_flavors for exact names.` }
       if (flavor.product_type !== 'popcorn') return { error: `${flavor.name} is not a popcorn flavor; use add_product_entry for fudge.` }
       const date = input.date || todayEastern()
+      // Negative values are allowed — they UNDO/correct a prior entry (barrels_sold: -3
+      // gives 3 sales back, barrels_added: -3 removes 3 that were put out).
       const values = {
-        barrels_added: Math.max(0, Math.floor(input.barrels_added ?? 0)),
-        barrels_sold: Math.max(0, Math.floor(input.barrels_sold ?? 0)),
-        in_progress_barrels: Math.max(0, Math.floor(input.in_progress_barrels ?? 0)),
+        barrels_added: Math.trunc(input.barrels_added ?? 0),
+        barrels_sold: Math.trunc(input.barrels_sold ?? 0),
+        in_progress_barrels: Math.trunc(input.in_progress_barrels ?? 0),
       }
       if (values.barrels_added === 0 && values.barrels_sold === 0 && values.in_progress_barrels === 0) {
-        return { error: 'Nothing to record — set at least one of barrels_added, barrels_sold, or in_progress_barrels.' }
+        return { error: 'Nothing to record — set at least one of barrels_added, barrels_sold, or in_progress_barrels (use negatives to undo).' }
       }
       const res = await applyPopcornEntry(sb, flavor, date, values)
-      return { ok: true, message: `Recorded ${flavor.name} barrels on ${date} (added ${values.barrels_added}, sold ${values.barrels_sold}, in-progress ${values.in_progress_barrels}). Now ${res.newBarrels} on the shelf.` }
+      const fmt = (n) => (n > 0 ? `+${n}` : `${n}`)
+      return { ok: true, message: `Recorded ${flavor.name} barrels on ${date} (added ${fmt(values.barrels_added)}, sold ${fmt(values.barrels_sold)}, in-progress ${fmt(values.in_progress_barrels)}). Now ${res.newBarrels} on the shelf.` }
     }
 
     case 'set_inventory_count': {

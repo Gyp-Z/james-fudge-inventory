@@ -95,6 +95,7 @@ HOW TO BEHAVE:
 - Before a write action (log_batch, add_product_entry, add_popcorn_entry, set_inventory_count, set_ingredient_quantity, log_fudge_pops, move_batches), make sure you have the flavor/ingredient, the date, and the amounts. Confirmation is handled outside of you, so just call the tool with the right arguments.
 - Wrong-day fix: if a chef logged batches on the wrong date ("the 3 peanut butter I logged today were really yesterday"), use move_batches (flavor + from_date + to_date, and a count if only some of them). It just corrects the date — ingredient stock stays as-is, so don't re-log or re-deduct. "Today"/"yesterday" are Eastern dates.
 - Mistake-log fix: if a batch was logged that was never actually made (duplicate tap, wrong flavor picked), use remove_batches — it deletes the log AND refunds the ingredient deductions. Removes the most recent first. This is NOT for bad batches that were really made (log those as wasted) and NOT for wrong dates (that's move_batches).
+- Undo popcorn barrels/sales: to take back barrel movements logged by mistake, call add_popcorn_entry with NEGATIVE numbers — barrels_sold: -3 gives 3 sales back, barrels_added: -3 removes 3 barrels that were put out. Do it in ONE call when possible ("remove 3 sales and 3 barrels" → barrels_added: -3, barrels_sold: -3). This is the popcorn analogue of remove_batches (which handles the BATCH). A common cleanup is: remove_batches for the extra batch, then add_popcorn_entry with negatives for the barrels/sales that batch's entry created.
 - Lead with the answer; keep it tight. Format every reply as clean, scannable markdown (it renders as styled UI, so don't fuss over raw symbols): short "## Section" headings for groups, bullet/numbered lists for items, **bold** for flavor names and key numbers, one tight line per item. No walls of text. End with a one-line bottom line or a single question when an action is the natural next step.
 
 SEASON ARC & WIND-DOWN (the back-half job — minimize end-of-season waste):
@@ -242,15 +243,15 @@ export const TOOL_SCHEMAS = [
   },
   {
     name: 'add_popcorn_entry',
-    description: 'Record popcorn BARREL movement for a popcorn flavor on a date — the popcorn equivalent of add_product_entry. barrels_added = fresh barrels put on the shelf; barrels_sold = barrels bucketed off the shelf to sell (bucketing popcorn, e.g. bucketing Caramel Corn, IS a sale); in_progress_barrels = half-made barrels staged. Updates the barrel count (and tops any in-progress barrels) and logs the movement so it shows in analytics and sales velocity. Use for "added 4 barrels of cheddar", "bucketed/sold 3 caramel corn", "made 2 in-progress nut caramel corn barrels". Popcorn batches deduct ingredients via log_batch; barrels move ONLY here, never at batch time.',
+    description: 'Record popcorn BARREL movement for a popcorn flavor on a date — the popcorn equivalent of add_product_entry. barrels_added = fresh barrels put on the shelf; barrels_sold = barrels bucketed off the shelf to sell (bucketing popcorn, e.g. bucketing Caramel Corn, IS a sale); in_progress_barrels = half-made barrels staged. Updates the barrel count (and tops any in-progress barrels) and logs the movement so it shows in analytics and sales velocity. Use for "added 4 barrels of cheddar", "bucketed/sold 3 caramel corn", "made 2 in-progress nut caramel corn barrels". NEGATIVE values UNDO/correct a prior entry: to take away 3 sales that were logged by mistake use barrels_sold: -3; to remove 3 barrels that were put out use barrels_added: -3. So "take away 3 sales and 3 added barrels" = one call with barrels_added: -3 AND barrels_sold: -3. Popcorn batches deduct ingredients via log_batch; barrels move ONLY here, never at batch time.',
     input_schema: {
       type: 'object',
       properties: {
         flavor: { type: 'string', description: 'Exact popcorn flavor name' },
         date: { type: 'string', description: 'YYYY-MM-DD (Eastern). Defaults to today.' },
-        barrels_added: { type: 'integer', description: 'Barrels added to the shelf' },
-        barrels_sold: { type: 'integer', description: 'Barrels sold / bucketed off the shelf' },
-        in_progress_barrels: { type: 'integer', description: 'In-progress (half-made) barrels staged' },
+        barrels_added: { type: 'integer', description: 'Barrels added to the shelf. Negative to remove/undo barrels that were put out.' },
+        barrels_sold: { type: 'integer', description: 'Barrels sold / bucketed off the shelf. Negative to give back / undo sales logged by mistake.' },
+        in_progress_barrels: { type: 'integer', description: 'In-progress (half-made) barrels staged. Negative to remove.' },
       },
       required: ['flavor'],
       additionalProperties: false,

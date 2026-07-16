@@ -315,6 +315,12 @@ actions by chat, plus an MCP server so the owner's desktop assistant can do the 
   `add_popcorn_entry` is the popcorn analogue of `add_product_entry`: barrels_added/barrels_sold/in_progress_barrels
   via `applyPopcornEntry`. Sales velocity + make-recommendations fold popcorn barrels_sold from `shelf_bucket_logs`,
   and `getMakeRecommendations` surfaces all popcorn flavors on weekend/Thu-Fri days (`fill_popcorn_today` flag).
+  **`add_popcorn_entry` accepts NEGATIVE values as corrections** (July 2026): barrels_sold −3 gives 3 sales back,
+  barrels_added −3 removes 3 put out. It logs a negative `shelf_bucket_logs` row so Analytics + sales velocity net it
+  out (the backward stock reconstruction and the season sold totals both sum added−used, so negatives cancel cleanly).
+  This is how Jarvis undoes a popcorn barrel/sale mistake — the analogue of `remove_batches` for the batch. `topped`
+  in `applyPopcornEntry` is guarded to positive adds only. Every Jarvis write dispatches a `jarvis-applied` window event
+  that the ShiftReport listens for (`loadLive`) — so removing a batch live-updates the "N batches today" reminder.
 - **Confirmation:** in-app writes confirm via `ConfirmDialog`; via MCP the desktop client's own
   tool-approval prompt is the gate.
 - **Access:** owner-only. `/jarvis` is behind `AdminRoute`; `api/chat.js` verifies the Supabase
