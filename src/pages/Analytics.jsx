@@ -14,6 +14,18 @@ const POPCORN_COLORS = ['#D97706', '#92400E', '#F59E0B', '#78350F', '#FBBF24']
 
 const SEASON_START = '2026-04-22'
 
+// Extras yield conversions (for the "Extras made this period" recap only — production,
+// never stock). Confirmed with owner July 2026:
+// - Toffee yields TRAYS per batch, and the ratio changed: the first good batch (June 25)
+//   was 1 tray/batch; from the next batch on it's thicker, 2 trays/batch. So batches on or
+//   after TOFFEE_2X_FROM count as 2 trays, earlier good batches as 1 tray.
+// - One Dot Cake Frosting batch decorates ~8 cakes.
+// - Each 1/18-tray caramel slice hand-wraps into ~8 individual caramels.
+const TOFFEE_2X_FROM = '2026-07-09'
+const TOFFEE_TRAYS = (batchDate) => (batchDate >= TOFFEE_2X_FROM ? 2 : 1)
+const DOT_CAKES_PER_BATCH = 8
+const CARAMELS_PER_SLICE = 8
+
 const RANGE_OPTIONS = [
   { label: '7 Days', days: 7 },
   { label: '30 Days', days: 30 },
@@ -149,7 +161,6 @@ export default function Analytics() {
   const [currentInventory, setCurrentInventory] = useState([])
   const [handwrapLogs, setHandwrapLogs] = useState([])
   const [fudgePopLogs, setFudgePopLogs] = useState([])
-  const [adjustments, setAdjustments] = useState([]) // manual recounts (inventory_adjustments)
   const [range, setRange] = useState(7)
   const [specificWeek, setSpecificWeek] = useState(null)
   const [specificDay, setSpecificDay] = useState(null)
@@ -167,7 +178,6 @@ export default function Analytics() {
         { data: invData },
         { data: handwrapData },
         { data: fudgePopData },
-        { data: adjData },
       ] = await Promise.all([
         supabase
           .from('shift_reports')
@@ -188,13 +198,6 @@ export default function Analytics() {
         supabase.from('current_inventory').select('flavor_id, tray_count, barrel_count'),
         supabase.from('caramel_handwrap_logs').select('trays_used, report_date').order('report_date'),
         supabase.from('fudge_pop_logs').select('base, pop_count, report_date').order('report_date'),
-        // Manual recounts — authoritative "set" points that override the reconstructed
-        // report-delta history in the stock trend (owner did a full fudge recount 7/11).
-        supabase.from('inventory_adjustments')
-          .select('target_type, target_id, field, new_value, created_at')
-          .eq('target_type', 'flavor')
-          .in('field', ['tray_count', 'barrel_count'])
-          .order('created_at'),
       ])
       const { data: allFlavorsData } = await supabase
         .from('flavors')
@@ -207,7 +210,6 @@ export default function Analytics() {
       setCurrentInventory(invData || [])
       setHandwrapLogs(handwrapData || [])
       setFudgePopLogs(fudgePopData || [])
-      setAdjustments(adjData || [])
       setLoading(false)
     }
     load()
@@ -333,24 +335,48 @@ export default function Analytics() {
   const inPeriod = (dateStr) => (!cutoffStr || dateStr >= cutoffStr) && (!cutoffEndStr || dateStr <= cutoffEndStr)
   const extrasProduced = useMemo(() => {
     const extraNames = new Map(flavors.filter(f => f.product_type === 'extra').map(f => [f.id, f.name]))
-    const batches = {} // name -> { made, wasted }
+    // Toffee tracked in TRAYS (date-based yield); Dot Cake Frosting in batches→cakes; any
+    // other extra falls back to a plain batch count.
+    let toffeeTrays = 0, toffeeWasted = 0
+    const dotCakeBatches = { made: 0, wasted: 0 }
+    const otherBatches = {} // name -> { made, wasted }
     filteredBatchLogs.forEach(b => {
       const name = extraNames.get(b.flavor_id)
       if (!name) return
-      const rec = (batches[name] ||= { made: 0, wasted: 0 })
-      if (b.is_wasted) rec.wasted += 1; else rec.made += 1
+      const date = (b.batch_date ?? '').slice(0, 10)
+      if (name === 'Toffee') {
+        if (b.is_wasted) toffeeWasted += 1; else toffeeTrays += TOFFEE_TRAYS(date)
+      } else if (name === 'Dot Cake Frosting') {
+        if (b.is_wasted) dotCakeBatches.wasted += 1; else dotCakeBatches.made += 1
+      } else {
+        const rec = (otherBatches[name] ||= { made: 0, wasted: 0 })
+        if (b.is_wasted) rec.wasted += 1; else rec.made += 1
+      }
     })
     const pops = fudgePopLogs.reduce((s, p) => s + (inPeriod(p.report_date ?? '') ? (p.pop_count ?? 0) : 0), 0)
     const handwrapTrays = handwrapLogs.reduce((s, h) => s + (inPeriod(h.report_date ?? '') ? (Number(h.trays_used) || 0) : 0), 0)
+    const caramels = Math.round(handwrapTrays * 18 * CARAMELS_PER_SLICE) // slices × ~8 wrapped each
+
     const rows = []
-    // Stable, meaningful order: toffee & dot cake frosting (by name), then pops, then caramels.
-    Object.keys(batches).sort().forEach(name => rows.push({
+    // Toffee — trays, with wasted noted (specific-day views show the wasted R&D attempts).
+    const toffeeBits = []
+    if (toffeeTrays > 0) toffeeBits.push(`${toffeeTrays} ${toffeeTrays === 1 ? 'tray' : 'trays'}`)
+    if (toffeeWasted > 0) toffeeBits.push(`${toffeeWasted} wasted`)
+    rows.push({ label: 'Toffee', value: toffeeBits.join(' · '), empty: toffeeBits.length === 0 })
+    // Dot Cake Frosting — batches → approx cakes decorated.
+    const dcCakes = dotCakeBatches.made * DOT_CAKES_PER_BATCH
+    const dcBits = []
+    if (dotCakeBatches.made > 0) dcBits.push(`${dotCakeBatches.made} ${dotCakeBatches.made === 1 ? 'batch' : 'batches'} (≈ ${dcCakes} cakes)`)
+    if (dotCakeBatches.wasted > 0) dcBits.push(`${dotCakeBatches.wasted} wasted`)
+    rows.push({ label: 'Dot Cake Frosting', value: dcBits.join(' · '), empty: dcBits.length === 0 })
+    // Any future extras
+    Object.keys(otherBatches).sort().forEach(name => rows.push({
       label: name,
-      value: `${batches[name].made} ${batches[name].made === 1 ? 'batch' : 'batches'}${batches[name].wasted ? ` · ${batches[name].wasted} wasted` : ''}`,
-      empty: batches[name].made === 0 && batches[name].wasted === 0,
+      value: `${otherBatches[name].made} ${otherBatches[name].made === 1 ? 'batch' : 'batches'}${otherBatches[name].wasted ? ` · ${otherBatches[name].wasted} wasted` : ''}`,
+      empty: otherBatches[name].made === 0 && otherBatches[name].wasted === 0,
     }))
     rows.push({ label: 'Fudge Pops', value: `${pops} ${pops === 1 ? 'pop' : 'pops'}`, empty: pops === 0 })
-    rows.push({ label: 'Wrapped Caramels', value: `${Math.round(handwrapTrays * 18)} caramels (≈ ${handwrapTrays.toFixed(2)} trays)`, empty: handwrapTrays === 0 })
+    rows.push({ label: 'Wrapped Caramels', value: `${caramels} caramels`, empty: caramels === 0 })
     return rows
   }, [flavors, filteredBatchLogs, fudgePopLogs, handwrapLogs, cutoffStr, cutoffEndStr]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -373,84 +399,82 @@ export default function Analytics() {
     return dates.sort().reverse()
   }, [reports])
 
-  // Manual recounts grouped by Eastern date → { flavor_id: new_value }. These are
-  // authoritative "the shelf actually holds N" corrections; wherever we reconstruct stock
-  // from report/bucket deltas, a recount on a date SETS that flavor's value (overriding the
-  // accumulated deltas) so a fixed count doesn't keep drifting from the buggy log history.
-  // Latest recount per flavor per day wins (adjustments come in created_at order).
-  const recountsByDate = useMemo(() => {
-    const tray = {}, barrel = {}
-    adjustments
-      .filter(a => (a.field === 'tray_count' || a.field === 'barrel_count') && a.new_value != null)
-      .forEach(a => {
-        const d = new Date(a.created_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-        const bucket = a.field === 'tray_count' ? tray : barrel
-        ;(bucket[d] ||= {})[a.target_id] = Math.max(0, Number(a.new_value))
+  // ── Stock history, reconstructed BACKWARD from current_inventory ───────────
+  // current_inventory is the app's source of truth (the owner recounts to fix drift), so we
+  // anchor TODAY to it and walk backward, undoing each day's reported activity:
+  //   end_of(day-1) = end_of(day) − (that day's made − sold − wasted)
+  // This guarantees every flavor's line ends at its real shelf count AND reflects every
+  // reported batch/sale — no forward drift, and immune to recount ordering (the old approach
+  // let a same-day recount clobber production, which hid Pistachio's 3 trays made 7/11).
+  // Returns { flavor_id: { 'YYYY-MM-DD': trays } } for every day since season start.
+  const todayStr = getDateStr(new Date())
+  const seasonDays = useMemo(() => {
+    const days = []
+    const cursor = new Date(SEASON_START + 'T12:00:00')
+    const end = new Date(todayStr + 'T12:00:00')
+    while (cursor <= end) { days.push(getDateStr(cursor)); cursor.setDate(cursor.getDate() + 1) }
+    return days
+  }, [todayStr])
+
+  const fudgeStockByDate = useMemo(() => {
+    const delta = {} // flavor_id → date → net tray change
+    reports.forEach(r => {
+      const d = r.report_date
+      if (!d || d < SEASON_START) return
+      r.shift_report_entries?.forEach(e => {
+        const net = (e.full_trays ?? 0) - (e.trays_sold ?? 0) - (e.trays_wasted ?? 0)
+        ;((delta[e.flavor_id] ||= {})[d] = (delta[e.flavor_id][d] ?? 0) + net)
       })
-    // Anchor TODAY to current_inventory — the app's live source of truth for the shelf.
-    // This makes the trend line's right edge match reality for every flavor, including ones
-    // that drifted from their logs but were never explicitly recounted (assigned last so it
-    // wins over any same-day recount, since a later sale already flowed into current_inventory).
-    const todayStr = getDateStr(new Date())
-    ;(currentInventory || []).forEach(r => {
-      if (r.tray_count != null) (tray[todayStr] ||= {})[r.flavor_id] = Math.max(0, r.tray_count)
-      if (r.barrel_count != null) (barrel[todayStr] ||= {})[r.flavor_id] = Math.max(0, r.barrel_count)
     })
-    return { tray, barrel }
-  }, [adjustments, currentInventory])
+    const out = {}
+    fudgeFlavors.forEach(f => {
+      let value = invMap[f.id]?.tray_count ?? 0
+      const series = {}
+      for (let i = seasonDays.length - 1; i >= 0; i--) {
+        const d = seasonDays[i]
+        series[d] = Math.max(0, Math.round(value * 100) / 100)
+        value -= (delta[f.id]?.[d] ?? 0)
+      }
+      out[f.id] = series
+    })
+    return out
+  }, [reports, fudgeFlavors, invMap, seasonDays])
 
-  // ── Historical stock (for specific week/day views) ────────────────────────
-  // Walks all reports up through cutoffEndStr and returns running tray counts per flavor id,
-  // applying any recounts on each date as a hard set (overrides the accumulated deltas).
-  const historicalFudgeStock = useMemo(() => {
-    if (!specificWeek && !specificDay) return null
-    const endDate = cutoffEndStr
-    const running = {}
-    const reportDates = [...reports].filter(r => r.report_date >= SEASON_START && r.report_date <= endDate)
-    const byDate = {}
-    reportDates.forEach(r => { (byDate[r.report_date] ||= []).push(r) })
-    const dates = [...new Set([
-      ...Object.keys(byDate),
-      ...Object.keys(recountsByDate.tray).filter(d => d >= SEASON_START && d <= endDate),
-    ])].sort()
-    for (const d of dates) {
-      ;(byDate[d] || []).forEach(r => {
-        r.shift_report_entries?.forEach(e => {
-          const delta = (e.full_trays ?? 0) - (e.trays_sold ?? 0) - (e.trays_wasted ?? 0)
-          running[e.flavor_id] = Math.max(0, (running[e.flavor_id] ?? 0) + delta)
-        })
-      })
-      const rc = recountsByDate.tray[d]
-      if (rc) for (const [fid, val] of Object.entries(rc)) running[fid] = val
-    }
-    return running
-  }, [reports, specificWeek, specificDay, cutoffEndStr, recountsByDate])
-
-  // Walks all bucket logs up through cutoffEndStr and returns running barrel counts per flavor id
-  const historicalPopcornStock = useMemo(() => {
-    if (!specificWeek && !specificDay) return null
-    const endDate = cutoffEndStr
-    const running = {}
-    // Interleave bucket deltas and barrel recounts in date order so a recount sets the value.
-    const barrelByDate = {}
+  const popcornStockByDate = useMemo(() => {
+    const delta = {} // flavor_id → date → net barrel change
     bucketLogs.forEach(b => {
       const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-      if (d > endDate) return
-      ;(barrelByDate[d] ||= []).push(b)
+      if (d < SEASON_START) return
+      ;((delta[b.flavor_id] ||= {})[d] = (delta[b.flavor_id][d] ?? 0) + (b.barrels_added ?? 0) - (b.barrels_used ?? 0))
     })
-    const dates = [...new Set([
-      ...Object.keys(barrelByDate),
-      ...Object.keys(recountsByDate.barrel).filter(d => d <= endDate),
-    ])].sort()
-    for (const d of dates) {
-      ;(barrelByDate[d] || []).forEach(b => {
-        running[b.flavor_id] = Math.max(0, (running[b.flavor_id] ?? 0) + (b.barrels_added ?? 0) - (b.barrels_used ?? 0))
-      })
-      const rc = recountsByDate.barrel[d]
-      if (rc) for (const [fid, val] of Object.entries(rc)) running[fid] = val
-    }
+    const out = {}
+    popcornFlavors.forEach(f => {
+      let value = invMap[f.id]?.barrel_count ?? 0
+      const series = {}
+      for (let i = seasonDays.length - 1; i >= 0; i--) {
+        const d = seasonDays[i]
+        series[d] = Math.max(0, Math.round(value * 100) / 100)
+        value -= (delta[f.id]?.[d] ?? 0)
+      }
+      out[f.id] = series
+    })
+    return out
+  }, [bucketLogs, popcornFlavors, invMap, seasonDays])
+
+  // Historical stock for the specific week/day views = the reconstructed value on that date.
+  const historicalFudgeStock = useMemo(() => {
+    if (!specificWeek && !specificDay) return null
+    const running = {}
+    fudgeFlavors.forEach(f => { running[f.id] = fudgeStockByDate[f.id]?.[cutoffEndStr] ?? 0 })
     return running
-  }, [bucketLogs, specificWeek, specificDay, cutoffEndStr, recountsByDate])
+  }, [fudgeFlavors, fudgeStockByDate, specificWeek, specificDay, cutoffEndStr])
+
+  const historicalPopcornStock = useMemo(() => {
+    if (!specificWeek && !specificDay) return null
+    const running = {}
+    popcornFlavors.forEach(f => { running[f.id] = popcornStockByDate[f.id]?.[cutoffEndStr] ?? 0 })
+    return running
+  }, [popcornFlavors, popcornStockByDate, specificWeek, specificDay, cutoffEndStr])
 
   // ── Caramel totals ────────────────────────────────────────────────────────
   // Full-season computed total (always current)
@@ -620,96 +644,51 @@ export default function Analytics() {
 
   const chartStockData = useMemo(() => {
     if (!reports.length) return []
-    // Reconstruct stock day by day from report deltas, but apply any recount on a date as a
-    // hard set (overrides the accumulated value). This is what makes the trend line jump to
-    // and then track the real shelf count after a physical recount, instead of forever
-    // charting the drifted log history.
-    const reportsByDate = {}
-    ;[...reports].filter(r => r.report_date >= SEASON_START).forEach(r => { (reportsByDate[r.report_date] ||= []).push(r) })
-    const eventDates = [...new Set([
-      ...Object.keys(reportsByDate),
-      ...Object.keys(recountsByDate.tray).filter(d => d >= SEASON_START),
-    ])].sort()
-    const snapshots = {}
-    const running = {}
-    for (const date of eventDates) {
-      ;(reportsByDate[date] || []).forEach(r => {
-        r.shift_report_entries?.forEach(e => {
-          const d = (e.full_trays ?? 0) - (e.trays_sold ?? 0) - (e.trays_wasted ?? 0)
-          running[e.flavor_id] = Math.max(0, (running[e.flavor_id] ?? 0) + d)
-        })
-      })
-      const rc = recountsByDate.tray[date]
-      if (rc) for (const [fid, val] of Object.entries(rc)) running[fid] = val
-      snapshots[date] = { ...running }
-    }
-    if (!Object.keys(snapshots).length) return []
-    const todayStr = getDateStr(new Date())
+    // Read the backward-reconstructed daily stock (fudgeStockByDate) across the selected
+    // window. Every point is anchored to real current_inventory, so the line ends at the
+    // true shelf count and correctly shows each day's made/sold.
     const startStr = cutoffStr && cutoffStr > SEASON_START ? cutoffStr : SEASON_START
     const endStr = cutoffEndStr || todayStr
-    let last = {}
-    for (const d of Object.keys(snapshots).sort()) { if (d <= startStr) last = snapshots[d]; else break }
     const rows = []
     const cursor = new Date(startStr + 'T12:00:00')
     while (cursor <= new Date(endStr + 'T12:00:00')) {
       const ds = getDateStr(cursor)
-      if (snapshots[ds]) last = snapshots[ds]
-      if (Object.keys(last).length) {
-        const row = { date: formatDate(ds) }
-        visibleFudgeFlavors.forEach(f => { row[f.name] = last[f.id] ?? null })
-        rows.push(row)
-      }
+      const row = { date: formatDate(ds) }
+      let any = false
+      visibleFudgeFlavors.forEach(f => {
+        const v = fudgeStockByDate[f.id]?.[ds]
+        row[f.name] = v ?? null
+        if (v != null) any = true
+      })
+      if (any) rows.push(row)
       cursor.setDate(cursor.getDate() + 1)
     }
     return rows
-  }, [reports, visibleFudgeFlavors, cutoffStr, cutoffEndStr, recountsByDate])
+  }, [reports, visibleFudgeFlavors, cutoffStr, cutoffEndStr, fudgeStockByDate, todayStr])
 
   // ── Popcorn charts ────────────────────────────────────────────────────────
+  // Barrels-on-shelf over time = the backward-reconstructed barrel stock (anchored to real
+  // current_inventory), so like fudge the line ends at the true count and reflects activity.
   const barrelsMadeData = useMemo(() => {
-    const flavorById = new Map(popcornFlavors.map(f => [f.id, f.name]))
-    const byDate = {}
-    bucketLogs
-      .filter(b => viewPopcornIds.has(b.flavor_id) && ((b.barrels_added ?? 0) > 0 || (b.barrels_used ?? 0) > 0))
-      .forEach(b => {
-        const d = new Date(b.logged_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-        const fname = flavorById.get(b.flavor_id)
-        if (!fname) return
-        if (!byDate[d]) byDate[d] = {}
-        byDate[d][fname] = (byDate[d][fname] ?? 0) + (b.barrels_added ?? 0) - (b.barrels_used ?? 0)
-      })
-    // Barrel recounts (SET points) keyed by flavor NAME + date, to match this chart's shape.
-    const recountByDate = {}
-    for (const [d, m] of Object.entries(recountsByDate.barrel)) {
-      for (const [fid, val] of Object.entries(m)) {
-        const fname = flavorById.get(fid)
-        if (fname) (recountByDate[d] ||= {})[fname] = val
-      }
-    }
-    const allDates = [...new Set([...Object.keys(byDate), ...Object.keys(recountByDate)])].sort()
-    if (!allDates.length) return []
-    const keys = [...new Set(popcornFlavors.map(f => f.name))]
-    const running = Object.fromEntries(keys.map(k => [k, null]))
-    const todayStr = getDateStr(new Date())
-    const startStr = cutoffStr && cutoffStr > allDates[0] ? cutoffStr : allDates[0]
+    const startStr = cutoffStr && cutoffStr > SEASON_START ? cutoffStr : SEASON_START
     const endStr = cutoffEndStr || todayStr
-    for (const d of allDates) {
-      if (d >= startStr) break
-      keys.forEach(k => { if (byDate[d]?.[k] != null) running[k] = (running[k] ?? 0) + byDate[d][k] })
-      if (recountByDate[d]) for (const [k, val] of Object.entries(recountByDate[d])) running[k] = val
-    }
+    const view = popcornFlavors.filter(f => viewPopcornIds.has(f.id))
     const rows = []
     const cursor = new Date(startStr + 'T12:00:00')
     while (cursor <= new Date(endStr + 'T12:00:00')) {
       const ds = getDateStr(cursor)
-      if (byDate[ds]) keys.forEach(k => {
-        if (byDate[ds][k] != null) running[k] = (running[k] ?? 0) + byDate[ds][k]
+      const row = { date: formatDate(ds) }
+      let any = false
+      view.forEach(f => {
+        const v = popcornStockByDate[f.id]?.[ds]
+        row[f.name] = v ?? null
+        if (v != null) any = true
       })
-      if (recountByDate[ds]) for (const [k, val] of Object.entries(recountByDate[ds])) running[k] = val
-      if (keys.some(k => running[k] !== null)) rows.push({ date: formatDate(ds), ...running })
+      if (any) rows.push(row)
       cursor.setDate(cursor.getDate() + 1)
     }
     return rows
-  }, [bucketLogs, viewPopcornIds, popcornFlavors, cutoffStr, cutoffEndStr, recountsByDate])
+  }, [popcornFlavors, viewPopcornIds, popcornStockByDate, cutoffStr, cutoffEndStr, todayStr])
 
   const barrelsSoldData = useMemo(() => {
     const byDate = {}
