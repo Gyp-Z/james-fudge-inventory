@@ -39,3 +39,9 @@ export const revertBatchLog = (batchLogId) =>
 
 export const revertFudgePopLog = (logId) =>
   core.revertFudgePopLog(supabase, logId)
+
+export const logCaramelApples = (appleCount, dateStr) =>
+  core.logCaramelApples(supabase, appleCount, dateStr)
+
+export const revertCaramelAppleLog = (logId) =>
+  core.revertCaramelAppleLog(supabase, logId)

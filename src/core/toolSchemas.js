@@ -31,7 +31,7 @@ SHIFTS & PRODUCTION PACE:
 Standard day = morning + night shift. Busy days (weekends/holidays) add a mid shift or run 2 chefs morning + 2 night (max 4 people/day). Slow days (Mon, Tue) = one chef morning, one night. Target ~3 batches per shift (~6 on a full busy day); slow days may be 1–2 or none if fudge levels are fine. Popcorn is made as-needed off shelf stock. One batch ≈ 1.5 hrs (~45 min cook, ~10 min water-flush cool, rest is setting/cooling). Fudge is poured into trays and cut up front into pound / half-pound / quarter-pound boxes. Max stock ceiling ≈ 85 trays for Vanilla and Chocolate; other flavors won't realistically hit that.
 
 PRODUCTION PRIORITIES:
-Peak is July 4th weekend through Labor Day — weekend foot traffic is 3–5x a weekday, so production must be aggressive heading into weekends. Vanilla and Chocolate are the backbone — never let them run low; treat them as top priority even if the threshold system hasn't flagged them. Keep strong sellers stocked: Chocolate Peanut Butter, Cookies & Cream, both Sea Salt Caramels, and the walnut flavors (Vanilla Walnut, Chocolate Walnut). Specialty/slower flavors where 2–4 trays on hand is fine: Chocolate Coconut, Pistachio, Chocolate Raspberry, Key Lime, Chocolate Mint. Tourists love the Sea Salt Caramels — keep SSC stocked into weekends. Popcorn (Caramel Corn, Nut Caramel Corn) sells best on weekends; Cheddar / White Cheddar move slower. Popcorn has a shorter shelf life — keep it fresh and constantly replenished into busy days. Before a big weekend: fudge stocked to the max; popcorn shelves filled Thu/Fri — keep refilling, don't let barrels sit empty during a rush.
+Peak is July 4th weekend through Labor Day — weekend foot traffic is 3–5x a weekday, so production must be aggressive heading into weekends. Vanilla and Chocolate are the backbone — never let them run low; treat them as top priority even if the threshold system hasn't flagged them. Keep strong sellers stocked: Chocolate Peanut Butter, Cookies & Cream, both Sea Salt Caramels, and the walnut flavors (Vanilla Walnut, Chocolate Walnut). Specialty/slower flavors where 2–4 trays on hand is fine: Chocolate Coconut, Pistachio, Chocolate Raspberry, Key Lime, Chocolate Mint, Maple Walnut (different base than the other walnuts — moves slower but still sells, never a "stop making it" flavor). Tourists love the Sea Salt Caramels — keep SSC stocked into weekends. Popcorn (Caramel Corn, Nut Caramel Corn) sells best on weekends; Cheddar / White Cheddar move slower. Popcorn has a shorter shelf life — keep it fresh and constantly replenished into busy days. Before a big weekend: fudge stocked to the max; popcorn shelves filled Thu/Fri — keep refilling, don't let barrels sit empty during a rush.
 
 BATCH SEQUENCING (factor this into every "what to make" recommendation — don't just say "make whatever's lowest"; chain batches to minimize cleaning):
 - After Vanilla: can make ANY batch next without cleaning (cleanest base).
@@ -48,6 +48,7 @@ ORDERING:
 
 CARAMEL MATH:
 Caramel is a component, not sold directly. 1 caramel batch = 1 caramel tray. 1 caramel tray makes 18 Sea Salt Caramel fudge trays (any SSC variant — Chocolate SSC or Vanilla SSC). The caramel count is computed forward from batch logs — read it via get_inventory (the caramel_trays field) or get_make_recommendations, never guess it. To make N SSC trays you need about N ÷ 18 caramel trays on hand; if caramel is short, make caramel FIRST.
+Caramel Apples: Each batch makes ~10 caramel apples and uses 1 full caramel tray. Use log_caramel_apples to record them.
 
 TOFFEE EXPERIMENT (R&D — still being dialed in):
 The crew is testing TOFFEE in the same cooker they make fudge in. Aidan ("Aids") is the chef driving it — help him plan batches, walk the procedure, and troubleshoot failed attempts. There is no finalized recipe yet, so treat the numbers below as a working starting point, not gospel; always tell him to verify against the actual batch in front of him. This is your knowledge base whenever toffee comes up.
@@ -89,7 +90,7 @@ DATA & MECHANICS:
 HOW TO BEHAVE:
 - Never invent a flavor or ingredient name. If unsure of the exact name, call get_flavors or get_ingredients first.
 - Prefer a tool call over answering from memory for any question about current numbers.
-- Before a write action (log_batch, add_product_entry, add_popcorn_entry, set_inventory_count, set_ingredient_quantity, log_fudge_pops, move_batches), make sure you have the flavor/ingredient, the date, and the amounts. Confirmation is handled outside of you, so just call the tool with the right arguments.
+- Before a write action (log_batch, add_product_entry, add_popcorn_entry, set_inventory_count, set_ingredient_quantity, log_fudge_pops, log_caramel_apples, move_batches), make sure you have the flavor/ingredient, the date, and the amounts. Confirmation is handled outside of you, so just call the tool with the right arguments.
 - Wrong-day fix: if a chef logged batches on the wrong date ("the 3 peanut butter I logged today were really yesterday"), use move_batches (flavor + from_date + to_date, and a count if only some of them). It just corrects the date — ingredient stock stays as-is, so don't re-log or re-deduct. "Today"/"yesterday" are Eastern dates.
 - Mistake-log fix: if a batch was logged that was never actually made (duplicate tap, wrong flavor picked), use remove_batches — it deletes the log AND refunds the ingredient deductions. Removes the most recent first. This is NOT for bad batches that were really made (log those as wasted) and NOT for wrong dates (that's move_batches).
 - Lead with the answer; keep it tight. Format every reply as clean, scannable markdown (it renders as styled UI, so don't fuss over raw symbols): short "## Section" headings for groups, bullet/numbered lists for items, **bold** for flavor names and key numbers, one tight line per item. No walls of text. End with a one-line bottom line or a single question when an action is the natural next step.
@@ -284,7 +285,7 @@ export const TOOL_SCHEMAS = [
   },
   {
     name: 'set_inventory_count',
-    description: 'Directly set a flavor\'s shelf count (trays for fudge, barrels for popcorn) after a physical recount. Records an audit entry.',
+    description: 'Directly set a flavor\'s shelf count (trays for fudge, barrels for popcorn) after a physical recount. Records an audit entry. Note: For Caramel (component), the Dashboard always recomputes the count from batch history minus SSC/handwrap/apple deductions. To adjust caramel inventory, use log_batch to add batches or report discrepancies rather than set_inventory_count.',
     input_schema: {
       type: 'object',
       properties: {
@@ -326,6 +327,18 @@ export const TOOL_SCHEMAS = [
         date: { type: 'string', description: 'YYYY-MM-DD (Eastern). Defaults to today.' },
       },
       required: ['base', 'pops'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'log_caramel_apples',
+    description: 'Log a batch of caramel apples. Each batch uses 1 full caramel tray and makes about 10 apples. Deducts from caramel inventory automatically.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        apple_count: { type: 'number', description: 'Number of caramel apples made (default 10)' },
+        date: { type: 'string', description: 'YYYY-MM-DD (Eastern). Defaults to today.' },
+      },
       additionalProperties: false,
     },
   },

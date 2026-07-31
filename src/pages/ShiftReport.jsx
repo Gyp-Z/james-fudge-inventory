@@ -10,8 +10,9 @@ import SeasonClosedPanel from '../components/report/SeasonClosedPanel'
 import {
   logBatchWithEffects, computeTrayInventory, applyTrayDeductions, logFudgePops,
   applyPopcornEntry, reverseShiftEntry, revertBatchLog, revertFudgePopLog,
+  logCaramelApples, revertCaramelAppleLog,
 } from '../utils/inventoryActions'
-import { POPS_PER_SESSION, seasonPhase, getSeasonSoldTotals, bySoldDesc } from '../core/ops.js'
+import { POPS_PER_SESSION, APPLES_PER_BATCH, seasonPhase, getSeasonSoldTotals, bySoldDesc } from '../core/ops.js'
 
 // The staff report screen. Three big UX ideas layered on the original form:
 //   1. SMART LIST — flavors with activity today ("Today" section) render first and
@@ -76,12 +77,14 @@ export default function ShiftReport() {
   const [recSubmitting, setRecSubmitting] = useState(false)
   const [recSubmitted, setRecSubmitted] = useState(false)
 
-  // Caramels hand-wrapped + fudge pops
+  // Caramels hand-wrapped + fudge pops + caramel apples
   const [caramelsHandWrapped, setCaramelsHandWrapped] = useState(0)
   const [fudgePops, setFudgePops] = useState({ vanilla: 0, chocolate: 0 })
   const [todayFudgePops, setTodayFudgePops] = useState({ vanilla: 0, chocolate: 0 })
+  const [caramelAppleBatches, setCaramelAppleBatches] = useState(0) // # of ~10-apple batches (each = 1 full caramel tray)
   const [openCaramels, setOpenCaramels] = useState(null) // null = auto (open when value > 0)
   const [openPops, setOpenPops] = useState(null)
+  const [openCaramelApples, setOpenCaramelApples] = useState(null)
 
   // Product-submit undo bundle + redirect countdown
   const [productUndo, setProductUndo] = useState(null)
@@ -352,8 +355,8 @@ export default function ShiftReport() {
       (e?.full_trays ?? 0) > 0 || (e?.in_progress_trays ?? 0) > 0 || (e?.trays_sold ?? 0) > 0 || (e?.trays_wasted ?? 0) > 0)
     const popAny = Object.values(popcornEntries).some((pe) =>
       (pe?.barrels_added ?? 0) > 0 || (pe?.barrels_sold ?? 0) > 0 || (pe?.in_progress_barrels ?? 0) > 0)
-    return fudgeAny || popAny || caramelsHandWrapped > 0 || fudgePops.vanilla > 0 || fudgePops.chocolate > 0
-  }, [entries, popcornEntries, caramelsHandWrapped, fudgePops])
+    return fudgeAny || popAny || caramelsHandWrapped > 0 || fudgePops.vanilla > 0 || fudgePops.chocolate > 0 || caramelAppleBatches > 0
+  }, [entries, popcornEntries, caramelsHandWrapped, fudgePops, caramelAppleBatches])
 
   // One-line preview of everything the submit will write — the "review without
   // scrolling back up" summary.
@@ -379,8 +382,9 @@ export default function ShiftReport() {
     if (caramelsHandWrapped > 0) parts.push(`${caramelsHandWrapped}/18 caramels wrapped`)
     if (fudgePops.vanilla > 0) parts.push(`${fudgePops.vanilla} vanilla pops`)
     if (fudgePops.chocolate > 0) parts.push(`${fudgePops.chocolate} chocolate pops`)
+    if (caramelAppleBatches > 0) parts.push(`${caramelAppleBatches} caramel apple batch(es) (~${caramelAppleBatches * APPLES_PER_BATCH} apples)`)
     return parts
-  }, [flavors, allFlavors, entries, popcornEntries, caramelsHandWrapped, fudgePops])
+  }, [flavors, allFlavors, entries, popcornEntries, caramelsHandWrapped, fudgePops, caramelAppleBatches])
 
   async function handleProductSubmit() {
     if (!hasAnyProductInput || submitting) return
@@ -507,7 +511,15 @@ export default function ShiftReport() {
       }
     }
 
-    setProductUndo({ reportId: report.id, entryIds, popcorn: popcornUndoList, popLogIds, handwrapId })
+    // Caramel apples — one log row per batch (each batch = 1 full caramel tray, ids
+    // captured for undo).
+    const caramelAppleLogIds = []
+    for (let i = 0; i < caramelAppleBatches; i++) {
+      const { logId } = await logCaramelApples(APPLES_PER_BATCH, todayStr)
+      if (logId) caramelAppleLogIds.push(logId)
+    }
+
+    setProductUndo({ reportId: report.id, entryIds, popcorn: popcornUndoList, popLogIds, handwrapId, caramelAppleLogIds })
     setSubmitted(true)
     setSubmitting(false)
     await loadLive(allFlavors)
@@ -542,6 +554,7 @@ export default function ShiftReport() {
     }
     for (const id of u.popLogIds) await revertFudgePopLog(id)                   // pop toppings refund
     if (u.handwrapId) await supabase.from('caramel_handwrap_logs').delete().eq('id', u.handwrapId)
+    for (const id of u.caramelAppleLogIds ?? []) await revertCaramelAppleLog(id) // caramel tray refund per batch
     if (u.reportId) await supabase.from('shift_reports').delete().eq('id', u.reportId) // our own snapshot report, now empty
     await loadLive(allFlavors)
     setProductUndo(null)
@@ -785,6 +798,7 @@ export default function ShiftReport() {
 
   const caramelsOpen = openCaramels ?? (caramelsHandWrapped > 0)
   const popsOpen = openPops ?? (fudgePops.vanilla > 0 || fudgePops.chocolate > 0)
+  const caramelApplesOpen = openCaramelApples ?? (caramelAppleBatches > 0)
 
   return (
     <div className="space-y-5">
@@ -856,6 +870,7 @@ export default function ShiftReport() {
                     ? [{ id: 'sec-today', label: `Today${attentionCount > 0 ? ` · ${attentionCount}` : ''}`, dot: true }]
                     : []),
                   { id: 'sec-caramels', label: 'Caramels' },
+                  { id: 'sec-caramel-apples', label: 'Apples' },
                   { id: 'sec-pops', label: 'Pops' },
                   { id: 'sec-fudge', label: 'Fudge' },
                   { id: 'sec-popcorn', label: 'Popcorn' },
@@ -1221,6 +1236,50 @@ export default function ShiftReport() {
                         >+</button>
                       </div>
                       <p className="text-xs text-store-brown-light">Each step = 1/18 tray. 18 steps = 1 full caramel tray.</p>
+                    </div>
+                  </Collapsible>
+                </div>
+              </div>
+
+              {/* Caramel apples — compact collapsible */}
+              <div id="sec-caramel-apples" className="report-section space-y-3">
+                <p className="text-xs font-bold text-store-brown-light uppercase tracking-wide">Caramel Apples</p>
+                <div className="bg-store-cream rounded-xl border border-store-tan shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setOpenCaramelApples(!caramelApplesOpen)}
+                    className="w-full text-left px-4 py-3.5 flex items-center justify-between gap-2 touch-manipulation"
+                    aria-expanded={caramelApplesOpen}
+                  >
+                    <div>
+                      <p className="font-semibold text-store-brown">Caramel Apples Made</p>
+                      <p className="text-xs text-store-brown-light mt-0.5">
+                        {caramelAppleBatches > 0 ? `${caramelAppleBatches} batch(es) — ~${caramelAppleBatches * APPLES_PER_BATCH} apples` : 'Each batch ≈ 10 apples, uses 1 full caramel tray'}
+                      </p>
+                    </div>
+                    <span className={`text-store-brown-light shrink-0 transition-transform duration-200 ${caramelApplesOpen ? 'rotate-180' : ''}`}>▾</span>
+                  </button>
+                  <Collapsible open={caramelApplesOpen}>
+                    <div className="px-4 pb-4 space-y-3">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setCaramelAppleBatches((v) => Math.max(0, v - 1))}
+                          className="w-12 h-12 rounded-xl bg-store-tan text-store-brown text-2xl font-bold flex items-center justify-center active:scale-95 transition-transform select-none touch-manipulation"
+                          aria-label="Decrease"
+                        >−</button>
+                        <div className="flex items-baseline gap-0.5 w-16 justify-center">
+                          <span className="text-2xl font-bold text-store-brown tabular-nums select-none">{caramelAppleBatches}</span>
+                          <span className="text-sm text-store-brown-light select-none">🍎</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setCaramelAppleBatches((v) => v + 1)}
+                          className="w-12 h-12 rounded-xl bg-store-tan text-store-brown text-2xl font-bold flex items-center justify-center active:scale-95 transition-transform select-none touch-manipulation"
+                          aria-label="Increase"
+                        >+</button>
+                      </div>
+                      <p className="text-xs text-store-brown-light">Each step = 1 batch (~{APPLES_PER_BATCH} apples, 1 full caramel tray).</p>
                     </div>
                   </Collapsible>
                 </div>

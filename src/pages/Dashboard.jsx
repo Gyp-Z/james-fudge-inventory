@@ -90,12 +90,14 @@ export default function Dashboard() {
         { data: allFlavorsData },
         { data: sscEntries },
         { data: handwrapData },
+        { data: appleData },
       ] = await Promise.all([
         supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count, barrel_count, in_progress_barrel_count'),
-        supabase.from('batch_logs').select('flavor_id, batch_date, is_wasted'),
+        supabase.from('batch_logs').select('flavor_id, batch_date, is_wasted').limit(5000),
         supabase.from('flavors').select('id, name, default_yield, is_component'),
-        supabase.from('shift_report_entries').select('flavor_id, full_trays, shift_reports!inner(report_date)'),
+        supabase.from('shift_report_entries').select('flavor_id, full_trays, shift_reports!inner(report_date)').gte('shift_reports.report_date', '2026-04-22').limit(5000),
         supabase.from('caramel_handwrap_logs').select('trays_used, report_date'),
+        supabase.from('caramel_apple_logs').select('report_date, apple_count').gte('report_date', '2026-04-22').limit(5000),
       ])
 
       if (inventory && inventory.length > 0) {
@@ -133,6 +135,11 @@ export default function Dashboard() {
             ;(handwrapData || []).forEach(h => {
               if ((h.report_date ?? '') < SEASON_START) return
               total -= h.trays_used ?? 0
+            })
+            // Deduct caramel used for caramel apples (1 full tray per batch)
+            ;(appleData || []).forEach(a => {
+              if ((a.report_date ?? '') < SEASON_START) return
+              total -= 1
             })
             map[flavorId] = {
               ...(map[flavorId] ?? { in_progress_trays: 0, barrel_count: 0 }),

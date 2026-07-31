@@ -30,6 +30,8 @@ export const SEASON_CONFIG = {
 // Back-compat: existing callers import/use this string. Derived from the config.
 const SEASON_START = `${SEASON_CONFIG.anchorYear}-${SEASON_CONFIG.openMonthDay}`
 const CARAMEL_TRAYS_PER_SSC_TRAY = 1 / 18
+const CARAMEL_TRAYS_PER_APPLE_BATCH = 1 // 1 batch of caramel apples uses 1 full caramel tray
+export const APPLES_PER_BATCH = 10 // ~10 caramel apples per batch
 const isSSC = (name) => (name ?? '').toLowerCase().includes('sea salt')
 
 // Phase from a date's month/day (default: today Eastern). Year-agnostic.
@@ -192,6 +194,46 @@ export async function creditCaramelComponent(sb, flavorName, trays) {
   const { data: inv } = await sb.from('current_inventory').select('tray_count').eq('flavor_id', caramelFlavor.id).single()
   const newCount = (inv?.tray_count ?? 0) + caramelUsed
   await sb.from('current_inventory').upsert({ flavor_id: caramelFlavor.id, tray_count: newCount }, { onConflict: 'flavor_id' })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CARAMEL APPLES — similar to hand-wrapped caramels, but a different unit: each LOGGED
+// batch always draws a FULL caramel tray (not a fraction), and one batch yields
+// ~APPLES_PER_BATCH apples (apple_count is record-keeping only, not part of the deduction).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function logCaramelApples(sb, appleCount, dateStr = todayEastern()) {
+  if (!appleCount || appleCount <= 0) return { logId: null, error: 'apple_count must be positive' }
+  const { data: log, error } = await sb
+    .from('caramel_apple_logs')
+    .insert({ apple_count: appleCount, report_date: dateStr })
+    .select('id')
+    .single()
+  if (error || !log) return { logId: null, error: error?.message || 'Failed to log caramel apples' }
+
+  const { data: caramelFlavor } = await sb.from('flavors').select('id').eq('name', 'Caramel').eq('is_component', true).single()
+  if (caramelFlavor) {
+    const { data: inv } = await sb.from('current_inventory').select('tray_count').eq('flavor_id', caramelFlavor.id).single()
+    const newCount = Math.max(0, (inv?.tray_count ?? 0) - CARAMEL_TRAYS_PER_APPLE_BATCH)
+    await sb.from('current_inventory').upsert({ flavor_id: caramelFlavor.id, tray_count: newCount }, { onConflict: 'flavor_id' })
+  }
+  return { logId: log.id, appleCount, caramelUsed: CARAMEL_TRAYS_PER_APPLE_BATCH }
+}
+
+export async function revertCaramelAppleLog(sb, logId) {
+  if (!logId) return { success: false, error: 'No log id' }
+  const { data: log } = await sb.from('caramel_apple_logs').select('*').eq('id', logId).single()
+  if (!log) return { success: false, error: 'Log not found' }
+
+  const { data: caramelFlavor } = await sb.from('flavors').select('id').eq('name', 'Caramel').eq('is_component', true).single()
+  if (caramelFlavor) {
+    const { data: inv } = await sb.from('current_inventory').select('tray_count').eq('flavor_id', caramelFlavor.id).single()
+    const newCount = (inv?.tray_count ?? 0) + CARAMEL_TRAYS_PER_APPLE_BATCH
+    await sb.from('current_inventory').upsert({ flavor_id: caramelFlavor.id, tray_count: newCount }, { onConflict: 'flavor_id' })
+  }
+
+  await sb.from('caramel_apple_logs').delete().eq('id', logId)
+  return { success: true }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -674,7 +716,10 @@ async function computeCaramelTrays(sb) {
   const { data: handwrap } = await sb.from('caramel_handwrap_logs').select('trays_used').gte('report_date', SEASON_START)
   let handwrapTrays = 0
   for (const h of handwrap || []) handwrapTrays += Number(h.trays_used) || 0
-  return Math.max(0, made - sscTrays / 18 - handwrapTrays)
+  // Caramel apples: each logged batch draws a full caramel tray.
+  const { data: appleData } = await sb.from('caramel_apple_logs').select('report_date').gte('report_date', SEASON_START)
+  const appleBatches = (appleData || []).length
+  return Math.max(0, made - sscTrays / 18 - handwrapTrays - appleBatches * CARAMEL_TRAYS_PER_APPLE_BATCH)
 }
 
 // Classifies every active flavor by how it's produced, so recommendations and logging are
@@ -1275,7 +1320,7 @@ async function resolveIngredient(sb, name) {
   return fuzzy && fuzzy.length === 1 ? fuzzy[0] : null
 }
 
-export const WRITE_TOOLS = new Set(['log_batch', 'add_product_entry', 'add_popcorn_entry', 'set_inventory_count', 'set_ingredient_quantity', 'log_fudge_pops', 'move_batches', 'remove_batches'])
+export const WRITE_TOOLS = new Set(['log_batch', 'add_product_entry', 'add_popcorn_entry', 'set_inventory_count', 'set_ingredient_quantity', 'log_fudge_pops', 'log_caramel_apples', 'move_batches', 'remove_batches'])
 
 // Repair a conversation so every assistant `tool_use` block is answered by a matching
 // `tool_result` in the very next message. If a tool throws or the page closes mid-loop, the
@@ -1335,6 +1380,8 @@ export function summarizeToolCall(name, input = {}) {
       return { title: 'Overwrite quantity?', message: `Set ${input.ingredient} to ${input.value}${input.reason ? ` — ${input.reason}` : ''}.` }
     case 'log_fudge_pops':
       return { title: 'Log fudge pops?', message: `${input.pops ?? 0} ${input.base} fudge pops on ${date} (≈${((input.pops ?? 0) / POPS_PER_SESSION).toFixed(2)} tray). Toppings auto-deduct.` }
+    case 'log_caramel_apples':
+      return { title: 'Log caramel apples?', message: `${input.apple_count ?? APPLES_PER_BATCH} caramel apples on ${date}. Deducts 1 full caramel tray.` }
     case 'move_batches':
       return { title: 'Fix batch date?', message: `Move ${input.count ?? 'all'} ${input.flavor} batch(es) from ${input.from_date} to ${input.to_date}. Ingredient deductions are unchanged — only the date is fixed.` }
     case 'remove_batches':
@@ -1442,6 +1489,15 @@ export async function runTool(sb, name, input = {}) {
       if (r.error || !r.logId) return { error: r.error?.message || 'Failed to log fudge pops (is the fudge_pop_logs migration applied?).' }
       const deducted = (r.deductions ?? []).map(d => d.name).join(', ') || 'none configured'
       return { ok: true, message: `Logged ${pops} ${base} fudge pops on ${date} (≈${(pops / POPS_PER_SESSION).toFixed(2)} tray). Toppings deducted: ${deducted}.` }
+    }
+
+    case 'log_caramel_apples': {
+      const appleCount = Math.floor(Number(input.apple_count) || APPLES_PER_BATCH)
+      if (appleCount <= 0) return { error: 'apple_count must be a positive number.' }
+      const date = input.date || todayEastern()
+      const { logId, appleCount: loggedCount, caramelUsed, error } = await logCaramelApples(sb, appleCount, date)
+      if (error || !logId) return { error: error || 'Failed to log caramel apples.' }
+      return { ok: true, message: `Logged ${loggedCount} caramel apples on ${date}, used ${caramelUsed} caramel tray.` }
     }
 
     case 'move_batches': {

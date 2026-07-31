@@ -147,6 +147,7 @@ export default function Analytics() {
   const [currentInventory, setCurrentInventory] = useState([])
   const [handwrapLogs, setHandwrapLogs] = useState([])
   const [fudgePopLogs, setFudgePopLogs] = useState([])
+  const [caramelAppleLogs, setCaramelAppleLogs] = useState([])
   const [range, setRange] = useState(7)
   const [specificWeek, setSpecificWeek] = useState(null)
   const [specificDay, setSpecificDay] = useState(null)
@@ -164,6 +165,7 @@ export default function Analytics() {
         { data: invData },
         { data: handwrapData },
         { data: fudgePopData },
+        { data: caramelAppleData },
       ] = await Promise.all([
         supabase
           .from('shift_reports')
@@ -184,6 +186,7 @@ export default function Analytics() {
         supabase.from('current_inventory').select('flavor_id, tray_count, barrel_count'),
         supabase.from('caramel_handwrap_logs').select('trays_used, report_date').order('report_date'),
         supabase.from('fudge_pop_logs').select('base, pop_count, report_date').order('report_date'),
+        supabase.from('caramel_apple_logs').select('apple_count, report_date').order('report_date'),
       ])
       const { data: allFlavorsData } = await supabase
         .from('flavors')
@@ -196,6 +199,7 @@ export default function Analytics() {
       setCurrentInventory(invData || [])
       setHandwrapLogs(handwrapData || [])
       setFudgePopLogs(fudgePopData || [])
+      setCaramelAppleLogs(caramelAppleData || [])
       setLoading(false)
     }
     load()
@@ -371,8 +375,12 @@ export default function Analytics() {
       if ((h.report_date ?? '') < SEASON_START) return
       total -= h.trays_used ?? 0
     })
+    caramelAppleLogs.forEach(a => {
+      if ((a.report_date ?? '') < SEASON_START) return
+      total -= 1
+    })
     return Math.max(0, Math.round(total * 1000) / 1000)
-  }, [batchLogs, reports, componentFlavors, handwrapLogs])
+  }, [batchLogs, reports, componentFlavors, handwrapLogs, caramelAppleLogs])
 
   // Historical caramel total at end of a specific week/day
   const historicalCaramelTotal = useMemo(() => {
@@ -401,8 +409,13 @@ export default function Analytics() {
       if (d < SEASON_START || d > endDate) return
       total -= h.trays_used ?? 0
     })
+    caramelAppleLogs.forEach(a => {
+      const d = a.report_date ?? ''
+      if (d < SEASON_START || d > endDate) return
+      total -= 1
+    })
     return Math.max(0, Math.round(total * 1000) / 1000)
-  }, [batchLogs, reports, componentFlavors, handwrapLogs, specificWeek, specificDay, cutoffEndStr])
+  }, [batchLogs, reports, componentFlavors, handwrapLogs, caramelAppleLogs, specificWeek, specificDay, cutoffEndStr])
 
   // Displayed caramel total — historical for week/day, live otherwise
   const displayCaramelTotal = historicalCaramelTotal ?? caramelComputedTotal
@@ -424,6 +437,12 @@ export default function Analytics() {
     if (!specificDay) return 0
     return handwrapLogs.reduce((s, h) => h.report_date === specificDay ? s + (h.trays_used ?? 0) : s, 0)
   }, [handwrapLogs, specificDay])
+
+  const dayCaramelApples = useMemo(() => {
+    if (!specificDay) return { batches: 0, apples: 0 }
+    const dayLogs = caramelAppleLogs.filter(a => a.report_date === specificDay)
+    return { batches: dayLogs.length, apples: dayLogs.reduce((s, a) => s + (a.apple_count ?? 0), 0) }
+  }, [caramelAppleLogs, specificDay])
 
   // ── Summary card stock values ─────────────────────────────────────────────
   // Use historical end-of-period stock for week/day, live inventory for rolling ranges
@@ -660,6 +679,11 @@ export default function Analytics() {
       if (!key || key < SEASON_START) return
       sscByDate[key] = (sscByDate[key] ?? 0) - (h.trays_used ?? 0)
     })
+    caramelAppleLogs.forEach(a => {
+      const key = a.report_date ?? ''
+      if (!key || key < SEASON_START) return
+      sscByDate[key] = (sscByDate[key] ?? 0) - 1
+    })
     const firstCaramelDate = Object.keys(caramelByDate).sort()[0]
     const todayStr = getDateStr(new Date())
     const effectiveStart = cutoffStr && cutoffStr > firstCaramelDate ? cutoffStr : firstCaramelDate
@@ -678,7 +702,7 @@ export default function Analytics() {
       cursor.setDate(cursor.getDate() + 1)
     }
     return rows
-  }, [batchLogs, reports, componentFlavors, cutoffStr, cutoffEndStr, handwrapLogs])
+  }, [batchLogs, reports, componentFlavors, cutoffStr, cutoffEndStr, handwrapLogs, caramelAppleLogs])
 
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading analytics...</p>
@@ -884,13 +908,18 @@ export default function Analytics() {
                     </ResponsiveContainer>
                   </ChartWrapper>
                   {fudgeFlavorTotals.some(t => t.sold > 0) && (
-                    <TotalsTable
-                      rows={fudgeFlavorTotals.filter(t => t.sold > 0).slice().sort((a, b) => b.sold - a.sold)}
-                      cols={[
-                        { label: 'Sold', key: 'sold', unit: 'trays', color: () => 'text-store-green' },
-                        { label: 'Made', key: 'made', unit: 'trays' },
-                      ]}
-                    />
+                    <>
+                      {!cutoffStr && (
+                        <p className="text-xs text-store-brown-light mb-2 italic">* All time: "Sold" may exceed "Made" for a date range — sales draw from stock made in prior periods.</p>
+                      )}
+                      <TotalsTable
+                        rows={fudgeFlavorTotals.filter(t => t.sold > 0).slice().sort((a, b) => b.sold - a.sold)}
+                        cols={[
+                          { label: 'Sold', key: 'sold', unit: 'trays', color: () => 'text-store-green' },
+                          { label: 'Made', key: 'made', unit: 'trays' },
+                        ]}
+                      />
+                    </>
                   )}
                 </>
               ) : empty('No sales logged in this range yet.')}
@@ -982,6 +1011,11 @@ export default function Analytics() {
             {dayHandwrapTrays > 0 && (
               <p className="text-sm text-store-brown-light mt-1">
                 Caramels hand-wrapped: used <span className="font-semibold text-store-brown">{fmtCaramel(dayHandwrapTrays)}</span> of a caramel tray
+              </p>
+            )}
+            {dayCaramelApples.batches > 0 && (
+              <p className="text-sm text-store-brown-light mt-1">
+                Caramel apples made: <span className="font-semibold text-store-brown">{dayCaramelApples.apples}</span> apples ({dayCaramelApples.batches} batch(es), used {dayCaramelApples.batches} caramel tray{dayCaramelApples.batches === 1 ? '' : 's'})
               </p>
             )}
           </div>
