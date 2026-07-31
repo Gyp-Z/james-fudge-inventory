@@ -49,6 +49,9 @@ When helping with this codebase, keep this business context in mind:
 - **SSC caramel deduction fires at tray-submit time**, not batch time. `deductCaramelComponent` is called in `handleProductSubmit`, not `handleBatchSubmit`.
 - **No rounding in deduction math.** `deliveryQty = recipe_qty / container_size` — full float, no rounding. Rounding is visual only (display). A prior bug using `Math.round(x * 10) / 10` caused small fractions to round to 0, silently skipping deductions all season. Fixed May 2026 via `scripts/fix-zero-deductions.mjs`. Do not re-introduce any rounding to calculation paths.
 - **`is_base_trigger = true`** on Vanilla, Chocolate, and Peanut Butter. These are plain bases that can produce a mix of full and in-progress trays (e.g. PB half-trays feed Choc PB). Used for two things: (1) cross-flavor "base batch made today" reminders in Products tab, and (2) showing the "≈ X full or Y in-progress trays" range estimate in Batches tab instead of a single full-tray count.
+- **Topping an in-progress (half) tray into a full tray counts as 0.5, not 1**, everywhere production is estimated — its first half came from an earlier batch. Applied in ShiftReport `deriveFudge` (`estimatedBatches`) AND `computeGroupAccounting` (base-batch reminder), so `toppedFromPrior = min(full_trays, currentInProgress)` is discounted to half. Without this the base-batch reminder cleared too early and the batch estimate double-counted.
+- **Paused flavors (Lisa's call, July 2026): Key Lime, Vanilla Chocolate Chip, Chocolate Rocky Road.** Too much hassle to make alongside everything else — let them run dry. `PAUSED_FLAVORS`/`isPaused` in `src/core/ops.js` excludes them from `getMakeRecommendations`; the Jarvis system prompt has a "PAUSED FLAVORS" rule (never recommend making them; only make if one hits zero AND Zach cleared it with Lisa). Not a schema flag — just the name set + prompt.
+- **"Logged" = "reported."** The crew uses them interchangeably. If asked "what was logged," answer with reported activity (`get_recent_activity`). The system prompt says so; don't build a distinction.
 
 ---
 
@@ -99,6 +102,8 @@ Recipes have a `deduction_phase` column: `'batch'` or `'tray'`.
 
 ### Double-Batch Reminder System
 `flavors.double_batch_reminder = true` on 16 flavors that require 2 physical pours per complete make.
+
+**SSC is NEVER a same-day double batch** even though both Sea Salt Caramel flavors carry `double_batch_reminder = true` in the DB (its half-tray bottoms are poured the night before, then topped next day). ShiftReport guards this with `isDoubleBatch(f) = double_batch_reminder && !isSSC(f.name)` — the double-batch amber/green/"1 of 2" UI must never fire for SSC. This matches `getFlavors` (which already excludes SSC from `double_batch`). Symptom if the guard is removed: Choc SSC shows "1 of 2 — ≈ 12 in-progress trays" whenever a Choc SSC batch exists.
 
 In **Batches tab**:
 - After 1st batch (amber): "1 of 2 — ≈ {yield×2} in-progress trays" — first pour fills double the tray count as half-trays
@@ -168,7 +173,7 @@ Added July 2026. **Batch-log-only items**: you make them (a batch deducts ingred
 - `ingredients.container_size` = how many content units per delivery unit
 - Display format: `{container_size} {container_unit} per {singularize(unit)}` e.g. "25 lbs per box"
 - Deduction formula: `deliveryQty = recipe_qty / container_size` (no rounding)
-- Ingredients with `container_size = null` are skipped by auto-deduct — this is intentional for ingredients not yet configured (e.g. Kettle Mix)
+- Ingredients with `container_size = null` are skipped by auto-deduct — this is intentional for (a) ingredients not yet configured and (b) **PINCH ingredients that barely get used and don't need tracking: Salt and Cinnamon** (Cinnamon fixed July 2026 — Snickerdoodle was wrongly dropping it ~0.5 container/batch; setting `container_size = null` makes it skip like Salt). Do NOT put a `container_size` on Salt or Cinnamon or they over-deduct.
 
 ### Shelf Bucket Logs
 `shelf_bucket_logs` now only used for barrel tracking. Columns `barrels_added` and `barrels_used` are active. Bucket columns (small_buckets_made, etc.) are set to 0 — do not write to them.
@@ -208,7 +213,7 @@ Added July 2026. **Batch-log-only items**: you make them (a batch deducts ingred
 |---|---|
 | `src/pages/Dashboard.jsx` | Main stock view. Loads inventory + batch logs + all flavors for caramel computation. Yesterday's shelf includes both fudge and popcorn. |
 | `src/pages/ShiftReport.jsx` | Staff report form. Batches tab logs batches + deducts batch-phase ingredients + shows tray/barrel estimates. Products tab deducts tray-phase ingredients + caramel on submit. |
-| `src/pages/Analytics.jsx` | Charts. Bucket charts removed. `caramelComputedTotal` + `caramelStockData` computed from batch logs day-by-day. |
+| `src/pages/Analytics.jsx` | Charts. Bucket charts removed. `caramelComputedTotal` + `caramelStockData` computed from batch logs day-by-day. **Stock trend + week/day stock reconstruct BACKWARD from `current_inventory`** (`fudgeStockByDate`/`popcornStockByDate`): anchor today to the real shelf count and undo each day's reported made−sold−wasted. This guarantees every flavor's line ends at its true count AND reflects every reported batch/sale — do NOT go back to forward-summing report deltas (it drifts, and a same-day recount clobbered production, e.g. hid Pistachio's 3 trays made 7/11). Flavor filter buttons + season-outlook panel sort by season sales (best-seller-first). "Extras made this period" section = production-only counts (Toffee in trays w/ date-split yield, Dot Cake Frosting→~8 cakes/batch, Fudge Pops, Wrapped Caramels→~8 per 1/18 slice); never on the stock graphs. |
 | `src/pages/Admin.jsx` | Flavor management + inline count editing. |
 | `src/pages/Ingredients.jsx` | Ingredient management + deduction log. Archive button is in the name row (not the data row). |
 | `src/core/ops.js` | **Single source of truth** for all reads/writes. Every DB-touching fn takes a Supabase client as its first arg, so it runs in the browser, the Jarvis chat, and the MCP server. Holds the deduction logic + read/analytics queries + `runTool`/`WRITE_TOOLS`/`summarizeToolCall`. No browser-only imports. |
@@ -219,7 +224,7 @@ Added July 2026. **Batch-log-only items**: you make them (a batch deducts ingred
 | `api/chat.js` | Vercel function — Claude inference proxy for the in-app Jarvis chat. Holds `ANTHROPIC_API_KEY`, verifies the owner's Supabase token, no DB access. Uses `claude-opus-4-8`. |
 | `src/pages/Jarvis.jsx` | Admin-only chat page (`/jarvis`). Client-side agentic loop; executes tools via `jarvisClientTools` (anon client), confirms writes via `ConfirmDialog`. |
 | `mcp/server.js` | Local stdio MCP server for the owner's desktop assistant. Runs the same `runTool` with a service-role client. See `mcp/README.md`. |
-| `src/pages/AuditEdit.jsx` | Admin-only Audit & Edit page (`/audit-edit`). Date picker + 6 accordion sections under `src/components/audit/`. |
+| ~~`src/pages/AuditEdit.jsx`~~ | **REMOVED July 2026** — the Fixes page and `src/components/audit/` are deleted; Jarvis is the fix bot now (see below). `/audit-edit` redirects to `/`. |
 | `src/hooks/useFlavors.js` | Loads active flavors (`is_active = true`). Does NOT include inactive flavors. |
 | `scripts/seed-recipes.mjs` | Recipe seeder. Needs `SUPABASE_SERVICE_ROLE_KEY`. Run with `node --env-file=.env scripts/seed-recipes.mjs`. |
 | `scripts/fix-zero-deductions.mjs` | One-off season correction (May 2026). Parsed `ingredient_deductions.notes` to recover and apply deductions that were rounded to 0 by the old rounding bug. Keep for reference. |
@@ -271,9 +276,11 @@ This one core fn feeds both the `get_season_outlook` Jarvis tool and the **Analy
 
 ---
 
-## Audit & Edit Page (admin-only, `/audit-edit`)
+## Audit & Edit Page — REMOVED July 2026 (Jarvis is the fix bot)
 
-Owner tool to correct chef mistakes without hand-editing the DB. Six capabilities, all scoped to a picked date: backdate a batch, revert a batch, add/edit/delete product (shift) entries, direct inventory count override, ingredient quantity override, and a read-only activity log.
+The `/audit-edit` page and all `src/components/audit/*` files were **deleted** at the owner's request — Jarvis already does the same corrections by chat, and the fast-paced kitchen prefers one tool. `/audit-edit` now redirects to `/`. Jarvis covers the equivalents: `log_batch` (with a date = backdate), `remove_batches` (revert/delete a mistake batch, refunds deductions), `add_product_entry` / `add_popcorn_entry` (fix a report), `set_inventory_count` (recount override — writes `inventory_adjustments`), `set_ingredient_quantity`, `move_batches` (wrong-day), and `get_recent_activity` (the activity log).
+
+**The underlying effect helpers in `src/utils/inventoryActions.js` and `src/core/ops.js` still exist and are still used** — by the ShiftReport undo buttons and by Jarvis/MCP (`reverseShiftEntry`, `revertBatchLog`, `applyPopcornEntry`, `applyShiftEntry`, `logInventoryAdjustment`, etc.). Do NOT delete those. Only the page UI was removed. The notes below are retained for how those helpers behave:
 
 - **Single source of truth:** all side effects go through `src/utils/inventoryActions.js`, which wraps the existing `autoDeduct.js` primitives. Backdating fires identical effects to live logging; no rounding is introduced.
 - **Tray-phase deductions are now reversible.** `ingredient_deductions.shift_report_entry_id` links each tray deduction to its entry (set by `autoDeductTrayIngredients`'s 3rd arg). `reverseShiftEntry` refunds via that link; legacy entries (pre-column) fall back to recomputing the refund from the recipe and flag `legacy: true`.
@@ -308,6 +315,12 @@ actions by chat, plus an MCP server so the owner's desktop assistant can do the 
   `add_popcorn_entry` is the popcorn analogue of `add_product_entry`: barrels_added/barrels_sold/in_progress_barrels
   via `applyPopcornEntry`. Sales velocity + make-recommendations fold popcorn barrels_sold from `shelf_bucket_logs`,
   and `getMakeRecommendations` surfaces all popcorn flavors on weekend/Thu-Fri days (`fill_popcorn_today` flag).
+  **`add_popcorn_entry` accepts NEGATIVE values as corrections** (July 2026): barrels_sold −3 gives 3 sales back,
+  barrels_added −3 removes 3 put out. It logs a negative `shelf_bucket_logs` row so Analytics + sales velocity net it
+  out (the backward stock reconstruction and the season sold totals both sum added−used, so negatives cancel cleanly).
+  This is how Jarvis undoes a popcorn barrel/sale mistake — the analogue of `remove_batches` for the batch. `topped`
+  in `applyPopcornEntry` is guarded to positive adds only. Every Jarvis write dispatches a `jarvis-applied` window event
+  that the ShiftReport listens for (`loadLive`) — so removing a batch live-updates the "N batches today" reminder.
 - **Confirmation:** in-app writes confirm via `ConfirmDialog`; via MCP the desktop client's own
   tool-approval prompt is the gate.
 - **Access:** owner-only. `/jarvis` is behind `AdminRoute`; `api/chat.js` verifies the Supabase

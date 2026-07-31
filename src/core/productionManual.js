@@ -142,13 +142,17 @@ Individual wrapped caramel pieces sold as candy.
 2. Use the two sized rolling cutters to cut it into perfect even pieces.
 3. Wrap each piece individually with small plastic wraps.
 
+In the app, the Caramels Hand Wrapped stepper counts SLICES (each = 1/18 of a caramel tray). Each slice hand-wraps into about 8 individual caramels, so 9 slices ≈ 72 wrapped caramels — that's how Analytics reports the count.
+
 ---
 
 ## TOFFEE (cooked in the same FireMixer-14 kettle as fudge)
 Almond toffee — Formula 296 as dialed in July 2026. Aidan is the toffee chef (usually a Thursday make). This recipe DROPPED the soy lecithin and ADDED corn syrup, which fixed the separation without it.
 
 **Per batch (~14 lb):** 5 lb dairy butter · 6 lb granulated sugar · 1 pt warm water · 2 cups corn syrup · 12 oz chopped almonds · then at the very end off-heat: 2 oz salt + ~1 lb Bakers' Special (superfine) sugar.
-(In the app, Toffee deducts butter, sugar, almonds, and corn syrup per batch. Salt and the small Bakers' Special add are not tracked. Bought cake note: N/A.)
+(In the app, Toffee deducts butter, sugar, almonds, and corn syrup per batch. Salt and the small Bakers' Special add are not tracked.)
+
+**Yield:** the first good batch (June 25 2026) poured 1 tray per batch. It's very thick, so from the next batch on we spread it to 2 trays per batch — count recent toffee at ~2 trays/batch. (Analytics reports toffee in trays with this date split; it's production only — toffee isn't sold by the tray.)
 
 1. Butter + 6 lb sugar + water together from cold, scrapers ON, High Cook. Add the 2 cups corn syrup.
 2. Bring to a boil and confirm the sugar is FULLY dissolved (clear, no grit on the scraper) before letting the temp climb toward 250°F — undissolved sugar seeds bad grit.
@@ -162,8 +166,8 @@ Almond toffee — Formula 296 as dialed in July 2026. Aidan is the toffee chef (
 ## DOT CAKE FROSTING
 Small decorated cakes. We BUY the cake part — we only make the frosting, and one batch of frosting decorates a lot of cakes. In the app this item is called **Dot Cake Frosting** and exists only to deduct the butter.
 
-**Frosting per batch:** ¾ of a 1-lb stick of butter (0.75 lb) · heavy cream (a splash — not tracked) · powdered sugar (not tracked).
-(In the app, "Dot Cake Frosting" deducts 0.75 lb butter per batch. Cream and powdered sugar are used but not tracked. Log one batch each time you whip up a batch of frosting.)
+**Frosting per batch:** ¾ of a 1-lb stick of butter (0.75 lb) · heavy cream (a splash — not tracked) · powdered sugar (not tracked). One batch of frosting decorates about 8 cakes.
+(In the app, "Dot Cake Frosting" deducts 0.75 lb butter per batch. Cream and powdered sugar are used but not tracked. Log one batch each time you whip up a batch of frosting; Analytics estimates ~8 cakes per batch.)
 
 1. Whip the butter, add powdered sugar and a splash of heavy cream to the frosting consistency you want.
 2. Frost the store-bought cakes and decorate.

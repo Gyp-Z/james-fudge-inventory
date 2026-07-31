@@ -15,7 +15,7 @@ const adminMainTabs = [
   { to: '/analytics', label: '📊', title: 'Analytics' },
   { to: '/ingredients', label: '🧂', title: 'Ingredients' },
   { to: '/admin', label: '🍬', title: 'Products' },
-  { to: '/audit-edit', label: '🛠️', title: 'Fixes' },
+  // Fixes tab removed July 2026 — Jarvis (the 🤖 bubble) handles all corrections now.
 ]
 
 // Once the season closes the app flips to observe mode — the Recap becomes a

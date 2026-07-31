@@ -50,13 +50,27 @@ export default async function handler(req, res) {
   // their next message, no reload needed.
   const messages = sanitizeMessages(rawMessages)
 
+  // Tell Jarvis the ACTUAL current Eastern date. Without this the model has no idea what
+  // "today"/"yesterday" are and sometimes anchors relative dates to the season-start date
+  // mentioned in the prompt (logging things on 4/21 instead of yesterday). Kept as a
+  // SEPARATE, uncached system block so the big cached prompt prefix stays cached day to day.
+  const todayEastern = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const dTmp = new Date(`${todayEastern}T12:00:00`)
+  const weekday = dTmp.toLocaleDateString('en-US', { weekday: 'long' })
+  dTmp.setDate(dTmp.getDate() - 1)
+  const yesterdayEastern = `${dTmp.getFullYear()}-${String(dTmp.getMonth() + 1).padStart(2, '0')}-${String(dTmp.getDate()).padStart(2, '0')}`
+  const dateContext = `CURRENT DATE (US Eastern): today is ${weekday}, ${todayEastern}. "Yesterday" = ${yesterdayEastern}. ALWAYS resolve relative dates ("today", "yesterday", "this morning", "last Thursday") from THIS date. The 2026-04-22 season anchor is NOT today — never default a log date to it. If no date is given for a write, it means today (${todayEastern}).`
+
   try {
     const client = new Anthropic({ apiKey })
     const message = await client.messages.create({
       model: 'claude-opus-4-8',
       max_tokens: 4096,
       thinking: { type: 'adaptive' },
-      system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+      system: [
+        { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: dateContext },
+      ],
       tools: [...TOOL_SCHEMAS, CHANGE_TRIVIA_TOOL],
       messages,
     })

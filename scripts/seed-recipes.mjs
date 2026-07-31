@@ -134,6 +134,10 @@ const FLAVOR_RECIPES = [
     flavorName: 'Snickerdoodle',
     ingredients: [
       ...VANILLA_BASE.map(i => i.name === 'Sugar' ? { ...i, qty: 12 } : i),
+      // Cinnamon is a PINCH ingredient like Salt — barely used, doesn't run out.
+      // The active Cinnamon ingredient has container_size = null, so auto-deduct SKIPS it
+      // (a batch used to wrongly drop it 0.5 of a container). Keep this row for documentation;
+      // do NOT set a container_size on Cinnamon or it'll over-deduct again.
       { name: 'Cinnamon', unit: 'lbs', qty: 0.5 },
     ],
   },
