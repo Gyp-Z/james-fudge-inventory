@@ -131,7 +131,10 @@ function SeasonOutlookPanel() {
                 {[...outlook.fudge].sort((a, b) => (b.per_day_sold ?? 0) - (a.per_day_sold ?? 0) || a.flavor.localeCompare(b.flavor)).map(r => (
                   <tr key={r.flavor} className="border-b border-store-tan/60">
                     <td className="py-2 pr-3 font-medium text-store-brown">{r.flavor}</td>
-                    <td className="py-2 pr-3 text-right text-store-brown">{r.trays}</td>
+                    <td className="py-2 pr-3 text-right text-store-brown">
+                      {r.trays}
+                      {r.in_progress_trays > 0 && <span className="ml-1 text-xs text-amber-700">(+{r.in_progress_trays} in-prog)</span>}
+                    </td>
                     <td className="py-2 pr-3 text-right text-store-brown-light">{r.per_day_sold || '—'}</td>
                     <td className="py-2 pr-3 text-right text-store-brown-light">{r.projected_sellout_date ? formatDate(r.projected_sellout_date) : 'no recent sales'}</td>
                     <td className={`py-2 pr-3 text-right font-semibold ${r.projected_leftover_at_close > 0 ? 'text-red-600' : 'text-store-green'}`}>{r.projected_leftover_at_close}</td>

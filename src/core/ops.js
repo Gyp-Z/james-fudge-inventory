@@ -927,9 +927,16 @@ export async function getSeasonOutlook(sb, { window = 14, asOf } = {}) {
   const daysLeft = Math.max(0, daysUntilClose(asOfDate))
 
   const { flavors } = await classifyFlavors(sb)
-  const [{ data: inv }, vel] = await Promise.all([
+  const [{ data: inv }, vel, seasonEntries] = await Promise.all([
     sb.from('current_inventory').select('flavor_id, tray_count, barrel_count, in_progress_count'),
     getSalesVelocity(sb, window),
+    // Full season, day-by-day — needed to reconstruct the REAL date a flavor ran out
+    // (see actualRanOutDate below), not just today's snapshot.
+    fetchAllRows(() => sb
+      .from('shift_report_entries')
+      .select('flavor_id, full_trays, trays_sold, trays_wasted, shift_reports!inner(report_date)')
+      .gte('shift_reports.report_date', SEASON_START)
+      .order('id', { ascending: true })),
   ])
   const invMap = {}
   ;(inv || []).forEach((r) => { invMap[r.flavor_id] = r })
@@ -944,14 +951,55 @@ export async function getSeasonOutlook(sb, { window = 14, asOf } = {}) {
   const rates = fudge.map((f) => perDay[f.name] ?? 0).filter((x) => x > 0).sort((a, b) => b - a)
   const topCutoff = rates.length ? rates[Math.max(0, Math.ceil(rates.length * 0.3) - 1)] : Infinity
 
+  // Net tray change per flavor per day (made − sold − wasted), from real reported activity.
+  const deltaByFlavorDate = {}
+  for (const e of seasonEntries) {
+    const d = e.shift_reports?.report_date
+    if (!d) continue
+    const net = (e.full_trays ?? 0) - (e.trays_sold ?? 0) - (e.trays_wasted ?? 0)
+    const byDate = (deltaByFlavorDate[e.flavor_id] ||= {})
+    byDate[d] = (byDate[d] ?? 0) + net
+  }
+  const seasonDays = []
+  {
+    const cursor = new Date(SEASON_START + 'T12:00:00')
+    const end = new Date(asOfDate + 'T12:00:00')
+    while (cursor <= end) { seasonDays.push(cursor.toISOString().slice(0, 10)); cursor.setDate(cursor.getDate() + 1) }
+  }
+  // Anchor to the live tray_count (ground truth) and walk BACKWARD undoing each day's net
+  // change (same technique as the Analytics stock chart) to find the last day this flavor
+  // actually had stock — i.e. the real date it ran out, instead of defaulting to "today"
+  // when a flavor has already been sitting at 0 for a while.
+  function actualRanOutDate(flavorId) {
+    let value = invMap[flavorId]?.tray_count ?? 0
+    for (let i = seasonDays.length - 1; i >= 0; i--) {
+      const d = seasonDays[i]
+      const endOfDay = Math.max(0, Math.round(value * 100) / 100)
+      if (endOfDay > 0) return d
+      value -= (deltaByFlavorDate[flavorId]?.[d] ?? 0)
+    }
+    return null
+  }
+
   const fudgeItems = []
   let totalLeftover = 0
   for (const f of fudge) {
     const row = invMap[f.id] || {}
-    const trays = (row.tray_count ?? 0) + (row.in_progress_count ?? 0)
+    // Sellable stock only — in-progress (half-made, not yet topped) trays aren't stock to
+    // sell down yet, so they're reported separately and never folded into the sell-down math.
+    const trays = row.tray_count ?? 0
+    const inProgress = row.in_progress_count ?? 0
     const pd = perDay[f.name] ?? 0
     const daysOfStock = pd > 0 ? Number((trays / pd).toFixed(1)) : null
-    const selloutDate = pd > 0 ? addDays(asOfDate, Math.ceil(trays / pd)) : null
+    let selloutDate
+    if (trays > 0 && pd > 0) {
+      selloutDate = addDays(asOfDate, Math.ceil(trays / pd))
+    } else if (trays === 0) {
+      const ranOut = actualRanOutDate(f.id)
+      selloutDate = ranOut ? addDays(ranOut, 1) : null
+    } else {
+      selloutDate = null // stock on hand but no recent sales — nothing to project
+    }
     const projectedLeftover = pd > 0 ? Math.max(0, Number((trays - pd * daysLeft).toFixed(1))) : trays
     const sellsOutBeforeClose = pd > 0 ? trays / pd <= daysLeft : false
     const isTop = pd > 0 && pd >= topCutoff
@@ -966,6 +1014,7 @@ export async function getSeasonOutlook(sb, { window = 14, asOf } = {}) {
     fudgeItems.push({
       flavor: f.name,
       trays,
+      in_progress_trays: inProgress,
       per_day_sold: pd,
       days_of_stock_left: daysOfStock,
       projected_sellout_date: selloutDate,
