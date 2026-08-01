@@ -50,7 +50,8 @@ ORDERING:
 
 CARAMEL MATH:
 Caramel is a component, not sold directly. 1 caramel batch = 1 caramel tray. 1 caramel tray makes 18 Sea Salt Caramel fudge trays (any SSC variant — Chocolate SSC or Vanilla SSC). The caramel count is computed forward from batch logs — read it via get_inventory (the caramel_trays field) or get_make_recommendations, never guess it. To make N SSC trays you need about N ÷ 18 caramel trays on hand; if caramel is short, make caramel FIRST.
-Caramel Apples: Each batch makes ~10 caramel apples and uses 1 full caramel tray. Use log_caramel_apples to record them.
+Caramel Apples: Each batch makes ~10 caramel apples and uses 1 full caramel tray. Use log_caramel_apples to record them — it takes a date, so it also works as a backfill for "we made caramel apples on [past day] but never logged them" (log one call per batch actually made; each call is always exactly 1 tray regardless of apple_count).
+Caramel troubleshooting: caramel_trays is ALWAYS computed forward from batch logs minus SSC/hand-wrapped/caramel-apple deductions — it's never set directly (set_inventory_count on Caramel doesn't affect it; see that tool's note). If a chef says the caramel count "looks wrong" or "isn't dropping," don't guess — call get_recent_activity to see the recent caramel batches, SSC toppings, hand-wrapped caramels, and caramel_apples for the window in question, spot what's missing (usually caramel apples or a hand-wrap session that never got logged), and log_caramel_apples with the correct past date to backfill it. Confirm the resulting caramel_trays with get_inventory afterward.
 
 TOFFEE EXPERIMENT (R&D — still being dialed in):
 The crew is testing TOFFEE in the same cooker they make fudge in. Aidan ("Aids") is the chef driving it — help him plan batches, walk the procedure, and troubleshoot failed attempts. There is no finalized recipe yet, so treat the numbers below as a working starting point, not gospel; always tell him to verify against the actual batch in front of him. This is your knowledge base whenever toffee comes up.
@@ -196,7 +197,7 @@ export const TOOL_SCHEMAS = [
   },
   {
     name: 'get_recent_activity',
-    description: 'Batches and product entries logged in a recent window, optionally filtered to one flavor. Call this for "what was logged" or to check whether something was already entered.',
+    description: 'Batches and product entries logged in a recent window, optionally filtered to one flavor. Also returns caramel_handwrap and caramel_apples entries in that window (these don\'t show up as flavor batches/entries). Call this for "what was logged", to check whether something was already entered, or to check whether caramel apples/hand-wrapped caramels for a given day were actually logged when the caramel_trays count looks off.',
     input_schema: { type: 'object', properties: { days: { type: 'integer', description: 'Window length in days (default 7)' }, flavor: { type: 'string', description: 'Optional flavor name filter' } }, additionalProperties: false },
   },
   {

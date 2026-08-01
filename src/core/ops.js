@@ -1112,7 +1112,12 @@ export async function getRecentActivity(sb, days = 7, flavorName) {
     if (flavorName) q = q.ilike('flavors.name', `%${flavorName}%`)
     return q
   }
-  const [batchesUnsorted, entries] = await Promise.all([fetchAllRows(makeBatchQ), fetchAllRows(makeEntryQ)])
+  const [batchesUnsorted, entries, handwrap, apples] = await Promise.all([
+    fetchAllRows(makeBatchQ),
+    fetchAllRows(makeEntryQ),
+    sb.from('caramel_handwrap_logs').select('trays_used, report_date').gte('report_date', start).order('report_date', { ascending: false }),
+    sb.from('caramel_apple_logs').select('apple_count, report_date').gte('report_date', start).order('report_date', { ascending: false }),
+  ])
   const batches = [...batchesUnsorted].sort((a, b) => (b.batch_date ?? '').localeCompare(a.batch_date ?? ''))
   return {
     since: start,
@@ -1125,6 +1130,11 @@ export async function getRecentActivity(sb, days = 7, flavorName) {
       wasted: e.trays_wasted ?? 0,
       in_progress: e.in_progress_trays ?? 0,
     })),
+    // Caramel-specific consumption that doesn't show up as a fudge flavor entry — needed
+    // to answer "did we log the caramel apples/handwrap" and to spot missing caramel
+    // deductions when the caramel_trays count looks off.
+    caramel_handwrap: (handwrap.data || []).map((h) => ({ date: h.report_date, trays_used: h.trays_used })),
+    caramel_apples: (apples.data || []).map((a) => ({ date: a.report_date, apple_count: a.apple_count })),
     _endExcl: endExcl,
   }
 }
