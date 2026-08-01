@@ -715,10 +715,11 @@ async function computeCaramelTrays(sb) {
     .eq('flavor_id', caramel.id)
     .gte('batch_date', SEASON_START)
   const made = (batches || []).filter((b) => !b.is_wasted).length
-  const { data: sscEntries } = await sb
+  const sscEntries = await fetchAllRows(() => sb
     .from('shift_report_entries')
     .select('full_trays, flavors!inner(name), shift_reports!inner(report_date)')
     .gte('shift_reports.report_date', SEASON_START)
+    .order('id', { ascending: true }))
   let sscTrays = 0
   for (const e of sscEntries || []) if (isSSC(e.flavors?.name)) sscTrays += e.full_trays ?? 0
   // Hand-wrapped caramels also draw down caramel trays (matches Dashboard/Analytics).
@@ -1046,8 +1047,8 @@ export async function getSalesVelocity(sb, days = 7) {
   // Fudge sells in trays (shift_report_entries); popcorn sells in barrels — a popcorn
   // "sale" is a barrel bucketed off the shelf, logged in shelf_bucket_logs.barrels_used.
   // Fold both so popcorn isn't invisible to velocity / make recommendations.
-  const [{ data: entries }, { data: bucketLogs }, { data: popFlavors }] = await Promise.all([
-    sb.from('shift_report_entries').select('trays_sold, flavors!inner(name, product_type), shift_reports!inner(report_date)').gte('shift_reports.report_date', start),
+  const [entries, { data: bucketLogs }, { data: popFlavors }] = await Promise.all([
+    fetchAllRows(() => sb.from('shift_report_entries').select('trays_sold, flavors!inner(name, product_type), shift_reports!inner(report_date)').gte('shift_reports.report_date', start).order('id', { ascending: true })),
     sb.from('shelf_bucket_logs').select('flavor_id, barrels_used, logged_at').gte('logged_at', `${start}T00:00:00`),
     sb.from('flavors').select('id, name, product_type').eq('product_type', 'popcorn'),
   ])
@@ -1101,20 +1102,18 @@ export async function getIngredientStock(sb, days = 14) {
 export async function getRecentActivity(sb, days = 7, flavorName) {
   const start = daysAgoEastern(days)
   const endExcl = todayEastern() // batch_date is timestamptz; use < tomorrow not needed for past window
-  let batchQ = sb
-    .from('batch_logs')
-    .select('batch_date, is_wasted, flavors!inner(name)')
-    .gte('batch_date', start)
-    .order('batch_date', { ascending: false })
-  let entryQ = sb
-    .from('shift_report_entries')
-    .select('full_trays, trays_sold, trays_wasted, in_progress_trays, flavors!inner(name), shift_reports!inner(report_date)')
-    .gte('shift_reports.report_date', start)
-  if (flavorName) {
-    batchQ = batchQ.ilike('flavors.name', `%${flavorName}%`)
-    entryQ = entryQ.ilike('flavors.name', `%${flavorName}%`)
+  const makeBatchQ = () => {
+    let q = sb.from('batch_logs').select('batch_date, is_wasted, flavors!inner(name)').gte('batch_date', start).order('id', { ascending: true })
+    if (flavorName) q = q.ilike('flavors.name', `%${flavorName}%`)
+    return q
   }
-  const [{ data: batches }, { data: entries }] = await Promise.all([batchQ, entryQ])
+  const makeEntryQ = () => {
+    let q = sb.from('shift_report_entries').select('full_trays, trays_sold, trays_wasted, in_progress_trays, flavors!inner(name), shift_reports!inner(report_date)').gte('shift_reports.report_date', start).order('id', { ascending: true })
+    if (flavorName) q = q.ilike('flavors.name', `%${flavorName}%`)
+    return q
+  }
+  const [batchesUnsorted, entries] = await Promise.all([fetchAllRows(makeBatchQ), fetchAllRows(makeEntryQ)])
+  const batches = [...batchesUnsorted].sort((a, b) => (b.batch_date ?? '').localeCompare(a.batch_date ?? ''))
   return {
     since: start,
     batches: (batches || []).map((b) => ({ date: b.batch_date?.slice(0, 10), flavor: b.flavors?.name, wasted: b.is_wasted })),
@@ -1135,9 +1134,11 @@ export async function getRecentActivity(sb, days = 7, flavorName) {
 // One core fn feeds the /season-recap page AND the get_season_recap Jarvis tool.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Supabase caps a select at 1000 rows; a full season of entries/batches can exceed
-// that, so recap queries page until a short page comes back.
-async function fetchAllRows(makeQuery) {
+// Supabase caps a select at 1000 rows SERVER-SIDE — this cap overrides any client-side
+// .limit()/.range() size larger than it, so raising the limit does nothing; the only fix
+// is real pagination (page until a short page comes back). A full season of entries/
+// batches can exceed 1000 rows, so every unfiltered read of a growing table must use this.
+export async function fetchAllRows(makeQuery) {
   const out = []
   const page = 1000
   for (let from = 0; ; from += page) {

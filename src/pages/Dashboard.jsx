@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useFlavors } from '../hooks/useFlavors'
-import { seasonPhase, getSeasonSoldTotals, bySoldDesc } from '../core/ops.js'
+import { seasonPhase, getSeasonSoldTotals, bySoldDesc, fetchAllRows } from '../core/ops.js'
 
 export default function Dashboard() {
   const { flavors, loading: flavorsLoading } = useFlavors()
@@ -86,18 +86,18 @@ export default function Dashboard() {
     async function load() {
       const [
         { data: inventory },
-        { data: batchData },
+        batchData,
         { data: allFlavorsData },
-        { data: sscEntries },
+        sscEntries,
         { data: handwrapData },
         { data: appleData },
       ] = await Promise.all([
         supabase.from('current_inventory').select('flavor_id, tray_count, in_progress_count, barrel_count, in_progress_barrel_count'),
-        supabase.from('batch_logs').select('flavor_id, batch_date, is_wasted').limit(5000),
+        fetchAllRows(() => supabase.from('batch_logs').select('flavor_id, batch_date, is_wasted').order('id', { ascending: true })),
         supabase.from('flavors').select('id, name, default_yield, is_component'),
-        supabase.from('shift_report_entries').select('flavor_id, full_trays, shift_reports!inner(report_date)').gte('shift_reports.report_date', '2026-04-22').limit(5000),
+        fetchAllRows(() => supabase.from('shift_report_entries').select('flavor_id, full_trays, shift_reports!inner(report_date)').gte('shift_reports.report_date', '2026-04-22').order('id', { ascending: true })),
         supabase.from('caramel_handwrap_logs').select('trays_used, report_date'),
-        supabase.from('caramel_apple_logs').select('report_date, apple_count').gte('report_date', '2026-04-22').limit(5000),
+        supabase.from('caramel_apple_logs').select('report_date, apple_count').gte('report_date', '2026-04-22'),
       ])
 
       if (inventory && inventory.length > 0) {

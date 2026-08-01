@@ -4,7 +4,7 @@ import {
   LineChart, Line, CartesianGrid, Legend,
 } from 'recharts'
 import { supabase } from '../lib/supabase'
-import { getSeasonOutlook } from '../core/ops'
+import { getSeasonOutlook, fetchAllRows } from '../core/ops'
 
 const FUDGE_COLORS = [
   '#7C4B2A', '#2D5A1B', '#C4843A', '#5B3A7E', '#2E86AB',
@@ -174,8 +174,8 @@ export default function Analytics() {
       const [
         { data: reportData },
         { data: flavorData },
-        { data: batchData },
-        { data: bucketData },
+        batchData,
+        bucketData,
         { data: invData },
         { data: handwrapData },
         { data: fudgePopData },
@@ -192,11 +192,11 @@ export default function Analytics() {
           .select('id, name, product_type, tracks_shelf_buckets, is_component, default_yield')
           .eq('is_active', true)
           .order('name'),
-        supabase.from('batch_logs').select('*').order('batch_date'),
-        supabase
+        fetchAllRows(() => supabase.from('batch_logs').select('*').order('id', { ascending: true })),
+        fetchAllRows(() => supabase
           .from('shelf_bucket_logs')
           .select('flavor_id, barrels_added, barrels_used, logged_at')
-          .order('logged_at'),
+          .order('id', { ascending: true })),
         supabase.from('current_inventory').select('flavor_id, tray_count, barrel_count'),
         supabase.from('caramel_handwrap_logs').select('trays_used, report_date').order('report_date'),
         supabase.from('fudge_pop_logs').select('base, pop_count, report_date').order('report_date'),
