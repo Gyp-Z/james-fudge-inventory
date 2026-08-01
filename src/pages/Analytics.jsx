@@ -366,7 +366,6 @@ export default function Analytics() {
     const appleLogsInPeriod = caramelAppleLogs.filter(a => inPeriod(a.report_date ?? ''))
     const appleBatches = appleLogsInPeriod.length
     const appleCount = appleLogsInPeriod.reduce((s, a) => s + (a.apple_count ?? 0), 0)
-    const appleDates = [...new Set(appleLogsInPeriod.map(a => a.report_date))].sort()
 
     const rows = []
     // Toffee — trays, with wasted noted (specific-day views show the wasted R&D attempts).
@@ -390,9 +389,7 @@ export default function Analytics() {
     rows.push({ label: 'Wrapped Caramels', value: `${caramels} caramels`, empty: caramels === 0 })
     rows.push({
       label: 'Caramel Apples',
-      value: appleBatches > 0
-        ? `${appleCount} apples (${appleBatches} ${appleBatches === 1 ? 'batch' : 'batches'}) — ${appleDates.map(formatDate).join(', ')}`
-        : '',
+      value: `${appleCount} apples (${appleBatches} ${appleBatches === 1 ? 'batch' : 'batches'})`,
       empty: appleBatches === 0,
     })
     return rows
@@ -1301,7 +1298,7 @@ export default function Analytics() {
 
       {/* Extras made this period — Toffee, Dot Cake Frosting, Fudge Pops, Wrapped Caramels,
           Caramel Apples. Production-only items (no stock graph), so we just show what got
-          made in the window (Caramel Apples also lists the dates they were made). */}
+          made in the window. */}
       <div className="bg-white rounded-2xl border border-store-tan shadow-sm p-4 sm:p-5">
         <h3 className="text-sm font-bold text-store-brown mb-0.5" style={{ fontFamily: 'var(--font-display)' }}>Extras made this {rangeNoun}</h3>
         <p className="text-xs text-store-brown-light mb-3">Toffee, dot cake frosting, fudge pops, wrapped caramels &amp; caramel apples aren’t sold by tray — this is just how much got made.</p>
