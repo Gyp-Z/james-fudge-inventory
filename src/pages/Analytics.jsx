@@ -360,6 +360,10 @@ export default function Analytics() {
     const pops = fudgePopLogs.reduce((s, p) => s + (inPeriod(p.report_date ?? '') ? (p.pop_count ?? 0) : 0), 0)
     const handwrapTrays = handwrapLogs.reduce((s, h) => s + (inPeriod(h.report_date ?? '') ? (Number(h.trays_used) || 0) : 0), 0)
     const caramels = Math.round(handwrapTrays * 18 * CARAMELS_PER_SLICE) // slices × ~8 wrapped each
+    const appleLogsInPeriod = caramelAppleLogs.filter(a => inPeriod(a.report_date ?? ''))
+    const appleBatches = appleLogsInPeriod.length
+    const appleCount = appleLogsInPeriod.reduce((s, a) => s + (a.apple_count ?? 0), 0)
+    const appleDates = [...new Set(appleLogsInPeriod.map(a => a.report_date))].sort()
 
     const rows = []
     // Toffee — trays, with wasted noted (specific-day views show the wasted R&D attempts).
@@ -381,8 +385,15 @@ export default function Analytics() {
     }))
     rows.push({ label: 'Fudge Pops', value: `${pops} ${pops === 1 ? 'pop' : 'pops'}`, empty: pops === 0 })
     rows.push({ label: 'Wrapped Caramels', value: `${caramels} caramels`, empty: caramels === 0 })
+    rows.push({
+      label: 'Caramel Apples',
+      value: appleBatches > 0
+        ? `${appleCount} apples (${appleBatches} ${appleBatches === 1 ? 'batch' : 'batches'}) — ${appleDates.map(formatDate).join(', ')}`
+        : '',
+      empty: appleBatches === 0,
+    })
     return rows
-  }, [flavors, filteredBatchLogs, fudgePopLogs, handwrapLogs, cutoffStr, cutoffEndStr]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [flavors, filteredBatchLogs, fudgePopLogs, handwrapLogs, caramelAppleLogs, cutoffStr, cutoffEndStr]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Week / Day dropdown options ───────────────────────────────────────────
   const availableWeeks = useMemo(() => {
@@ -1285,11 +1296,12 @@ export default function Analytics() {
         )
       )}
 
-      {/* Extras made this period — Toffee, Dot Cake Frosting, Fudge Pops, Wrapped Caramels.
-          Production-only items (no stock graph), so we just show what got made in the window. */}
+      {/* Extras made this period — Toffee, Dot Cake Frosting, Fudge Pops, Wrapped Caramels,
+          Caramel Apples. Production-only items (no stock graph), so we just show what got
+          made in the window (Caramel Apples also lists the dates they were made). */}
       <div className="bg-white rounded-2xl border border-store-tan shadow-sm p-4 sm:p-5">
         <h3 className="text-sm font-bold text-store-brown mb-0.5" style={{ fontFamily: 'var(--font-display)' }}>Extras made this {rangeNoun}</h3>
-        <p className="text-xs text-store-brown-light mb-3">Toffee, dot cake frosting, fudge pops &amp; wrapped caramels aren’t sold by tray — this is just how much got made.</p>
+        <p className="text-xs text-store-brown-light mb-3">Toffee, dot cake frosting, fudge pops, wrapped caramels &amp; caramel apples aren’t sold by tray — this is just how much got made.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {extrasProduced.map(r => (
             <div key={r.label} className={`flex items-center justify-between rounded-xl border px-3.5 py-2.5 ${r.empty ? 'border-store-tan/60 bg-store-cream/40' : 'border-store-tan bg-store-cream'}`}>
