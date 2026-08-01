@@ -1027,8 +1027,9 @@ export default function Analytics() {
                   {fudgeFlavorTotals.some(t => t.sold > 0) && (
                     <>
                       {!cutoffStr && (
-                        <p className="text-xs text-store-brown-light mb-2 italic">* All time: "Sold" may exceed "Made" for a date range — sales draw from stock made in prior periods.</p>
+                        <p className="text-xs text-store-brown-light mb-1 italic">* All time: "Sold" may exceed "Made" for a date range — sales draw from stock made in prior periods.</p>
                       )}
+                      <p className="text-xs text-store-brown-light mb-2 italic">* "Made" may exceed "Sold" — a physical recount can correct the shelf count down without a matching sale or wasted-batch entry.</p>
                       <TotalsTable
                         rows={fudgeFlavorTotals.filter(t => t.sold > 0).slice().sort((a, b) => b.sold - a.sold)}
                         cols={[
