@@ -50,7 +50,9 @@ When helping with this codebase, keep this business context in mind:
 - **No rounding in deduction math.** `deliveryQty = recipe_qty / container_size` — full float, no rounding. Rounding is visual only (display). A prior bug using `Math.round(x * 10) / 10` caused small fractions to round to 0, silently skipping deductions all season. Fixed May 2026 via `scripts/fix-zero-deductions.mjs`. Do not re-introduce any rounding to calculation paths.
 - **`is_base_trigger = true`** on Vanilla, Chocolate, and Peanut Butter. These are plain bases that can produce a mix of full and in-progress trays (e.g. PB half-trays feed Choc PB). Used for two things: (1) cross-flavor "base batch made today" reminders in Products tab, and (2) showing the "≈ X full or Y in-progress trays" range estimate in Batches tab instead of a single full-tray count.
 - **Topping an in-progress (half) tray into a full tray counts as 0.5, not 1**, everywhere production is estimated — its first half came from an earlier batch. Applied in ShiftReport `deriveFudge` (`estimatedBatches`) AND `computeGroupAccounting` (base-batch reminder), so `toppedFromPrior = min(full_trays, currentInProgress)` is discounted to half. Without this the base-batch reminder cleared too early and the batch estimate double-counted.
-- **Paused flavors (Lisa's call, July 2026): Key Lime, Vanilla Chocolate Chip, Chocolate Rocky Road.** Too much hassle to make alongside everything else — let them run dry. `PAUSED_FLAVORS`/`isPaused` in `src/core/ops.js` excludes them from `getMakeRecommendations`; the Jarvis system prompt has a "PAUSED FLAVORS" rule (never recommend making them; only make if one hits zero AND Zach cleared it with Lisa). Not a schema flag — just the name set + prompt.
+- **Paused flavors (Lisa's call): Key Lime, Vanilla Chocolate Chip, Chocolate Rocky Road, Chocolate Coconut, Chocolate Raspberry.** Too much hassle to make alongside everything else — let them run dry. (Chocolate Coconut + Chocolate Raspberry added late Aug 2026 as the season tapers. Maple Walnut was briefly paused during the July busy week but Lisa reclassified it as a FALL flavor — see fall sellers below — so it is NOT paused.) `PAUSED_FLAVORS`/`isPaused` in `src/core/ops.js` excludes them from `getMakeRecommendations`; the Jarvis system prompt has a "PAUSED FLAVORS" rule (never recommend making them; only make if one hits zero AND Zach cleared it with Lisa). Not a schema flag — just the name set + prompt.
+- **Fall sellers (keep in rotation, do NOT taper in the Aug wind-down): Snickerdoodle, Pistachio, Pumpkin Spice, Maple Walnut.** These sell slow in summer but strong in the Sept/Oct closeout, so their short-window summer velocity understates real demand. (Maple Walnut is a fall flavor per Lisa — was briefly paused in July, now un-paused and kept in rotation.) `FALL_FLAVORS`/`isFallSeller` in `src/core/ops.js` forces their `getSeasonOutlook` verdict to `coast` (never `stop`) and adds `fall_seller: true` to the item, so the sell-down brain won't over-project their leftovers and tell the crew to stop making them. Jarvis system prompt has a "FALL SELLERS" rule. The conceptual opposite of paused flavors. Not a schema flag — name set + prompt.
+- **Pumpkin Spice** is a real, active flavor (added Aug 28 2026 via `scripts/add-pumpkin-spice-2026.mjs`, corrected via `scripts/fix-pumpkin-spice-2026.mjs`): **Vanilla base with NO vanilla extract + 1/6 cup (0.167) Pumpkin Spice Flavoring, made as its own batch** (same shape as Key Lime/Pistachio). Recipe is also in `scripts/seed-recipes.mjs` and `productionManual.js`. `getSeasonOutlook` already excludes it from the fudge sell-down via the `isPumpkin` check (it's the pure late-Oct closeout flavor). The **Pumpkin Spice Flavoring** ingredient is an **8 oz bottle** (`container_size = 8`, `container_unit = 'oz'`, threshold 0.5), on-hand set to 1 bottle (owner to confirm). Per-batch pour is **~0.5 oz ≈ 0.06 bottle** (recipe row unit `'oz'`) — PROVISIONAL, owner to confirm the exact splash. Note the pour/bottle here is oz-based (unlike Key Lime/Pistachio Flavoring which are 1-cup bottles); the recipe unit MUST match `container_unit` ('oz') since auto-deduct divides `recipe_qty / container_size` without converting units.
 - **"Logged" = "reported."** The crew uses them interchangeably. If asked "what was logged," answer with reported activity (`get_recent_activity`). The system prompt says so; don't build a distinction.
 
 ---
@@ -203,6 +205,7 @@ Added July 2026. **Batch-log-only items**: you make them (a batch deducts ingred
 | `recipes` | Per-batch/tray ingredient quantities. `quantity_per_batch`, `unit`, `deduction_phase`, `pour_label`. |
 | `ingredient_deductions` | Audit log of auto-deductions. Inserted by `autoDeductIngredients` (sets `batch_log_id`) and `autoDeductTrayIngredients` (sets `shift_report_entry_id`). One of those two links is what makes a deduction reversible. |
 | `shelf_bucket_logs` | Barrel movement log. `barrels_added`, `barrels_used` only — bucket columns inactive. |
+| `jarvis_conversations` | Per-day Jarvis chat memory. `convo_date` PK, `transcript` + `messages` jsonb. One row/day; survives tablet close/refresh. Migration `add_jarvis_conversations.sql`. |
 | `inventory_adjustments` | Audit trail of manual count/quantity overrides from the Audit & Edit page. `target_type`, `target_id`, `field`, `old_value`, `new_value`, `reason`. |
 
 ---
@@ -254,7 +257,7 @@ This one core fn feeds both the `get_season_outlook` Jarvis tool and the **Analy
 
 - Unauthenticated users: Dashboard + Shift Report only
 - Authenticated (admin): all tabs
-- RLS policies on all tables allow public read + insert; mutations guarded in UI by `isAdmin` check
+- RLS policies on all tables allow public read + insert + update; mutations guarded in UI by `isAdmin` check. **DELETE** is granted to the anon role only on the revert/undo tables — `batch_logs`, `ingredient_deductions`, `shift_report_entries`, `shelf_bucket_logs`, `fudge_pop_logs` — plus UPDATE on `batch_logs` (for `move_batches`). See `supabase/migrations/add_revert_delete_policies.sql`. Without these, anon DELETE/UPDATE silently affects 0 rows (Postgres does not error on an RLS-filtered write) and every revert path fakes success. See the Common Pitfall below.
 
 ---
 
@@ -273,6 +276,7 @@ This one core fn feeds both the `get_season_outlook` Jarvis tool and the **Analy
 - There is no standalone `/batch` route. `Batch.jsx` was deleted. All batch logging goes through ShiftReport Batches tab.
 - **Popcorn batches do NOT change barrels.** `handleBatchSubmit` only deducts ingredients for popcorn; barrels move via the Products tab, the Jarvis `add_popcorn_entry` tool, and the Audit & Edit popcorn section — all through `applyPopcornEntry` (`barrels_added`/`barrels_used`). `revertBatchLog` was fixed (June 2026) to match — it no longer decrements barrels or deletes shelf_bucket_logs for popcorn. Don't re-add that branch.
 - **Shared effect helpers are the single source of truth.** `handleBatchSubmit`/`handleProductSubmit` and the Audit & Edit page both call `logBatchWithEffects` / `applyShiftEntry` / `applyTrayDeductions` / `computeTrayInventory` from `src/utils/inventoryActions.js`. Change the effect logic there, not inline, or the two paths drift.
+- **Reverts run on the anon client and MUST verify rows-affected (July 2026 fix).** The in-app Jarvis and the ShiftReport undo buttons use the anon (RLS) client — the service-role key never ships to the browser. A DELETE/UPDATE that RLS filters out affects **0 rows and returns NO error**, so before the delete policies existed, `remove_batches`/`move_batches`/the undo buttons all reported success while doing nothing — and `revertBatchLog` even refunded ingredients for a batch that stayed on the books (double-count on retry). Two-part fix: (1) `supabase/migrations/add_revert_delete_policies.sql` grants the anon deletes/updates; (2) every revert helper in `src/core/ops.js` (`revertBatchLog`, `moveBatchDate`, `reverseShiftEntry`, `reversePopcornEntry`, `revertFudgePopLog`) now does its terminal delete/update with `.select('id')` and returns an error if 0 rows came back. `revertBatchLog` also **deletes the batch FIRST (gated), then refunds** — never refund before confirming the delete landed. The `ingredient_deductions.batch_log_id` FK is `ON DELETE SET NULL`, so snapshot the deduction rows (ids + amounts) before deleting the batch and delete them by their own `id` afterward. Do NOT revert to refund-first ordering or drop the rows-affected checks.
 
 ---
 
@@ -307,7 +311,11 @@ actions by chat, plus an MCP server so the owner's desktop assistant can do the 
   Reads: inventory/low-stock/sales-velocity/ingredient-stock/recent-activity/flavors/ingredients,
   plus `get_production_manual` (returns the full recipe/process/scale-weight manual from
   `src/core/productionManual.js` — for "how do I make X" / training questions; kept out of the
-  base prompt to save tokens).
+  base prompt to save tokens), and `get_production_insights` (`getProductionInsights` in core —
+  season RHYTHM stats: avg batches/day overall + per active production day + per weekday, and
+  per-flavor WEEKEND vs WEEKDAY sell rates; per-day averages divide by the real count of each
+  weekday in the window so a partial season stays accurate. Powers "how many do we usually make
+  a day / on Saturdays", "what sells more on weekends", and sizing a make-plan to actual pace).
   Writes: `log_batch`, `add_product_entry`, `add_popcorn_entry`, `set_inventory_count`, `set_ingredient_quantity`,
   `log_fudge_pops`, `move_batches` (all route through the existing deduction helpers — no rounding, two-phase preserved).
   `move_batches` (`moveBatchDate` in core) fixes the DATE batches were logged for (wrong-day correction) — it only
@@ -323,6 +331,22 @@ actions by chat, plus an MCP server so the owner's desktop assistant can do the 
   that the ShiftReport listens for (`loadLive`) — so removing a batch live-updates the "N batches today" reminder.
 - **Confirmation:** in-app writes confirm via `ConfirmDialog`; via MCP the desktop client's own
   tool-approval prompt is the gate.
+- **Resilience — no more "stopping mid-think" (Aug 2026).** Long adaptive-thinking turns used to
+  get cut off (serverless timeout / token budget), surfacing as the chat stopping and the owner
+  typing "continue". Fixed in three places: (1) `api/chat.js` `export const maxDuration = 60` so
+  Vercel doesn't kill a long think; (2) `max_tokens` raised 4096 → 16000 (thinking tokens count
+  against it, so 4096 truncated answers); (3) `JarvisWidget` `callClaude` auto-retries transient
+  failures (network / 5xx / 429, up to 3 tries, backoff) and the send loop **auto-continues** when
+  `stop_reason === 'max_tokens'` by appending an internal "continue" turn (not shown as a bubble),
+  bounded by `MAX_TURNS`. Don't drop `max_tokens` back down or remove the retry/auto-continue.
+- **Per-day conversation memory (Aug 2026).** The chat persisted only to `sessionStorage` (survived
+  refresh, lost on tab close / other device). Now it also mirrors to the DB, one row per Eastern day
+  in `jarvis_conversations` (`convo_date` PK, `transcript` + `messages` jsonb). Core fns:
+  `loadDailyConversation` / `saveDailyConversation` / `clearDailyConversation` (anon-bound in
+  `jarvisClientTools`). The widget hydrates from the DB **only when sessionStorage is empty** (fresh
+  session), so in-session state stays freshest; it debounce-saves (1.5s) on every change and `newChat`
+  wipes both. Degrades to sessionStorage-only if the table is missing. Migration:
+  `supabase/migrations/add_jarvis_conversations.sql` (table + anon RLS) — MUST be applied.
 - **Access:** owner-only. `/jarvis` is behind `AdminRoute`; `api/chat.js` verifies the Supabase
   access token (401 otherwise). The MCP server is local + service-role (RLS bypassed) — keep it
   on the owner's machine only.

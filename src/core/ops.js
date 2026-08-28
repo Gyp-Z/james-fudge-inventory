@@ -37,8 +37,16 @@ const isSSC = (name) => (name ?? '').toLowerCase().includes('sea salt')
 // Flavors Lisa (owner's mom, ops) paused in July 2026 — too much hassle to make alongside
 // everything else; letting them run dry lets the other flavors sell faster. Never surfaced
 // in make-recommendations (they can run low/out on purpose). Match by lowercased name.
-const PAUSED_FLAVORS = new Set(['key lime', 'vanilla chocolate chip', 'chocolate rocky road'])
+const PAUSED_FLAVORS = new Set(['key lime', 'vanilla chocolate chip', 'chocolate rocky road', 'chocolate coconut', 'chocolate raspberry'])
 const isPaused = (name) => PAUSED_FLAVORS.has((name ?? '').trim().toLowerCase())
+
+// FALL SELLERS — specialty flavors that sell SLOW in summer but pick up in the fall closeout
+// (Sept/Oct). NOT paused: keep them in the rotation. Their recent-14-day summer sell-rate
+// understates true demand, so the wind-down sell-down brain must NOT slap a premature "stop"
+// (waste) verdict on them just because summer velocity looks low — they get "coast" instead.
+// Pumpkin Spice is the pure late-October flavor and is already excluded from the sell-down.
+const FALL_FLAVORS = new Set(['snickerdoodle', 'pistachio', 'pumpkin spice', 'maple walnut'])
+const isFallSeller = (name) => FALL_FLAVORS.has((name ?? '').trim().toLowerCase())
 
 // Phase from a date's month/day (default: today Eastern). Year-agnostic.
 //   preseason → before the season opens (e.g. winter / early spring)
@@ -350,8 +358,11 @@ export async function revertFudgePopLog(sb, logId) {
     }
     await sb.from('ingredient_deductions').delete().eq('fudge_pop_log_id', logId)
   }
-  const { error: delErr } = await sb.from('fudge_pop_logs').delete().eq('id', logId)
+  const { data: delPop, error: delErr } = await sb.from('fudge_pop_logs').delete().eq('id', logId).select('id')
   if (delErr) return { success: false, error: delErr.message }
+  if (!delPop || delPop.length === 0) {
+    return { success: false, error: 'Fudge pop log was not deleted (0 rows affected) — the database is blocking the delete. Apply the anon DELETE policy on fudge_pop_logs (supabase/migrations/add_revert_delete_policies.sql).' }
+  }
   return { success: true }
 }
 
@@ -425,8 +436,11 @@ export async function reversePopcornEntry(sb, logId) {
     const { data: inv } = await sb.from('current_inventory').select('barrel_count').eq('flavor_id', log.flavor_id).single()
     if (inv) await sb.from('current_inventory').update({ barrel_count: Math.max(0, (inv.barrel_count ?? 0) - net) }).eq('flavor_id', log.flavor_id)
   }
-  const { error: delErr } = await sb.from('shelf_bucket_logs').delete().eq('id', logId)
+  const { data: delMove, error: delErr } = await sb.from('shelf_bucket_logs').delete().eq('id', logId).select('id')
   if (delErr) return { success: false, error: delErr.message }
+  if (!delMove || delMove.length === 0) {
+    return { success: false, error: 'Barrel movement was not deleted (0 rows affected) — the database is blocking the delete. Apply the anon DELETE policy on shelf_bucket_logs (supabase/migrations/add_revert_delete_policies.sql).' }
+  }
   return { success: true }
 }
 
@@ -471,9 +485,14 @@ export async function moveBatchDate(sb, flavor, fromDate, toDate, count = null) 
   if (!batches || batches.length === 0) return { moved: 0, available: 0 }
   const toMove = count != null ? batches.slice(0, count) : batches
   const ids = toMove.map((b) => b.id)
-  const { error: upErr } = await sb.from('batch_logs').update({ batch_date: toDate }).in('id', ids)
+  // .select() so we can confirm the update actually landed. 0 rows = a silent no-op (e.g. RLS
+  // with no anon UPDATE policy on batch_logs) — report it instead of claiming a phantom move.
+  const { data: moved, error: upErr } = await sb.from('batch_logs').update({ batch_date: toDate }).in('id', ids).select('id')
   if (upErr) return { moved: 0, error: upErr.message }
-  return { moved: ids.length, available: batches.length, ids }
+  if (!moved || moved.length === 0) {
+    return { moved: 0, error: 'No batches were updated (0 rows affected) — the database is blocking the update. Apply the anon UPDATE policy on batch_logs (supabase/migrations/add_revert_delete_policies.sql).' }
+  }
+  return { moved: moved.length, available: batches.length, ids }
 }
 
 // Remove up to `count` batches of a flavor logged on a date — the "I logged a batch I
@@ -514,9 +533,24 @@ export async function revertBatchLog(sb, batchLogId) {
   const isComponent = flavor?.is_component
   const isWasted = batch.is_wasted
 
+  // Snapshot the deductions BEFORE touching the batch. The FK is ON DELETE SET NULL, so once
+  // the batch row is gone each deduction's batch_log_id becomes NULL — capture their ids and
+  // amounts now so we can still refund and delete them by primary key afterward.
   const { data: deductions, error: dErr } = await sb.from('ingredient_deductions').select('*').eq('batch_log_id', batchLogId)
   if (dErr) return { success: false, error: dErr.message }
 
+  // Delete the batch FIRST and confirm it actually went. .select() returns the rows deleted;
+  // 0 rows means the delete was a silent no-op (classically: RLS with no anon DELETE policy).
+  // Abort here — BEFORE any refund — so we never credit ingredients back for a batch that is
+  // still on the books (which would double-count every time the "remove" is retried). This is
+  // the guard that turns a phantom success into an honest, visible error.
+  const { data: deleted, error: delErr } = await sb.from('batch_logs').delete().eq('id', batchLogId).select('id')
+  if (delErr) return { success: false, error: delErr.message }
+  if (!deleted || deleted.length === 0) {
+    return { success: false, error: 'Batch was not deleted (0 rows affected) — the database is blocking the delete. Apply the anon DELETE policy on batch_logs (supabase/migrations/add_revert_delete_policies.sql).' }
+  }
+
+  // Batch is gone — now refund its deductions and delete the (now-orphaned) deduction rows by id.
   if (deductions && deductions.length > 0) {
     const ingIds = deductions.map((d) => d.ingredient_id)
     const { data: activeIngs } = await sb.from('ingredients').select('id, name, quantity').in('id', ingIds).eq('is_active', true)
@@ -529,6 +563,7 @@ export async function revertBatchLog(sb, batchLogId) {
         }
       }
     }
+    await sb.from('ingredient_deductions').delete().in('id', deductions.map((d) => d.id))
   }
 
   // Popcorn batches never added barrels, so revert must not touch them. (intentional)
@@ -541,9 +576,6 @@ export async function revertBatchLog(sb, batchLogId) {
     }
   }
 
-  await sb.from('ingredient_deductions').delete().eq('batch_log_id', batchLogId)
-  const { error: delErr } = await sb.from('batch_logs').delete().eq('id', batchLogId)
-  if (delErr) return { success: false, error: delErr.message }
   return { success: true }
 }
 
@@ -680,8 +712,11 @@ export async function reverseShiftEntry(sb, entryId) {
     }).eq('flavor_id', entry.flavor_id)
   }
 
-  const { error: delErr } = await sb.from('shift_report_entries').delete().eq('id', entryId)
+  const { data: delEntry, error: delErr } = await sb.from('shift_report_entries').delete().eq('id', entryId).select('id')
   if (delErr) return { success: false, error: delErr.message }
+  if (!delEntry || delEntry.length === 0) {
+    return { success: false, error: 'Report entry was not deleted (0 rows affected) — the database is blocking the delete. Apply the anon DELETE policy on shift_report_entries (supabase/migrations/add_revert_delete_policies.sql).' }
+  }
   return { success: true, legacy }
 }
 
@@ -1003,11 +1038,16 @@ export async function getSeasonOutlook(sb, { window = 14, asOf } = {}) {
     const projectedLeftover = pd > 0 ? Math.max(0, Number((trays - pd * daysLeft).toFixed(1))) : trays
     const sellsOutBeforeClose = pd > 0 ? trays / pd <= daysLeft : false
     const isTop = pd > 0 && pd >= topCutoff
+    const fallSeller = isFallSeller(f.name)
     // Verdict: stop = will be left over (waste risk) → don't make, push to sell.
     // make_small = a TOP seller that'll run dry well before close (≥7 days early) → OK to
     // make occasionally. coast = everything else (let it ride; running dry early is fine).
+    // FALL SELLERS (Snickerdoodle, Pistachio): summer velocity understates them because
+    // demand climbs in the Sept/Oct closeout — never force a "stop"/waste verdict on them
+    // from a slow summer window; they coast (keep in rotation) so they're stocked for fall.
     let verdict
-    if (projectedLeftover > 1) verdict = 'stop'
+    if (fallSeller) verdict = 'coast'
+    else if (projectedLeftover > 1) verdict = 'stop'
     else if (isTop && daysOfStock != null && daysLeft - daysOfStock >= 7) verdict = 'make_small'
     else verdict = 'coast'
     totalLeftover += projectedLeftover
@@ -1021,6 +1061,7 @@ export async function getSeasonOutlook(sb, { window = 14, asOf } = {}) {
       projected_leftover_at_close: projectedLeftover,
       sells_out_before_close: sellsOutBeforeClose,
       is_top_seller: isTop,
+      fall_seller: fallSeller,
       verdict,
     })
   }
@@ -1121,6 +1162,97 @@ export async function getSalesVelocity(sb, days = 7) {
     .map(([flavor, sold]) => ({ flavor, total_sold: sold, per_day: Number((sold / days).toFixed(2)), unit: unitByFlavor[flavor] ?? 'trays' }))
     .sort((a, b) => b.total_sold - a.total_sold)
   return { window_days: days, since: start, velocity }
+}
+
+// Season rhythm — the "know the shop's cadence" tool. Turns accumulated season data into the
+// two things Jarvis kept lacking: (1) the real average number of batches made per day, overall
+// and broken out per weekday (so it can say "you average ~4/day, ~6 on Saturdays"), and (2) how
+// each flavor sells on WEEKENDS vs WEEKDAYS (so it knows what moves when). Scoped to the current
+// season by default (since = SEASON_START). Per-day averages divide by the actual number of that
+// kind of day in the window, so a partial season is still accurate.
+export async function getProductionInsights(sb, { since } = {}) {
+  const start = since || SEASON_START
+  const today = todayEastern()
+  const startTs = start + 'T00:00:00'
+
+  const [{ data: batches }, { data: entries }, { data: bucketLogs }, { data: popFlavors }] = await Promise.all([
+    sb.from('batch_logs').select('batch_date, is_wasted, flavors!inner(name, product_type)').gte('batch_date', startTs),
+    sb.from('shift_report_entries').select('trays_sold, flavors!inner(name, product_type), shift_reports!inner(report_date)').gte('shift_reports.report_date', start),
+    sb.from('shelf_bucket_logs').select('flavor_id, barrels_used, logged_at').gte('logged_at', startTs),
+    sb.from('flavors').select('id, name').eq('product_type', 'popcorn'),
+  ])
+
+  const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  const weekdayOf = (dateStr) => new Date(`${(dateStr || '').slice(0, 10)}T12:00:00`).getDay() // 0=Sun … 6=Sat
+  const isWeekend = (dow) => dow === 0 || dow === 6 // Sat/Sun
+
+  // How many of each weekday actually fell in [start, today] — so per-day averages are honest.
+  const weekdayCounts = [0, 0, 0, 0, 0, 0, 0]
+  let calendarDays = 0
+  for (let d = new Date(`${start}T12:00:00`), end = new Date(`${today}T12:00:00`); d <= end; d.setDate(d.getDate() + 1)) {
+    weekdayCounts[d.getDay()]++
+    calendarDays++
+  }
+  const weekendCalDays = weekdayCounts[0] + weekdayCounts[6]
+  const weekdayCalDays = calendarDays - weekendCalDays
+
+  // ── Batches per day (exclude wasted — those aren't production output) ──
+  const madeBatches = (batches || []).filter((b) => !b.is_wasted)
+  const byWeekdayBatches = [0, 0, 0, 0, 0, 0, 0]
+  const activeDaySet = new Set()
+  for (const b of madeBatches) {
+    const day = (b.batch_date || '').slice(0, 10)
+    byWeekdayBatches[weekdayOf(day)]++
+    activeDaySet.add(day)
+  }
+  const totalBatches = madeBatches.length
+  const batchesByWeekday = WD.map((w, i) => ({
+    weekday: w,
+    total: byWeekdayBatches[i],
+    days: weekdayCounts[i],
+    avg_per_day: weekdayCounts[i] ? Number((byWeekdayBatches[i] / weekdayCounts[i]).toFixed(2)) : 0,
+  }))
+
+  // ── Sales weekend vs weekday, per flavor (trays for fudge, barrels for popcorn) ──
+  const sales = {}
+  const bump = (name, unit, dow, amt) => {
+    if (!name || !amt) return
+    const s = sales[name] || (sales[name] = { weekend: 0, weekday: 0, unit })
+    s.unit = unit
+    if (isWeekend(dow)) s.weekend += amt
+    else s.weekday += amt
+  }
+  for (const e of entries || []) {
+    bump(e.flavors?.name, e.flavors?.product_type === 'popcorn' ? 'barrels' : 'trays', weekdayOf(e.shift_reports?.report_date), e.trays_sold ?? 0)
+  }
+  const popById = {}
+  for (const f of popFlavors || []) popById[f.id] = f.name
+  for (const b of bucketLogs || []) bump(popById[b.flavor_id], 'barrels', weekdayOf(b.logged_at), b.barrels_used ?? 0)
+
+  const salesByDaypart = Object.entries(sales)
+    .map(([flavor, s]) => ({
+      flavor,
+      unit: s.unit,
+      weekend_per_day: weekendCalDays ? Number((s.weekend / weekendCalDays).toFixed(2)) : 0,
+      weekday_per_day: weekdayCalDays ? Number((s.weekday / weekdayCalDays).toFixed(2)) : 0,
+      total_sold: Number((s.weekend + s.weekday).toFixed(2)),
+    }))
+    .sort((a, b) => b.total_sold - a.total_sold)
+
+  return {
+    since: start,
+    until: today,
+    calendar_days: calendarDays,
+    batches: {
+      total: totalBatches,
+      active_days: activeDaySet.size,
+      avg_per_active_day: activeDaySet.size ? Number((totalBatches / activeDaySet.size).toFixed(2)) : 0,
+      avg_per_calendar_day: calendarDays ? Number((totalBatches / calendarDays).toFixed(2)) : 0,
+      by_weekday: batchesByWeekday,
+    },
+    weekend_definition: 'Sat & Sun',
+    sales_by_daypart: salesByDaypart,
+  }
 }
 
 export async function getIngredientStock(sb, days = 14) {
@@ -1434,6 +1566,47 @@ export function sanitizeMessages(messages) {
   return out
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// JARVIS PER-DAY CONVERSATION MEMORY (jarvis_conversations)
+// One row per Eastern day: the rendered transcript + the raw API message history. Lets the
+// chat survive a tablet close/refresh, not just an in-session reload. Degrades gracefully to
+// null / no-op if the table isn't there yet (migration add_jarvis_conversations.sql).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function loadDailyConversation(sb, date) {
+  const day = date || todayEastern()
+  const { data, error } = await sb
+    .from('jarvis_conversations')
+    .select('transcript, messages')
+    .eq('convo_date', day)
+    .maybeSingle()
+  if (error || !data) return null
+  const transcript = Array.isArray(data.transcript) ? data.transcript : []
+  const messages = Array.isArray(data.messages) ? data.messages : []
+  if (transcript.length === 0 && messages.length === 0) return null
+  return { transcript, messages }
+}
+
+export async function saveDailyConversation(sb, date, transcript, messages) {
+  const day = date || todayEastern()
+  const { error } = await sb.from('jarvis_conversations').upsert(
+    {
+      convo_date: day,
+      transcript: transcript ?? [],
+      messages: messages ?? [],
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'convo_date' }
+  )
+  return { error: error?.message ?? null }
+}
+
+export async function clearDailyConversation(sb, date) {
+  const day = date || todayEastern()
+  const { error } = await sb.from('jarvis_conversations').delete().eq('convo_date', day)
+  return { error: error?.message ?? null }
+}
+
 // One-line human summary of a write action, for the in-app confirmation dialog.
 export function summarizeToolCall(name, input = {}) {
   const date = input.date || 'today'
@@ -1476,6 +1649,7 @@ export async function runTool(sb, name, input = {}) {
     case 'get_season_outlook': return await getSeasonOutlook(sb, { window: input.window ?? 14, asOf: input.as_of })
     case 'get_season_recap': return await getSeasonRecap(sb, { year: input.year })
     case 'get_sales_velocity': return await getSalesVelocity(sb, input.days ?? 7)
+    case 'get_production_insights': return await getProductionInsights(sb, { since: input.since })
     case 'get_ingredient_stock': return await getIngredientStock(sb, input.days ?? 14)
     case 'get_recent_activity': return await getRecentActivity(sb, input.days ?? 7, input.flavor)
     case 'get_flavors': return await getFlavors(sb)

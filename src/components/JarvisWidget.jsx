@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { useAuth } from '../hooks/useAuth'
-import { runTool, WRITE_TOOLS, summarizeToolCall, sanitizeMessages } from '../utils/jarvisClientTools'
+import { runTool, WRITE_TOOLS, summarizeToolCall, sanitizeMessages, loadDailyConversation, saveDailyConversation, clearDailyConversation } from '../utils/jarvisClientTools'
 import { getDailyTrivia, getRandomTrivia, getTopicTrivia, detectTopic, loadTriviaChoice, saveTriviaChoice, generateTrivia, loadRecentQuestions, pushRecentQuestion } from '../utils/trivia'
 
 // Themed renderer so Jarvis's markdown becomes intentional, professional UI (no raw ** or #).
@@ -91,6 +91,10 @@ function saveConvo(transcript, messages) {
 function clearConvo() {
   try { sessionStorage.removeItem(CONVO_KEY) } catch { /* ignore */ }
 }
+// Today's Eastern date — the key for the DB per-day conversation memory.
+function todayEastern() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+}
 
 export default function JarvisWidget() {
   const { session } = useAuth()
@@ -107,6 +111,7 @@ export default function JarvisWidget() {
   const triviaActiveRef = useRef(false)
   const triviaHistoryRef = useRef([]) // trivia objects shown this session (for reroll + go-back)
   const triviaPosRef = useRef(-1)     // index of the active question within the history
+  const dbSaveTimer = useRef(null)    // debounce handle for mirroring the convo to the DB
 
   const pageCtx = contextFor(location.pathname)
   const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)
@@ -125,14 +130,34 @@ export default function JarvisWidget() {
       setTranscript(convo.transcript.map((m) => (m.role === 'confirm' && m.status === 'pending' ? { ...m, status: 'cancelled' } : m)))
       messagesRef.current = sanitizeMessages(convo.messages)
       if (convo.transcript.some((m) => m.role === 'trivia')) triviaActiveRef.current = true
+    } else {
+      // Nothing in sessionStorage → this is a FRESH session (tablet was closed, browser
+      // dropped the tab, or a different device). Recover today's conversation from the DB so
+      // the day's context isn't forgotten. Skip if the owner already started typing while the
+      // async load was in flight.
+      loadDailyConversation(todayEastern())
+        .then((db) => {
+          if (!db || messagesRef.current.length > 0) return
+          messagesRef.current = sanitizeMessages(db.messages)
+          setTranscript(db.transcript.map((m) => (m.role === 'confirm' && m.status === 'pending' ? { ...m, status: 'cancelled' } : m)))
+          if (db.transcript.some((m) => m.role === 'trivia')) triviaActiveRef.current = true
+        })
+        .catch(() => { /* table may not exist yet — degrade to sessionStorage-only */ })
     }
     const saved = loadTriviaChoice()
     if (saved) { triviaHistoryRef.current = saved.history; triviaPosRef.current = saved.pos }
   }, [])
 
-  // Persist the conversation whenever it changes.
+  // Persist the conversation whenever it changes: sessionStorage immediately (fast, in-session)
+  // + a debounced mirror to the DB (survives a tablet close/refresh, keyed by today's date).
   useEffect(() => {
-    if (transcript.length > 0) saveConvo(transcript, messagesRef.current)
+    if (transcript.length === 0) return
+    saveConvo(transcript, messagesRef.current)
+    if (dbSaveTimer.current) clearTimeout(dbSaveTimer.current)
+    const snapT = transcript
+    dbSaveTimer.current = setTimeout(() => {
+      saveDailyConversation(todayEastern(), snapT, messagesRef.current).catch(() => {})
+    }, 1500)
   }, [transcript])
 
   if (!session) return null // owner-only
@@ -144,7 +169,9 @@ export default function JarvisWidget() {
     setTranscript([])
     messagesRef.current = []
     triviaActiveRef.current = false
+    if (dbSaveTimer.current) clearTimeout(dbSaveTimer.current)
     clearConvo()
+    clearDailyConversation(todayEastern()).catch(() => {}) // also wipe the day's saved memory
   }
 
   // Show a Big Sam's Trivia card. Default = today's question (special-day themed one if it's
@@ -263,7 +290,7 @@ export default function JarvisWidget() {
     rec.start()
   }
 
-  async function callClaude() {
+  async function callClaudeOnce() {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
@@ -271,9 +298,31 @@ export default function JarvisWidget() {
     })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
-      throw new Error(body.error || `Request failed (${res.status})`)
+      const err = new Error(body.error || `Request failed (${res.status})`)
+      err.status = res.status
+      throw err
     }
-    return res.json()
+    return res.json() // { content, stop_reason }
+  }
+
+  // A long "adaptive thinking" turn can occasionally hit a transient timeout/5xx before it
+  // returns. Rather than dumping an error and making the owner retype "continue", auto-retry
+  // once or twice on transient failures (network / 5xx / 429). Client 4xx (bad auth, 400) is
+  // not retried — retrying wouldn't help.
+  async function callClaude() {
+    let lastErr
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await callClaudeOnce()
+      } catch (e) {
+        const s = e?.status
+        const transient = !s || s >= 500 || s === 429
+        if (!transient || attempt === 2) throw e
+        lastErr = e
+        await new Promise((r) => setTimeout(r, 800 * (attempt + 1)))
+      }
+    }
+    throw lastErr
   }
 
   async function send(text) {
@@ -285,13 +334,23 @@ export default function JarvisWidget() {
     setBusy(true)
     try {
       for (let turn = 0; turn < MAX_TURNS; turn++) {
-        const { content } = await callClaude()
+        const { content, stop_reason } = await callClaude()
         messagesRef.current = [...messagesRef.current, { role: 'assistant', content }]
         for (const block of content) {
           if (block.type === 'text' && block.text?.trim()) pushUI('assistant', block.text.trim())
         }
         const toolUses = content.filter((b) => b.type === 'tool_use')
-        if (toolUses.length === 0) break
+        if (toolUses.length === 0) {
+          // If the model ran out of token budget mid-answer (stop_reason 'max_tokens'), keep
+          // going automatically instead of leaving a truncated reply for the owner to nudge
+          // with "continue". We append a plain "continue" turn (not shown as a user bubble)
+          // and loop; MAX_TURNS bounds it so it can't run away.
+          if (stop_reason === 'max_tokens' && turn < MAX_TURNS - 1) {
+            messagesRef.current = [...messagesRef.current, { role: 'user', content: 'continue' }]
+            continue
+          }
+          break
+        }
 
         const toolResults = []
         for (const tu of toolUses) {
@@ -498,6 +557,7 @@ function labelForRead(name) {
     case 'get_low_stock': return 'Checked low stock'
     case 'get_make_recommendations': return 'Worked out what to make'
     case 'get_sales_velocity': return 'Checked sales'
+    case 'get_production_insights': return 'Checked the shop rhythm'
     case 'get_ingredient_stock': return 'Checked ingredients'
     case 'get_recent_activity': return 'Checked recent activity'
     case 'get_season_recap': return 'Added up the season'

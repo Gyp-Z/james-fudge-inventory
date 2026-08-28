@@ -86,6 +86,7 @@ Then turn on the agitator, heat, and alarm.
 - **Chocolate Raspberry (two-pour tray):** make a raspberry batch AND a chocolate batch separately. Raspberry batch = vanilla base with NO vanilla extract; at 220°F add fondant, fondex, salt (1/8 cup), raspberry flavoring (1/6 cup), raspberry food coloring (1/6 cup). Chocolate batch = standard chocolate base. Pour both layers into the tray separately.
 - **Chocolate Peanut Butter (two-pour tray):** make a peanut butter batch AND a chocolate batch separately, pour both layers into the tray separately.
 - **Snickerdoodle:** make a standard vanilla batch (scale 11.92, same as any vanilla). Make a cinnamon sugar mixture on the side — 1 lb sugar + 0.5 lbs cinnamon, mixed together — and add it right before you pour (not during cooking).
+- **Pumpkin Spice (fall flavor — usually only made in the fall):** vanilla base with NO vanilla extract (like Key Lime / Pistachio), same scale as any vanilla, plus a splash of pumpkin spice flavoring (~0.5 oz from the 8 oz bottle — confirm the exact splash at the bottle). Its own batch, no toppings.
 - **Maple Walnut:** uses the brown sugar base (Step 1 variation). At 220°F: fondant, fondex, salt (1/8 cup), vanilla (1/6 cup). Walnuts are added at tray time, not in the pot.
 
 **Step 8 — Pour.** Let the mixture blend with the add-ins in the pot, then pour into trays. For flavors with toppings, add toppings after pouring (see Per-Tray Toppings).

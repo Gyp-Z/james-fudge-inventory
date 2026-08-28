@@ -141,6 +141,18 @@ const FLAVOR_RECIPES = [
       { name: 'Cinnamon', unit: 'lbs', qty: 0.5 },
     ],
   },
+  {
+    // Fall flavor — usually only made in the fall (see FALL_FLAVORS in src/core/ops.js).
+    // Vanilla base with NO vanilla extract + a splash of Pumpkin Spice Flavoring, made as its
+    // own batch (same shape as Key Lime / Pistachio). The flavoring bottle is 8 oz
+    // (container_size 8, container_unit 'oz'); pour is ~0.5 oz/batch ≈ 0.06 bottle — PROVISIONAL,
+    // owner to confirm the exact splash at the bottle. Keep recipe unit 'oz' to match the bottle.
+    flavorName: 'Pumpkin Spice',
+    ingredients: [
+      ...VANILLA_BASE.filter(i => i.name !== 'Vanilla Extract'),
+      { name: 'Pumpkin Spice Flavoring', unit: 'oz', qty: 0.5 },
+    ],
+  },
 
   // ── CHOCOLATE BASE FLAVORS ────────────────────────────────────────────────
   { flavorName: 'Chocolate',           ingredients: CHOCOLATE_BASE },

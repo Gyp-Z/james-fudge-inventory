@@ -9,6 +9,11 @@ import { createClient } from '@supabase/supabase-js'
 import { SYSTEM_PROMPT, TOOL_SCHEMAS, CHANGE_TRIVIA_TOOL } from '../src/core/toolSchemas.js'
 import { sanitizeMessages } from '../src/core/ops.js'
 
+// Give the function room to finish a long "adaptive thinking" turn before Vercel kills it.
+// The default (10s on Hobby) was cutting Jarvis off mid-think, which surfaced as the chat
+// "stopping" and the owner having to type "continue". 60s covers a heavy think + answer.
+export const maxDuration = 60
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' })
@@ -65,7 +70,11 @@ export default async function handler(req, res) {
     const client = new Anthropic({ apiKey })
     const message = await client.messages.create({
       model: 'claude-opus-4-8',
-      max_tokens: 4096,
+      // Thinking tokens count against max_tokens. At 4096 a hard question could burn most of
+      // the budget on the think and truncate the answer (stop_reason 'max_tokens'), which is
+      // why the owner kept having to say "continue". 16000 gives the think + reply real room;
+      // the client also auto-continues if a turn ever still stops on max_tokens.
+      max_tokens: 16000,
       thinking: { type: 'adaptive' },
       system: [
         { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
