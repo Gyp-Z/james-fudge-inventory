@@ -70,9 +70,10 @@ const PHASE_LABEL = {
   closed: { text: 'Season closed', cls: 'bg-store-brown text-white' },
 }
 const VERDICT = {
+  done: { text: 'Done for season', cls: 'bg-store-brown text-white' },
   stop: { text: 'Stop · sell down', cls: 'bg-red-100 text-red-700' },
   coast: { text: 'Coast', cls: 'bg-store-tan text-store-brown' },
-  make_small: { text: 'Top seller · make a little', cls: 'bg-amber-100 text-amber-800' },
+  make_small: { text: 'Make as needed', cls: 'bg-amber-100 text-amber-800' },
 }
 
 function SeasonOutlookPanel() {

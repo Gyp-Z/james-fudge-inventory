@@ -34,19 +34,33 @@ const CARAMEL_TRAYS_PER_APPLE_BATCH = 1 // 1 batch of caramel apples uses 1 full
 export const APPLES_PER_BATCH = 10 // ~10 caramel apples per batch
 const isSSC = (name) => (name ?? '').toLowerCase().includes('sea salt')
 
-// Flavors Lisa (owner's mom, ops) paused in July 2026 — too much hassle to make alongside
-// everything else; letting them run dry lets the other flavors sell faster. Never surfaced
-// in make-recommendations (they can run low/out on purpose). Match by lowercased name.
-const PAUSED_FLAVORS = new Set(['key lime', 'vanilla chocolate chip', 'chocolate rocky road', 'chocolate coconut', 'chocolate raspberry'])
+// ── Season wind-down production policy (Lisa / owner's mom, who runs ops) ────────────
+// Two explicit lists she hands the crew during the Sept closeout. Matched by lowercased name.
+//
+// DONE FOR THE SEASON ("done making") — STOP producing; let existing stock sell down to zero.
+// Never surfaced in make-recommendations (running low/out is intentional). Rolls up the earlier
+// July/Aug pauses PLUS the flavors Lisa cut in Sept 2026 — including Maple Walnut, which is a
+// fall seller but is made 6-trays-at-a-time and still had 6 on hand, so she stopped it early.
+// If a chef wants to make one: remind them it's on the done list; only help if it hit ZERO and
+// Zach cleared it with Lisa. NOTE: this only gates recommendations — logging a batch, base
+// reminders, and ingredient deductions still work normally if one does get made.
+const PAUSED_FLAVORS = new Set([
+  'maple walnut', 'chocolate m&m', "chocolate reese's", 'dirt', 'vanilla marshmallow',
+  'chocolate mint', 'chocolate coconut', 'key lime', 'chocolate rocky road',
+  'chocolate raspberry', 'vanilla chocolate chip',
+])
 const isPaused = (name) => PAUSED_FLAVORS.has((name ?? '').trim().toLowerCase())
 
-// FALL SELLERS — specialty flavors that sell SLOW in summer but pick up in the fall closeout
-// (Sept/Oct). NOT paused: keep them in the rotation. Their recent-14-day summer sell-rate
-// understates true demand, so the wind-down sell-down brain must NOT slap a premature "stop"
-// (waste) verdict on them just because summer velocity looks low — they get "coast" instead.
-// Pumpkin Spice is the pure late-October flavor and is already excluded from the sell-down.
-const FALL_FLAVORS = new Set(['snickerdoodle', 'pistachio', 'pumpkin spice', 'maple walnut'])
-const isFallSeller = (name) => FALL_FLAVORS.has((name ?? '').trim().toLowerCase())
+// MAKE AS NEEDED — these still sell but can get LOW, so keep them in the rotation and make more
+// when they run down. The sell-down brain must NOT slap a premature "stop"/waste verdict on them:
+// they get "coast", or "make_small" (make a little) when they'll run dry before close. Supersedes
+// the old summer "fall seller" concept (Maple Walnut moved to the done list; Snickerdoodle /
+// Pistachio / Pumpkin Spice carry over here alongside Choc Marshmallow, Cookies & Cream, Van M&M).
+const AS_NEEDED_FLAVORS = new Set([
+  'chocolate marshmallow', 'cookies & cream', 'snickerdoodle', 'pistachio',
+  'pumpkin spice', 'vanilla m&m',
+])
+const isAsNeeded = (name) => AS_NEEDED_FLAVORS.has((name ?? '').trim().toLowerCase())
 
 // Phase from a date's month/day (default: today Eastern). Year-agnostic.
 //   preseason → before the season opens (e.g. winter / early spring)
@@ -1038,15 +1052,16 @@ export async function getSeasonOutlook(sb, { window = 14, asOf } = {}) {
     const projectedLeftover = pd > 0 ? Math.max(0, Number((trays - pd * daysLeft).toFixed(1))) : trays
     const sellsOutBeforeClose = pd > 0 ? trays / pd <= daysLeft : false
     const isTop = pd > 0 && pd >= topCutoff
-    const fallSeller = isFallSeller(f.name)
-    // Verdict: stop = will be left over (waste risk) → don't make, push to sell.
-    // make_small = a TOP seller that'll run dry well before close (≥7 days early) → OK to
-    // make occasionally. coast = everything else (let it ride; running dry early is fine).
-    // FALL SELLERS (Snickerdoodle, Pistachio): summer velocity understates them because
-    // demand climbs in the Sept/Oct closeout — never force a "stop"/waste verdict on them
-    // from a slow summer window; they coast (keep in rotation) so they're stocked for fall.
+    const paused = isPaused(f.name)      // mom's DONE list — stop making, sell down what's left
+    const asNeeded = isAsNeeded(f.name)  // mom's AS-NEEDED list — make when low, never stop
+    // Verdict: done = Lisa's done-for-season list (stop producing; sell down). stop = will be
+    // left over (waste risk) → don't make, push to sell. make_small = make a little as it runs
+    // down (an as-needed flavor that'll sell out before close, or a TOP seller running dry ≥7
+    // days early). coast = let it ride (running dry early is fine). AS-NEEDED flavors NEVER get
+    // "stop" — mom wants them kept in rotation even when a slow window over-projects leftovers.
     let verdict
-    if (fallSeller) verdict = 'coast'
+    if (paused) verdict = 'done'
+    else if (asNeeded) verdict = sellsOutBeforeClose ? 'make_small' : 'coast'
     else if (projectedLeftover > 1) verdict = 'stop'
     else if (isTop && daysOfStock != null && daysLeft - daysOfStock >= 7) verdict = 'make_small'
     else verdict = 'coast'
@@ -1061,7 +1076,8 @@ export async function getSeasonOutlook(sb, { window = 14, asOf } = {}) {
       projected_leftover_at_close: projectedLeftover,
       sells_out_before_close: sellsOutBeforeClose,
       is_top_seller: isTop,
-      fall_seller: fallSeller,
+      done: paused,        // on Lisa's done-for-season list — stop making
+      as_needed: asNeeded, // on Lisa's make-as-needed list — keep in rotation, make when low
       verdict,
     })
   }
