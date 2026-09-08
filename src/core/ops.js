@@ -62,6 +62,16 @@ const AS_NEEDED_FLAVORS = new Set([
 ])
 const isAsNeeded = (name) => AS_NEEDED_FLAVORS.has((name ?? '').trim().toLowerCase())
 
+// PRIOR-YEAR PACE REFERENCE — anecdotal, not measured. Zach's mom recalled that around this
+// same date in 2025 the shop had ~140 total fudge trays on the shelf (all flavors combined).
+// This is a single rough data point for perspective on how the season is pacing relative to
+// last year — NOT measured day-by-day history, and NOT used in any deduction or threshold math.
+export const PRIOR_YEAR_REFERENCE = {
+  date: '2025-09-08',
+  total_fudge_trays: 140,
+  note: "Zach's mom recalled the shop had roughly 140 total fudge trays on the shelf (all flavors combined) around this date last year (2025) — a rough pace/perspective benchmark, not measured data.",
+}
+
 // Phase from a date's month/day (default: today Eastern). Year-agnostic.
 //   preseason → before the season opens (e.g. winter / early spring)
 //   peak      → open through the day before fudge wind-down
@@ -1083,6 +1093,18 @@ export async function getSeasonOutlook(sb, { window = 14, asOf } = {}) {
   }
   fudgeItems.sort((a, b) => b.projected_leftover_at_close - a.projected_leftover_at_close)
 
+  // Perspective only — compare today's real total fudge trays against mom's ~140-tray
+  // recollection from around this date last year. Purely informational (see
+  // PRIOR_YEAR_REFERENCE above); never feeds the verdict/leftover math above.
+  const totalFudgeTraysNow = Number(fudgeItems.reduce((s, i) => s + (i.trays ?? 0), 0).toFixed(1))
+  const priorYearReference = {
+    ...PRIOR_YEAR_REFERENCE,
+    total_fudge_trays_now: totalFudgeTraysNow,
+    pct_change: PRIOR_YEAR_REFERENCE.total_fudge_trays
+      ? Number((((totalFudgeTraysNow - PRIOR_YEAR_REFERENCE.total_fudge_trays) / PRIOR_YEAR_REFERENCE.total_fudge_trays) * 100).toFixed(0))
+      : null,
+  }
+
   const popcorn = flavors
     .filter((f) => f.product_type === 'popcorn' && !f.is_component)
     .map((f) => ({ flavor: f.name, barrels: invMap[f.id]?.barrel_count ?? 0, per_day_sold: perDay[f.name] ?? 0 }))
@@ -1098,6 +1120,8 @@ export async function getSeasonOutlook(sb, { window = 14, asOf } = {}) {
     fudge: fudgeItems,
     // Popcorn is made fresh to demand right up to close — never part of the sell-down.
     popcorn: { make_fresh_to_demand: true, items: popcorn },
+    // Anecdotal pace comparison — see PRIOR_YEAR_REFERENCE.
+    prior_year_reference: priorYearReference,
   }
 }
 

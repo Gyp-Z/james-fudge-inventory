@@ -105,6 +105,16 @@ function SeasonOutlookPanel() {
         </div>
       </div>
 
+      {outlook.prior_year_reference && (
+        <p className="px-4 pb-3 text-xs text-store-brown-light">
+          Pace check: ~{outlook.prior_year_reference.total_fudge_trays} total fudge trays on the shelf around this date last year (mom's recollection, not exact) vs{' '}
+          <span className="font-semibold text-store-brown">{outlook.prior_year_reference.total_fudge_trays_now}</span> today
+          {outlook.prior_year_reference.pct_change != null && (
+            <> ({outlook.prior_year_reference.pct_change > 0 ? '+' : ''}{outlook.prior_year_reference.pct_change}%)</>
+          )}.
+        </p>
+      )}
+
       <button onClick={() => setOpen(o => !o)} className="w-full text-left px-4 py-2 text-xs font-semibold text-store-green hover:bg-store-cream border-t border-store-tan transition-colors">
         {open ? '▲ Hide per-flavor sell-down' : '▼ Show per-flavor sell-down'}
       </button>
@@ -170,54 +180,76 @@ export default function Analytics() {
   const [selectedFlavors, setSelectedFlavors] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    async function load() {
-      const [
-        { data: reportData },
-        { data: flavorData },
-        batchData,
-        bucketData,
-        { data: invData },
-        { data: handwrapData },
-        { data: fudgePopData },
-        { data: caramelAppleData },
-      ] = await Promise.all([
-        supabase
-          .from('shift_reports')
-          .select(`id, report_date, created_at, shift_report_entries(
-            flavor_id, full_trays, trays_sold, trays_wasted, in_progress_wasted, waste_reason, flavors(name)
-          )`)
-          .order('created_at'),
-        supabase
-          .from('flavors')
-          .select('id, name, product_type, tracks_shelf_buckets, is_component, default_yield')
-          .eq('is_active', true)
-          .order('name'),
-        fetchAllRows(() => supabase.from('batch_logs').select('*').order('id', { ascending: true })),
-        fetchAllRows(() => supabase
-          .from('shelf_bucket_logs')
-          .select('flavor_id, barrels_added, barrels_used, logged_at')
-          .order('id', { ascending: true })),
-        supabase.from('current_inventory').select('flavor_id, tray_count, barrel_count'),
-        supabase.from('caramel_handwrap_logs').select('trays_used, report_date').order('report_date'),
-        supabase.from('fudge_pop_logs').select('base, pop_count, report_date').order('report_date'),
-        supabase.from('caramel_apple_logs').select('apple_count, report_date').order('report_date'),
-      ])
-      const { data: allFlavorsData } = await supabase
+  // Loads everything fresh from the DB. Called on mount, and again whenever the tab regains
+  // focus/visibility or Jarvis confirms a write — otherwise a tablet/browser tab left open
+  // across a shift (or days) keeps showing whatever was on the shelf at the last page load,
+  // silently missing everything reported since (e.g. "yesterday" not showing up).
+  async function load() {
+    const [
+      { data: reportData },
+      { data: flavorData },
+      batchData,
+      bucketData,
+      { data: invData },
+      { data: handwrapData },
+      { data: fudgePopData },
+      { data: caramelAppleData },
+    ] = await Promise.all([
+      supabase
+        .from('shift_reports')
+        .select(`id, report_date, created_at, shift_report_entries(
+          flavor_id, full_trays, trays_sold, trays_wasted, in_progress_wasted, waste_reason, flavors(name)
+        )`)
+        .order('created_at'),
+      supabase
         .from('flavors')
-        .select('id, name, default_yield, is_component')
-      setAllFlavorsList(allFlavorsData || [])
-      setReports(reportData || [])
-      setFlavors(flavorData || [])
-      setBatchLogs(batchData || [])
-      setBucketLogs(bucketData || [])
-      setCurrentInventory(invData || [])
-      setHandwrapLogs(handwrapData || [])
-      setFudgePopLogs(fudgePopData || [])
-      setCaramelAppleLogs(caramelAppleData || [])
-      setLoading(false)
-    }
+        .select('id, name, product_type, tracks_shelf_buckets, is_component, default_yield')
+        .eq('is_active', true)
+        .order('name'),
+      fetchAllRows(() => supabase.from('batch_logs').select('*').order('id', { ascending: true })),
+      fetchAllRows(() => supabase
+        .from('shelf_bucket_logs')
+        .select('flavor_id, barrels_added, barrels_used, logged_at')
+        .order('id', { ascending: true })),
+      supabase.from('current_inventory').select('flavor_id, tray_count, barrel_count'),
+      supabase.from('caramel_handwrap_logs').select('trays_used, report_date').order('report_date'),
+      supabase.from('fudge_pop_logs').select('base, pop_count, report_date').order('report_date'),
+      supabase.from('caramel_apple_logs').select('apple_count, report_date').order('report_date'),
+    ])
+    const { data: allFlavorsData } = await supabase
+      .from('flavors')
+      .select('id, name, default_yield, is_component')
+    setAllFlavorsList(allFlavorsData || [])
+    setReports(reportData || [])
+    setFlavors(flavorData || [])
+    setBatchLogs(batchData || [])
+    setBucketLogs(bucketData || [])
+    setCurrentInventory(invData || [])
+    setHandwrapLogs(handwrapData || [])
+    setFudgePopLogs(fudgePopData || [])
+    setCaramelAppleLogs(caramelAppleData || [])
+    setLoading(false)
+  }
+
+  useEffect(() => {
     load()
+  }, [])
+
+  // Refetch on tab focus/visibility so a tablet or browser tab left open across a shift (or
+  // days) doesn't keep showing stale numbers — and on Jarvis confirming a write, matching the
+  // ShiftReport 'jarvis-applied' pattern.
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === 'visible') load()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', load)
+    window.addEventListener('jarvis-applied', load)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', load)
+      window.removeEventListener('jarvis-applied', load)
+    }
   }, [])
 
   // ── Flavor lists ──────────────────────────────────────────────────────────
