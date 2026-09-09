@@ -73,12 +73,19 @@ const VERDICT = {
   done: { text: 'Done for season', cls: 'bg-store-brown text-white' },
   stop: { text: 'Stop · sell down', cls: 'bg-red-100 text-red-700' },
   coast: { text: 'Coast', cls: 'bg-store-tan text-store-brown' },
-  make_small: { text: 'Make — urgent', cls: 'bg-amber-100 text-amber-800' },
+  make_small: { text: 'Worth making', cls: 'bg-amber-100 text-amber-800' },
+}
+const DAYS_LEFT_LABEL = (days) => {
+  if (days == null) return 'no recent sales'
+  const whole = Math.round(days)
+  if (whole <= 0) return 'already out'
+  if (whole === 1) return '~1 day left'
+  return `~${whole} days left`
 }
 
 function SeasonOutlookPanel() {
   const [outlook, setOutlook] = useState(null)
-  const [open, setOpen] = useState(false)
+  const [showAll, setShowAll] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -89,7 +96,18 @@ function SeasonOutlookPanel() {
   if (!outlook) return null
   const phase = PHASE_LABEL[outlook.phase] || PHASE_LABEL.peak
   const leftover = outlook.total_projected_leftover_trays
-  const leftoverCls = leftover > 0 ? 'text-red-600' : 'text-store-green'
+  const onTrack = leftover <= 0
+
+  // "make_small" bundles two very different situations — a flavor genuinely about to run
+  // out (act this week) and a proven top seller that has weeks of runway but is worth a
+  // top-up before close. Splitting them by real days-of-stock-left is what actually makes
+  // this actionable at a glance, instead of one "urgent" badge on both a 1-tray flavor and
+  // a 42-tray one.
+  const makeList = outlook.fudge
+    .filter(r => r.verdict === 'make_small')
+    .map(r => ({ ...r, soon: r.days_of_stock_left != null && r.days_of_stock_left <= 7 }))
+    .sort((a, b) => (a.days_of_stock_left ?? 999) - (b.days_of_stock_left ?? 999))
+  const restCount = outlook.fudge.length - makeList.length
 
   return (
     <div className="bg-white border border-store-tan rounded-xl shadow-sm overflow-hidden">
@@ -100,36 +118,49 @@ function SeasonOutlookPanel() {
           <span className="text-xs text-store-brown-light">{outlook.days_until_close} days to close ({formatDate(outlook.season_end)})</span>
         </div>
         <div className="text-right">
-          <p className={`text-2xl font-bold ${leftoverCls}`}>{leftover}</p>
-          <p className="text-xs text-store-brown-light">projected leftover fudge trays at close</p>
+          <p className={`text-sm font-bold ${onTrack ? 'text-store-green' : 'text-red-600'}`}>
+            {onTrack ? 'On track ✓' : `${leftover} trays likely unsold`}
+          </p>
+          <p className="text-xs text-store-brown-light">waste forecast at close</p>
         </div>
       </div>
 
-      {outlook.prior_year_reference && (
-        <div className="px-4 pb-3 space-y-1">
-          <p className="text-xs text-store-brown-light">
-            Pace check: ~{outlook.prior_year_reference.total_fudge_trays} total fudge trays on the shelf around this date last year (mom's recollection, not exact) vs{' '}
-            <span className="font-semibold text-store-brown">{outlook.prior_year_reference.total_fudge_trays_now}</span> today
-            {outlook.prior_year_reference.pct_change != null && (
-              <> ({outlook.prior_year_reference.pct_change > 0 ? '+' : ''}{outlook.prior_year_reference.pct_change}%)</>
-            )}.
+      {/* ── WHAT TO MAKE — the one thing worth reading here ─────────────── */}
+      <div className="px-4 pb-4 pt-1 space-y-2">
+        <h4 className="text-sm font-bold text-store-brown">What to make</h4>
+        {makeList.length === 0 ? (
+          <p className="text-sm text-store-brown-light">Nothing urgent right now — let everything else coast to close.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {makeList.map(r => (
+              <li key={r.flavor} className="flex items-center justify-between gap-3 text-sm border border-store-tan/70 rounded-lg px-3 py-2">
+                <span className="font-medium text-store-brown">{r.flavor}</span>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${r.soon ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}>
+                  {r.soon ? `Make soon — ${DAYS_LEFT_LABEL(r.days_of_stock_left)}` : `Top up when convenient — ${DAYS_LEFT_LABEL(r.days_of_stock_left)}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {restCount > 0 && (
+          <p className="text-xs text-store-brown-light pt-1">
+            The other {restCount} fudge flavor{restCount === 1 ? '' : 's'} {restCount === 1 ? "doesn't" : "don't"} need any action — either coasting fine or already done for the season.
+            {outlook.pace?.overstocked_vs_last_year && ' (We\'re carrying more stock than this time last year, so this list is kept short on purpose.)'}
           </p>
-          {outlook.pace?.overstocked_vs_last_year && (
-            <p className="text-xs font-medium text-amber-700">
-              We're carrying meaningfully more stock than this point last year, so "Make — urgent" below is tightened to only the top ~{Math.round(outlook.pace.make_small_top_pct * 100)}% of sellers with a {outlook.pace.make_small_margin_days}+ day safety margin — most fudge should not be made right now.
-            </p>
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
-      <button onClick={() => setOpen(o => !o)} className="w-full text-left px-4 py-2 text-xs font-semibold text-store-green hover:bg-store-cream border-t border-store-tan transition-colors">
-        {open ? '▲ Hide per-flavor sell-down' : '▼ Show per-flavor sell-down'}
+      <button onClick={() => setShowAll(o => !o)} className="w-full text-left px-4 py-2 text-xs font-semibold text-store-green hover:bg-store-cream border-t border-store-tan transition-colors">
+        {showAll ? '▲ Hide full flavor-by-flavor breakdown' : '▼ Show full flavor-by-flavor breakdown'}
       </button>
 
-      {open && (
+      {showAll && (
         <div className="px-4 pb-4 pt-1 space-y-4 border-t border-store-tan bg-store-cream/40">
           <p className="text-xs text-store-brown-light pt-2">
-            Based on the last {outlook.window_days} days of real sales — not the low-stock thresholds. The goal is to end the season near zero leftover fudge, so flavors marked <span className="font-semibold text-red-700">Stop</span> already have enough to last; sell them down rather than making more. Slow flavors running dry a little early is fine.
+            Based on the last {outlook.window_days} days of real sales — not the low-stock thresholds. Flavors marked <span className="font-semibold text-red-700">Stop</span> already have enough to last; sell them down rather than making more. Slow flavors running dry a little early is fine — that's the goal.
+            {outlook.prior_year_reference && (
+              <> Pace check: ~{outlook.prior_year_reference.total_fudge_trays} total fudge trays on the shelf around this date last year vs {outlook.prior_year_reference.total_fudge_trays_now} today ({outlook.prior_year_reference.pct_change > 0 ? '+' : ''}{outlook.prior_year_reference.pct_change}%).</>
+            )}
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
