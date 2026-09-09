@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useFlavors } from '../hooks/useFlavors'
-import { seasonPhase, getSeasonOutlook, getSeasonSoldTotals, bySoldDesc, fetchAllRows, submitStaffFeedback } from '../core/ops.js'
+import { seasonPhase, syncWindDownThresholds, getSeasonSoldTotals, bySoldDesc, fetchAllRows, submitStaffFeedback } from '../core/ops.js'
 
 export default function Dashboard() {
-  const { flavors, loading: flavorsLoading } = useFlavors()
+  const { flavors, loading: flavorsLoading, reload: reloadFlavors } = useFlavors()
   const [entries, setEntries] = useState({})
   const [reportFound, setReportFound] = useState(null)
   const [ingredients, setIngredients] = useState([])
@@ -16,20 +16,31 @@ export default function Dashboard() {
   const [feedbackText, setFeedbackText] = useState('')
   const [feedbackName, setFeedbackName] = useState('')
   const [feedbackStatus, setFeedbackStatus] = useState('idle') // idle | sending | sent | error
-  const [urgentFudge, setUrgentFudge] = useState(null) // wind-down only: Set of flavor names worth making (see below)
+  const [thresholdsSynced, setThresholdsSynced] = useState(false)
 
-  // In wind-down, low_tray_threshold is peak-season numbers and stops being the right signal
-  // for "should we make this" (see Analytics Season Outlook / get_season_outlook) — sitting
-  // under threshold is EXPECTED that late. Pull the same pace-aware verdict Jarvis/Analytics
-  // use so the Dashboard's "Make Soon" bucket doesn't contradict them. Peak season is
-  // untouched (urgentFudge stays null, so the threshold path below still runs).
+  // In wind-down, low_tray_threshold stops being a reliable number on its own (see Analytics
+  // Season Outlook / get_season_outlook) — sitting under a peak-season threshold is EXPECTED
+  // that late. This WRITES low_tray_threshold to match today's real urgency (same fn as
+  // Jarvis's sync_alert_thresholds tool) BEFORE the page is considered loaded, then reloads
+  // flavors so what renders is the just-synced numbers — never a stale pre-sync value. From
+  // here the page uses the exact same plain `count <= threshold` check everywhere (peak season
+  // included, where this effect is a no-op) — ONE piece of logic, no separate "is it really
+  // urgent" branch layered on top that could show one answer and then flip to another. The
+  // owner's real peak-season numbers are snapshotted first and restored untouched once the
+  // season is back to peak (see syncWindDownThresholds) — nothing is lost, and peak-season
+  // behavior is completely unchanged from prior seasons.
   useEffect(() => {
-    const phase = seasonPhase()
-    if (phase !== 'winddown' && phase !== 'closed') return
-    getSeasonOutlook(supabase, {})
-      .then((o) => setUrgentFudge(new Set(o.fudge.filter((f) => f.verdict === 'make_small').map((f) => f.flavor))))
-      .catch(() => {})
-  }, [])
+    async function init() {
+      const phase = seasonPhase()
+      if (phase !== 'winddown' && phase !== 'closed') { setThresholdsSynced(true); return }
+      try {
+        await syncWindDownThresholds(supabase)
+        await reloadFlavors()
+      } catch { /* fall through to synced=true below with whatever flavors already had */ }
+      setThresholdsSynced(true)
+    }
+    init()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     getSeasonSoldTotals(supabase).then(setSoldMap).catch(() => {})
@@ -175,7 +186,7 @@ export default function Dashboard() {
   }, [])
 
 
-  const loading = flavorsLoading || reportFound === null
+  const loading = flavorsLoading || reportFound === null || !thresholdsSynced
   if (loading) return <p className="text-store-brown-light text-center py-12">Loading...</p>
 
   // Best-seller-first (season-to-date trays sold) — same order as the Shift Report lists.
@@ -184,10 +195,10 @@ export default function Dashboard() {
   const componentFlavors = flavors.filter(f => f.is_component === true)
   const popcornFlavors = flavors.filter(f => f.product_type === 'popcorn').sort(bySoldDesc(soldMap))
 
-  // urgentFudge (wind-down only) replaces the raw threshold check — see the effect above.
-  const fudgeNeedsMaking = (f) => urgentFudge ? urgentFudge.has(f.name) : (entries[f.id]?.full_trays ?? 0) <= (f.low_tray_threshold ?? 2)
-  const needsMaking = fudgeFlavors.filter(fudgeNeedsMaking)
-  const stockedFlavors = fudgeFlavors.filter((f) => !fudgeNeedsMaking(f))
+  // Plain threshold check, same as Admin — the wind-down effect above already made sure
+  // low_tray_threshold itself reflects today's real urgency before we got here.
+  const needsMaking = fudgeFlavors.filter((f) => (entries[f.id]?.full_trays ?? 0) <= (f.low_tray_threshold ?? 2))
+  const stockedFlavors = fudgeFlavors.filter((f) => (entries[f.id]?.full_trays ?? 0) > (f.low_tray_threshold ?? 2))
 
   const lowPopcorn = popcornFlavors.filter((f) => (entries[f.id]?.barrel_count ?? 0) <= (f.low_tray_threshold ?? 1))
   const stockedPopcorn = popcornFlavors.filter((f) => (entries[f.id]?.barrel_count ?? 0) > (f.low_tray_threshold ?? 1))
@@ -206,10 +217,7 @@ export default function Dashboard() {
     const inProgress = entry?.in_progress_trays ?? 0
     const threshold = flavor.low_tray_threshold ?? 2
     const isOut = fullTrays === 0
-    // Caramel (a component, not in the fudge sell-down model) always uses the raw threshold;
-    // fudge follows the same wind-down override as the section grouping above, so a pill
-    // never contradicts which bucket it's sitting in.
-    const isLow = !isOut && (urgentFudge && !flavor.is_component ? urgentFudge.has(flavor.name) : fullTrays <= threshold)
+    const isLow = !isOut && fullTrays <= threshold
 
     const pillClass = isOut
       ? 'bg-red-50 border-red-300 text-red-700'

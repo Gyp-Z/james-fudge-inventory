@@ -1150,6 +1150,96 @@ export async function getSeasonOutlook(sb, { window = 14, asOf } = {}) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// WIND-DOWN ALERT SYNC — the ONE place low_tray_threshold is ever auto-written, and only
+// for fudge, and only in winddown/closed. Owner-requested (Sept 2026): rather than every
+// consumer of low_tray_threshold (Dashboard, Admin, get_low_stock, MCP...) needing its own
+// wind-down special-case to agree with getSeasonOutlook, this makes low_tray_threshold ITSELF
+// carry the answer — write it once, every reader is automatically correct.
+//
+// flavors.peak_low_tray_threshold is the safety net: the owner's real, season-tuned peak
+// number, snapshotted the FIRST time this runs each wind-down (never overwritten again until
+// restored), so it comes back untouched — including any Admin edits made during THIS peak —
+// the moment the app sees 'peak'/'preseason' again next year. Idempotent either direction:
+// safe to call many times a day, or many times in peak after a restore (a no-op once restored).
+//
+// EXCEPTION — base flavors (is_base_trigger: Vanilla, Chocolate, Peanut Butter) AND any other
+// real top seller (peak_low_tray_threshold >= 3 — the "strong seller" tier, e.g. Chocolate
+// Peanut Butter, both Sea Salt Caramels, Cookies & Cream) never get zeroed while their verdict
+// is 'coast': bases feed other flavors and must never run low, and a genuine top seller
+// running a bit low earlier than the sales-window projection expected still deserves a live
+// nudge rather than silence. Only 'stop' (explicitly overstocked, expect leftover) and 'done'
+// (paused) get zeroed regardless of tier — that's the group we actually WANT to run to zero
+// with no nagging. A genuine make_small verdict always overrides to "flag at current stock,"
+// tier or not.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function syncWindDownThresholds(sb) {
+  const phase = seasonPhase()
+
+  if (phase === 'peak' || phase === 'preseason') {
+    const { data: toRestore } = await sb
+      .from('flavors')
+      .select('id, low_tray_threshold, peak_low_tray_threshold')
+      .not('peak_low_tray_threshold', 'is', null)
+    if (!toRestore || toRestore.length === 0) return { action: 'none', phase, restored: 0 }
+    await Promise.all(toRestore.map((f) =>
+      sb.from('flavors').update({ low_tray_threshold: f.peak_low_tray_threshold, peak_low_tray_threshold: null }).eq('id', f.id)
+    ))
+    return { action: 'restored', phase, restored: toRestore.length }
+  }
+
+  if (phase !== 'winddown' && phase !== 'closed') return { action: 'none', phase, synced: 0 }
+
+  const [outlook, { data: allFlavorRows }] = await Promise.all([
+    getSeasonOutlook(sb, {}),
+    sb.from('flavors').select('id, name, product_type, is_component, is_base_trigger, low_tray_threshold, peak_low_tray_threshold')
+      .eq('is_active', true),
+  ])
+  // Filtered in JS (not SQL) to match how is_component is treated everywhere else in this
+  // file — it can be null on older rows, and `!f.is_component` is the established check.
+  const flavorRows = (allFlavorRows || []).filter((f) => f.product_type === 'fudge' && !f.is_component)
+  const verdictByName = {}
+  const traysByName = {}
+  for (const item of outlook.fudge) { verdictByName[item.flavor] = item.verdict; traysByName[item.flavor] = item.trays }
+
+  const urgent = []
+  const captured = []
+  const writes = []
+  for (const f of flavorRows || []) {
+    const verdict = verdictByName[f.name] // undefined for pumpkin spice etc., excluded from the outlook — leave threshold alone
+    if (!verdict) continue
+    const peakSnapshot = f.peak_low_tray_threshold != null ? f.peak_low_tray_threshold : f.low_tray_threshold
+    if (f.peak_low_tray_threshold == null) captured.push(f.name)
+    // make_small ("worth making") flags the flavor's CURRENT stock as low so it surfaces as
+    // urgent right now; everything else gets 0 so it stops nagging — expected/fine for a
+    // coasting SPECIALTY flavor to run all the way to zero this late in the season.
+    // Vanilla/Chocolate/Peanut Butter (is_base_trigger) are the one exception: they feed
+    // other flavors and this app's own rule is they must NEVER run low, wind-down included
+    // — zeroing their alert would remove the safety net exactly when a base running out
+    // would block other production. So a coasting base keeps its real peak-season threshold
+    // instead of going to 0; it only gets the "current stock" treatment when it's genuinely
+    // make_small (still eligible to be flagged urgent like anything else).
+    //
+    // Same logic extends to any other real TOP seller (peak threshold >= 3 — the "strong
+    // seller" tier from the peak curation, e.g. Chocolate Peanut Butter, both Sea Salt
+    // Caramels, Cookies & Cream), but only while verdict is 'coast' (roughly balanced, not
+    // currently flagged either way) — a top seller running a bit low earlier than the sales
+    // projection expected still deserves a live nudge instead of silence. 'stop' (explicitly
+    // overstocked — expect leftover) and 'done' (paused) are the group we actually WANT to
+    // run to zero with no nagging, regardless of tier.
+    const keepsSafetyNet = f.is_base_trigger || peakSnapshot >= 3
+    const newThreshold = verdict === 'make_small'
+      ? Math.max(traysByName[f.name] ?? 0, 0)
+      : (verdict === 'coast' && keepsSafetyNet ? peakSnapshot : 0)
+    if (verdict === 'make_small') urgent.push(f.name)
+    writes.push({ id: f.id, low_tray_threshold: newThreshold, peak_low_tray_threshold: peakSnapshot })
+  }
+  await Promise.all(writes.map((w) =>
+    sb.from('flavors').update({ low_tray_threshold: w.low_tray_threshold, peak_low_tray_threshold: w.peak_low_tray_threshold }).eq('id', w.id)
+  ))
+  return { action: 'synced', phase, synced: writes.length, urgent, captured_peak_for: captured }
+}
+
 export async function getIngredients(sb) {
   const { data } = await sb.from('ingredients').select('name, unit, quantity, low_stock_threshold').eq('is_active', true).order('name')
   return { ingredients: data || [] }
@@ -1591,7 +1681,7 @@ async function resolveIngredient(sb, name) {
   return fuzzy && fuzzy.length === 1 ? fuzzy[0] : null
 }
 
-export const WRITE_TOOLS = new Set(['log_batch', 'add_product_entry', 'add_popcorn_entry', 'set_inventory_count', 'set_ingredient_quantity', 'log_fudge_pops', 'log_caramel_apples', 'move_batches', 'remove_batches', 'submit_staff_feedback', 'resolve_staff_feedback'])
+export const WRITE_TOOLS = new Set(['log_batch', 'add_product_entry', 'add_popcorn_entry', 'set_inventory_count', 'set_ingredient_quantity', 'log_fudge_pops', 'log_caramel_apples', 'move_batches', 'remove_batches', 'submit_staff_feedback', 'resolve_staff_feedback', 'sync_alert_thresholds'])
 
 // Repair a conversation so every assistant `tool_use` block is answered by a matching
 // `tool_result` in the very next message. If a tool throws or the page closes mid-loop, the
@@ -1752,6 +1842,8 @@ export function summarizeToolCall(name, input = {}) {
       return { title: 'Send feedback to Zach?', message: `"${input.message}"${input.submitted_by ? ` — ${input.submitted_by}` : ''}` }
     case 'resolve_staff_feedback':
       return { title: 'Mark feedback resolved?', message: `Mark feedback item resolved.` }
+    case 'sync_alert_thresholds':
+      return { title: 'Sync alert thresholds?', message: 'Update fudge low-stock alerts to today\'s real wind-down urgency (or restore peak-season numbers if the season has reopened). Peak-season thresholds are preserved and never lost.' }
     default:
       return { title: 'Confirm action?', message: name }
   }
@@ -1911,6 +2003,13 @@ export async function runTool(sb, name, input = {}) {
       const r = await resolveStaffFeedback(sb, input.id)
       if (!r.ok) return { error: r.error || 'Failed to resolve feedback.' }
       return { ok: true, message: 'Feedback marked resolved.' }
+    }
+
+    case 'sync_alert_thresholds': {
+      const r = await syncWindDownThresholds(sb)
+      if (r.action === 'restored') return { ok: true, message: `Season is back in ${r.phase} — restored ${r.restored} flavor(s) to their real peak-season thresholds.` }
+      if (r.action === 'synced') return { ok: true, message: `Synced ${r.synced} fudge flavor(s) to today's wind-down urgency. Worth making: ${r.urgent.length ? r.urgent.join(', ') : 'nothing right now'}.`, ...r }
+      return { ok: true, message: `Nothing to sync (season phase: ${r.phase}).` }
     }
 
     default:

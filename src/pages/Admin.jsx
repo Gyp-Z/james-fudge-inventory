@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { seasonPhase, syncWindDownThresholds } from '../core/ops.js'
 
 export default function Admin() {
   const [flavors, setFlavors] = useState([])
@@ -47,9 +48,19 @@ export default function Admin() {
   }
 
   useEffect(() => {
-    loadFlavors()
-    loadInventory()
-    loadRecipes()
+    async function init() {
+      // Same wind-down sync Dashboard runs, done here too so Admin's "Alert at N" / Low badge
+      // never shows a stale pre-sync threshold — run it (if applicable) BEFORE the first
+      // flavors fetch, so the very first render already has today's real numbers.
+      const phase = seasonPhase()
+      if (phase === 'winddown' || phase === 'closed') {
+        await syncWindDownThresholds(supabase).catch(() => {})
+      }
+      await loadFlavors()
+      loadInventory()
+      loadRecipes()
+    }
+    init()
   }, [])
 
   async function handleAdd(e) {
@@ -328,12 +339,19 @@ function FlavorRow({ f, count, recipe, editingThresholdId, editThreshold, setEdi
               <button onClick={() => { setEditingThresholdId(null); setEditThreshold('') }} className="text-xs text-store-brown-light hover:text-store-brown px-2 py-1 rounded-lg transition-colors">Cancel</button>
             </div>
           ) : (
-            <button
-              onClick={() => { setEditingThresholdId(f.id); setEditThreshold(String(threshold)) }}
-              className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
-            >
-              Alert at {threshold} {units}
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => { setEditingThresholdId(f.id); setEditThreshold(String(threshold)) }}
+                className="text-xs text-store-brown-light hover:text-store-green px-2 py-1 rounded-lg hover:bg-store-green-light transition-colors"
+              >
+                Alert at {threshold} {units}
+              </button>
+              {f.peak_low_tray_threshold != null && (
+                <span title="Auto-adjusted for wind-down — your peak-season number is saved and comes back untouched next season." className="text-[10px] text-store-brown-light bg-store-cream px-1.5 py-0.5 rounded-full border border-store-tan">
+                  peak was {f.peak_low_tray_threshold}
+                </span>
+              )}
+            </div>
           )}
           {recipe.length > 0 && (
             <button
