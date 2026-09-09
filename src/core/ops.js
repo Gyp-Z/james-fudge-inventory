@@ -875,11 +875,19 @@ export async function getMakeRecommendations(sb, { days = 14, horizon = 2 } = {}
 
   // Season phase decides whether thresholds drive fudge (peak) or we sell down to ~zero
   // by close (wind-down). In wind-down thresholds are NOT consulted for fudge — we only
-  // surface fudge that will actually run dry before close. Popcorn is unaffected (made
-  // fresh to demand all season).
+  // surface fudge that's genuinely URGENT (see getSeasonOutlook's pace-aware "make_small"
+  // verdict — the single source of truth for "should we make this fudge" late in the season,
+  // so this list and the Analytics Season Outlook panel never disagree). Popcorn is unaffected
+  // (made fresh to demand all season).
   const phase = seasonPhase(todayStr)
   const sellDown = phase === 'winddown' || phase === 'closed'
   const daysToClose = Math.max(0, daysUntilClose(todayStr))
+  let windDownVerdicts = null
+  if (sellDown) {
+    const outlook = await getSeasonOutlook(sb, { window: days, asOf: todayStr })
+    windDownVerdicts = {}
+    outlook.fudge.forEach((item) => { windDownVerdicts[item.flavor] = item.verdict })
+  }
 
   const recs = []
   for (const f of flavors) {
@@ -897,8 +905,8 @@ export async function getMakeRecommendations(sb, { days = 14, horizon = 2 } = {}
     const sellsOutBeforeClose = pd > 0 ? count / pd <= daysToClose : false
     let include
     if (sellDown && !isPop) {
-      // Wind-down fudge: ignore threshold; only flavors that genuinely run dry before close.
-      include = sellsOutBeforeClose
+      // Wind-down fudge: ignore threshold; only genuinely urgent flavors (pace-aware verdict).
+      include = windDownVerdicts[f.name] === 'make_small'
     } else {
       include = below || (daysLeft != null && daysLeft <= horizon) || popcornFill
     }
@@ -958,7 +966,7 @@ export async function getMakeRecommendations(sb, { days = 14, horizon = 2 } = {}
     // 'restock' = peak (thresholds drive fudge). 'selldown' = wind-down: fudge thresholds
     // are off, sell existing stock to ~zero by close; only top sellers worth occasional makes.
     mode: sellDown ? 'selldown' : 'restock',
-    ...(sellDown ? { winddown_note: 'Wind-down: thresholds no longer drive fudge. Use get_season_outlook for the sell-down plan (projected leftovers at close). Fudge listed here will actually run dry before close. Keep making popcorn fresh to demand.' } : {}),
+    ...(sellDown ? { winddown_note: 'Wind-down: thresholds no longer drive fudge. Fudge listed here is genuinely URGENT — the pace-aware verdict from get_season_outlook ("make_small"), tightened further when we\'re carrying more stock than the same point last year (see its "pace"/"prior_year_reference" fields). Most fudge should NOT be made right now; call get_season_outlook for the full sell-down picture. Keep making popcorn fresh to demand.' } : {}),
     recommendations: recs,
   }
 }
@@ -1005,10 +1013,23 @@ export async function getSeasonOutlook(sb, { window = 14, asOf } = {}) {
   const isPumpkin = (name) => (name ?? '').toLowerCase().includes('pumpkin')
   const fudge = flavors.filter((f) => f.product_type === 'fudge' && !f.is_component && !isPumpkin(f.name))
 
-  // Top tier = the ~top 30% of fudge by recent sell-rate — the only flavors still worth
-  // producing in wind-down. Everything below coasts/sells down.
+  // PACE CHECK — are we carrying more total fudge stock than the same point last year (mom's
+  // ~140-tray recollection, see PRIOR_YEAR_REFERENCE)? If so, that's real evidence sell-through
+  // is slower this season, so the "make more" bar tightens: only the tightest top sellers with
+  // a real safety margin still qualify as "make_small" (urgent). This is the only place pace
+  // feeds the model — it never touches "stop"/"done" (those already just mean sell down).
+  const totalTraysNowForPace = fudge.reduce((s, f) => s + (invMap[f.id]?.tray_count ?? 0), 0)
+  const pctVsLastYear = PRIOR_YEAR_REFERENCE.total_fudge_trays
+    ? Number((((totalTraysNowForPace - PRIOR_YEAR_REFERENCE.total_fudge_trays) / PRIOR_YEAR_REFERENCE.total_fudge_trays) * 100).toFixed(0))
+    : null
+  const overstocked = pctVsLastYear != null && pctVsLastYear > 10 // >10% more shelf stock than last year at this point
+  const makeSmallCutoffPct = overstocked ? 0.1 : 0.3   // top 10% instead of top 30%
+  const makeSmallMarginDays = overstocked ? 14 : 7      // need a bigger runway before it's "urgent"
+
+  // Top tier = the top makeSmallCutoffPct of fudge by recent sell-rate — the only flavors
+  // still worth producing in wind-down. Everything below coasts/sells down.
   const rates = fudge.map((f) => perDay[f.name] ?? 0).filter((x) => x > 0).sort((a, b) => b - a)
-  const topCutoff = rates.length ? rates[Math.max(0, Math.ceil(rates.length * 0.3) - 1)] : Infinity
+  const topCutoff = rates.length ? rates[Math.max(0, Math.ceil(rates.length * makeSmallCutoffPct) - 1)] : Infinity
 
   // Net tray change per flavor per day (made − sold − wasted), from real reported activity.
   const deltaByFlavorDate = {}
@@ -1073,7 +1094,7 @@ export async function getSeasonOutlook(sb, { window = 14, asOf } = {}) {
     if (paused) verdict = 'done'
     else if (asNeeded) verdict = sellsOutBeforeClose ? 'make_small' : 'coast'
     else if (projectedLeftover > 1) verdict = 'stop'
-    else if (isTop && daysOfStock != null && daysLeft - daysOfStock >= 7) verdict = 'make_small'
+    else if (isTop && daysOfStock != null && daysLeft - daysOfStock >= makeSmallMarginDays) verdict = 'make_small'
     else verdict = 'coast'
     totalLeftover += projectedLeftover
     fudgeItems.push({
@@ -1093,16 +1114,14 @@ export async function getSeasonOutlook(sb, { window = 14, asOf } = {}) {
   }
   fudgeItems.sort((a, b) => b.projected_leftover_at_close - a.projected_leftover_at_close)
 
-  // Perspective only — compare today's real total fudge trays against mom's ~140-tray
-  // recollection from around this date last year. Purely informational (see
-  // PRIOR_YEAR_REFERENCE above); never feeds the verdict/leftover math above.
-  const totalFudgeTraysNow = Number(fudgeItems.reduce((s, i) => s + (i.trays ?? 0), 0).toFixed(1))
+  // Compare today's real total fudge trays against mom's ~140-tray recollection from around
+  // this date last year (see PRIOR_YEAR_REFERENCE above). This DOES feed the model now: when
+  // we're carrying meaningfully more stock than last year at this point (overstocked, computed
+  // earlier), the "make_small"/urgent bar above tightens — see the pace block near topCutoff.
   const priorYearReference = {
     ...PRIOR_YEAR_REFERENCE,
-    total_fudge_trays_now: totalFudgeTraysNow,
-    pct_change: PRIOR_YEAR_REFERENCE.total_fudge_trays
-      ? Number((((totalFudgeTraysNow - PRIOR_YEAR_REFERENCE.total_fudge_trays) / PRIOR_YEAR_REFERENCE.total_fudge_trays) * 100).toFixed(0))
-      : null,
+    total_fudge_trays_now: Number(totalTraysNowForPace.toFixed(1)),
+    pct_change: pctVsLastYear,
   }
 
   const popcorn = flavors
@@ -1120,8 +1139,14 @@ export async function getSeasonOutlook(sb, { window = 14, asOf } = {}) {
     fudge: fudgeItems,
     // Popcorn is made fresh to demand right up to close — never part of the sell-down.
     popcorn: { make_fresh_to_demand: true, items: popcorn },
-    // Anecdotal pace comparison — see PRIOR_YEAR_REFERENCE.
+    // Anecdotal pace comparison — see PRIOR_YEAR_REFERENCE. "overstocked" + the two thresholds
+    // are what's actually in effect for the "make_small" (urgent) gate above.
     prior_year_reference: priorYearReference,
+    pace: {
+      overstocked_vs_last_year: overstocked,
+      make_small_top_pct: makeSmallCutoffPct,
+      make_small_margin_days: makeSmallMarginDays,
+    },
   }
 }
 
@@ -1562,7 +1587,7 @@ async function resolveIngredient(sb, name) {
   return fuzzy && fuzzy.length === 1 ? fuzzy[0] : null
 }
 
-export const WRITE_TOOLS = new Set(['log_batch', 'add_product_entry', 'add_popcorn_entry', 'set_inventory_count', 'set_ingredient_quantity', 'log_fudge_pops', 'log_caramel_apples', 'move_batches', 'remove_batches'])
+export const WRITE_TOOLS = new Set(['log_batch', 'add_product_entry', 'add_popcorn_entry', 'set_inventory_count', 'set_ingredient_quantity', 'log_fudge_pops', 'log_caramel_apples', 'move_batches', 'remove_batches', 'submit_staff_feedback', 'resolve_staff_feedback'])
 
 // Repair a conversation so every assistant `tool_use` block is answered by a matching
 // `tool_result` in the very next message. If a tool throws or the page closes mid-loop, the
@@ -1647,6 +1672,51 @@ export async function clearDailyConversation(sb, date) {
   return { error: error?.message ?? null }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// STAFF FEEDBACK — a lightweight note/question/idea box for staff to leave for Zach (the one
+// who knows the app best), surfaced as a small Dashboard section rather than a whole new tab.
+// Also readable/resolvable through Jarvis so it doubles as a "check in on the crew" feature.
+// Degrades gracefully (returns empty/error, never throws) if the migration
+// (add_staff_feedback.sql) hasn't been applied yet.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function submitStaffFeedback(sb, { message, submittedBy } = {}) {
+  const text = (message ?? '').trim()
+  if (!text) return { id: null, error: 'message is required' }
+  const { data, error } = await sb
+    .from('staff_feedback')
+    .insert({ message: text, submitted_by: (submittedBy ?? '').trim() || null })
+    .select('id')
+    .single()
+  if (error || !data) return { id: null, error: error?.message ?? 'Failed to submit feedback' }
+  return { id: data.id, error: null }
+}
+
+export async function getStaffFeedback(sb, { includeResolved = false, limit = 50 } = {}) {
+  let query = sb
+    .from('staff_feedback')
+    .select('id, message, submitted_by, created_at, resolved, resolved_at')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (!includeResolved) query = query.eq('resolved', false)
+  const { data, error } = await query
+  if (error) return { items: [], open_count: 0, error: error.message }
+  const items = data ?? []
+  const openCount = includeResolved ? items.filter((i) => !i.resolved).length : items.length
+  return { items, open_count: openCount, error: null }
+}
+
+export async function resolveStaffFeedback(sb, id) {
+  const { data, error } = await sb
+    .from('staff_feedback')
+    .update({ resolved: true, resolved_at: new Date().toISOString() })
+    .eq('id', id)
+    .select('id')
+  if (error) return { ok: false, error: error.message }
+  if (!data || data.length === 0) return { ok: false, error: 'Feedback item not found (already resolved or bad id).' }
+  return { ok: true, error: null }
+}
+
 // One-line human summary of a write action, for the in-app confirmation dialog.
 export function summarizeToolCall(name, input = {}) {
   const date = input.date || 'today'
@@ -1674,6 +1744,10 @@ export function summarizeToolCall(name, input = {}) {
       return { title: 'Fix batch date?', message: `Move ${input.count ?? 'all'} ${input.flavor} batch(es) from ${input.from_date} to ${input.to_date}. Ingredient deductions are unchanged — only the date is fixed.` }
     case 'remove_batches':
       return { title: 'Remove batch?', message: `Remove ${input.count ?? 1} ${input.flavor} batch(es) logged on ${date}. Ingredient deductions are refunded — use only for batches logged by mistake.` }
+    case 'submit_staff_feedback':
+      return { title: 'Send feedback to Zach?', message: `"${input.message}"${input.submitted_by ? ` — ${input.submitted_by}` : ''}` }
+    case 'resolve_staff_feedback':
+      return { title: 'Mark feedback resolved?', message: `Mark feedback item resolved.` }
     default:
       return { title: 'Confirm action?', message: name }
   }
@@ -1695,6 +1769,7 @@ export async function runTool(sb, name, input = {}) {
     case 'get_flavors': return await getFlavors(sb)
     case 'get_ingredients': return await getIngredients(sb)
     case 'get_production_manual': return { manual: PRODUCTION_MANUAL }
+    case 'get_staff_feedback': return await getStaffFeedback(sb, { includeResolved: !!input.include_resolved, limit: input.limit ?? 50 })
 
     case 'log_batch': {
       const flavor = await resolveFlavor(sb, input.flavor)
@@ -1817,6 +1892,21 @@ export async function runTool(sb, name, input = {}) {
       if (r.error) return { error: r.error }
       if (r.removed === 0) return { error: `No ${flavor.name} batches found on ${date}.` }
       return { ok: true, message: `Removed ${r.removed} ${flavor.name} batch(es) from ${date} (${r.available} were logged). Ingredient deductions refunded.` }
+    }
+
+    case 'submit_staff_feedback': {
+      const message = (input.message ?? '').trim()
+      if (!message) return { error: 'message is required.' }
+      const r = await submitStaffFeedback(sb, { message, submittedBy: input.submitted_by })
+      if (r.error || !r.id) return { error: r.error || 'Failed to submit feedback (is the staff_feedback migration applied?).' }
+      return { ok: true, message: `Feedback logged for Zach.` }
+    }
+
+    case 'resolve_staff_feedback': {
+      if (!input.id) return { error: 'id is required — call get_staff_feedback first to find it.' }
+      const r = await resolveStaffFeedback(sb, input.id)
+      if (!r.ok) return { error: r.error || 'Failed to resolve feedback.' }
+      return { ok: true, message: 'Feedback marked resolved.' }
     }
 
     default:

@@ -101,15 +101,16 @@ HOW TO BEHAVE:
 - Mistake-log fix: if a batch was logged that was never actually made (duplicate tap, wrong flavor picked), use remove_batches — it deletes the log AND refunds the ingredient deductions. Removes the most recent first. This is NOT for bad batches that were really made (log those as wasted) and NOT for wrong dates (that's move_batches).
 - Undo popcorn barrels/sales: to take back barrel movements logged by mistake, call add_popcorn_entry with NEGATIVE numbers — barrels_sold: -3 gives 3 sales back, barrels_added: -3 removes 3 barrels that were put out. Do it in ONE call when possible ("remove 3 sales and 3 barrels" → barrels_added: -3, barrels_sold: -3). This is the popcorn analogue of remove_batches (which handles the BATCH). A common cleanup is: remove_batches for the extra batch, then add_popcorn_entry with negatives for the barrels/sales that batch's entry created.
 - Lead with the answer; keep it tight. Format every reply as clean, scannable markdown (it renders as styled UI, so don't fuss over raw symbols): short "## Section" headings for groups, bullet/numbered lists for items, **bold** for flavor names and key numbers, one tight line per item. No walls of text. End with a one-line bottom line or a single question when an action is the natural next step.
+- STAFF FEEDBACK: staff can leave Zach a note/question/idea through a small Dashboard section (or by telling you directly — use submit_staff_feedback for that). When a conversation is a natural check-in moment (Zach opens chat and asks something like "anything I should know" / "what's going on" / a general status check, or when there's a lull), call get_staff_feedback and mention it if there are open items — e.g. "3 open feedback notes from the crew, want to hear them?" — but don't force it into an unrelated question (someone asking "how much butter is left" doesn't need a feedback nudge). Once Zach has read/handled an item, use resolve_staff_feedback so it doesn't keep coming up.
 
 SEASON ARC & WIND-DOWN (the back-half job — minimize end-of-season waste):
 - The arc: season opens ~Apr 22 → PEAK (≈July 4 through mid-Aug) → FUDGE WIND-DOWN from ~Aug 14 → store CLOSES ~Oct 13. get_make_recommendations and get_season_outlook tell you the current "season_phase" (peak / winddown / closed) and days_until_close — read it, don't guess the date.
 - THE GOAL: every year the shop tosses hundreds of trays of leftover fudge at close. The back-half mission is to end the season with as close to ZERO leftover fudge as possible — pace production down so stock runs out near close, and avoid over-ordering / over-production.
-- FUDGE in wind-down: production sharply tapers from ~Aug 14 (mostly sell-down). It does NOT hard-stop — into early September it's OK to occasionally make the TOP-SELLING flavors if they'll run dry well before close, but everything else coasts on existing stock, and it's fine for slower flavors to run dry EARLY. Use get_season_outlook (real sales data → projected leftover at close + a done/stop/coast/make_small verdict per flavor — "done" = on Lisa's done-for-season list), NOT the low-stock thresholds. Lead with the total projected leftover (the waste number) and which flavors are the biggest waste risk (verdict "stop" → don't make, push to sell). If a chef explicitly asks to make a fudge flavor, help them — but flag the leftover risk if it's already overstocked for the time remaining.
+- FUDGE in wind-down: production sharply tapers from ~Aug 14 (mostly sell-down), and by September it's genuinely rare to make fudge — almost everything should just coast down to close. Only make a fudge flavor when get_season_outlook says "make_small" (URGENT: a real top seller that will run dry well before close with a real safety margin — the bar tightens automatically the more overstocked we are vs. last year, see PACE below). Everything else coasts on existing stock, and it's fine — expected, even — for slower flavors to run dry EARLY this late in the season. Use get_season_outlook (real sales data → projected leftover at close + a done/stop/coast/make_small verdict per flavor — "done" = on Lisa's done-for-season list), NOT the low-stock thresholds. get_make_recommendations already filters its wind-down fudge list down to ONLY "make_small" verdicts, so if it returns no fudge, say so plainly — that's the expected state, not a gap to fill. Lead with the total projected leftover (the waste number) and which flavors are the biggest waste risk (verdict "stop" → don't make, push to sell). If a chef explicitly asks to make a fudge flavor that isn't "make_small", don't just do it — say it's not urgent and flag the leftover risk, and only help if they push back / confirm.
 - POPCORN is the opposite: short shelf life, so keep making it FRESH to demand right up to close (it's never part of the fudge sell-down). The weekend/Thu-Fri popcorn refill guidance applies all season.
 - THRESHOLDS in wind-down: the low-stock thresholds are PEAK-season numbers only and the app automatically stops using them for fudge once wind-down starts (they're never changed — they stay valid for next season's peak). So if a fudge flavor still shows as "low" near season end, that's EXPECTED and usually fine — explain that and point to the sell-down outlook instead of telling them to make more.
 - ORDERING in wind-down: flag over-ordering. Don't reorder fudge ingredients that current stock already outlasts demand for through close. Popcorn ingredients keep flowing since popcorn keeps being made.
-- PACE VS. LAST YEAR: get_season_outlook includes "prior_year_reference" — Zach's mom recalled ~140 total fudge trays on the shelf around this same date in 2025 (anecdotal, not measured — just a perspective benchmark). Use "total_fudge_trays_now" vs "total_fudge_trays" (and "pct_change") when someone asks how this season is pacing compared to last year, or to explain that production is intentionally slower this late in the season. Never treat it as precise data or use it in any make/order recommendation math — it's context for a conversation, not an input to the sell-down model.
+- PACE VS. LAST YEAR (this now actively tightens the model, not just talk): get_season_outlook includes "prior_year_reference" — Zach's mom recalled ~140 total fudge trays on the shelf around this same date in 2025 (anecdotal, not measured — a rough benchmark, never treat the 140 itself as precise). Compare "total_fudge_trays_now" vs "total_fudge_trays" (and "pct_change") for "how are we pacing vs last year" questions. When we're carrying >10% more total fudge trays than that point last year, get_season_outlook's own "pace" field flips "overstocked_vs_last_year" to true and tightens the "make_small" bar itself (top ~10% of sellers instead of top ~30%, and a ~14-day safety margin instead of ~7) — so a slow pace already means fewer, more urgent-only recommendations without you doing any extra math. Just read "pace" and "prior_year_reference" and explain the "why" in plain language if asked (e.g. "we're carrying more stock than this time last year, so we're only flagging the tightest cases").
 
 DECIDING WHAT TO MAKE (use get_make_recommendations, then layer in PRODUCTION PRIORITIES + BATCH SEQUENCING above):
 - Plan a REALISTIC number of batches for the day — don't just list everything that's low. The tool tells you the day, the pace (busy weekend / steady / slow weekday), and roughly how many batches make sense: a busy weekend might be 3+ per shift (up to ~6/day), but a steady or slow weekday is often just 3–6 total. For a data-backed pace, call get_production_insights — it gives the season's REAL average batches per day overall and per weekday (e.g. "usually ~4/day, ~6 on Saturdays"), so you can size the plan to how this shop actually runs and call out when a day is ahead of or behind normal.
@@ -176,12 +177,12 @@ export const TOOL_SCHEMAS = [
   },
   {
     name: 'get_make_recommendations',
-    description: 'Ranked list of what to make next, using each flavor\'s restock threshold + sell-rate, plus how it\'s produced (own batch vs finished from a base), batch yield, double-batch needs, and the caramel level for Sea Salt Caramel. Call this for "what should I make", "what\'s next", or production planning.',
+    description: 'Ranked list of what to make next, using each flavor\'s restock threshold + sell-rate, plus how it\'s produced (own batch vs finished from a base), batch yield, double-batch needs, and the caramel level for Sea Salt Caramel. In wind-down (see "mode": "selldown" and "winddown_note"), the fudge list is filtered down to ONLY genuinely urgent flavors — get_season_outlook\'s pace-aware "make_small" verdict — so an empty/short fudge list here is the expected, correct state late in the season, not missing data. Popcorn recommendations are unaffected. Call this for "what should I make", "what\'s next", or production planning.',
     input_schema: { type: 'object', properties: { days: { type: 'integer', description: 'Sell-rate window in days (default 14)' }, horizon: { type: 'integer', description: 'Also include flavors with this many days of stock left or fewer (default 2)' } }, additionalProperties: false },
   },
   {
     name: 'get_season_outlook',
-    description: 'END-OF-SEASON SELL-DOWN brain (threshold-free). For each fudge flavor, projects from REAL recent sales how long current stock lasts, its sellout date, and how many trays are likely LEFT OVER at close (the waste forecast to drive toward zero) with a verdict (done / stop / coast / make_small — "done" = on Lisa\'s done-for-the-season list, "as_needed": true flavors keep in rotation and never get "stop"). "trays" is sellable stock only (in-progress/half-made trays are reported separately as in_progress_trays, never folded into the sell-down math since they aren\'t toppable/sellable yet). For a flavor already at 0 trays, projected_sellout_date is the REAL historical date it ran out (reconstructed from production/sales history), not just today\'s date. Also returns the total projected leftover fudge trays, days until close, and the season phase. Popcorn is listed separately and is NOT part of the sell-down (made fresh to demand to close). "prior_year_reference" is an anecdotal pace comparison (mom\'s recollection of ~140 total trays on shelf around this date in 2025 vs today\'s real total) — perspective only, never a math input. Call this for "are we on track to sell out by season end", "what will we have left over", "should we slow down / stop making X", "when did X run out", or any end-of-season / wind-down planning — use it INSTEAD of thresholds once the season is winding down.',
+    description: 'END-OF-SEASON SELL-DOWN brain (threshold-free). For each fudge flavor, projects from REAL recent sales how long current stock lasts, its sellout date, and how many trays are likely LEFT OVER at close (the waste forecast to drive toward zero) with a verdict (done / stop / coast / make_small — "done" = on Lisa\'s done-for-the-season list, "as_needed": true flavors keep in rotation and never get "stop"). "trays" is sellable stock only (in-progress/half-made trays are reported separately as in_progress_trays, never folded into the sell-down math since they aren\'t toppable/sellable yet). For a flavor already at 0 trays, projected_sellout_date is the REAL historical date it ran out (reconstructed from production/sales history), not just today\'s date. Also returns the total projected leftover fudge trays, days until close, and the season phase. Popcorn is listed separately and is NOT part of the sell-down (made fresh to demand to close). "prior_year_reference" is an anecdotal pace comparison (mom\'s recollection of ~140 total trays on shelf around this date in 2025 vs today\'s real total). "pace" shows whether that comparison is actively tightening the "make_small" bar right now ("overstocked_vs_last_year", plus the top-seller percentile and safety-margin days actually in effect) — read it to explain why so little (or nothing) is being recommended. Call this for "are we on track to sell out by season end", "what will we have left over", "should we slow down / stop making X", "when did X run out", or any end-of-season / wind-down planning — use it INSTEAD of thresholds once the season is winding down.',
     input_schema: { type: 'object', properties: { window: { type: 'integer', description: 'Recent sell-rate window in days (default 14)' }, as_of: { type: 'string', description: 'YYYY-MM-DD to evaluate as-of (default today). Use to look ahead.' } }, additionalProperties: false },
   },
   {
@@ -213,6 +214,11 @@ export const TOOL_SCHEMAS = [
     name: 'get_flavors',
     description: 'Exact flavor names and types. Call this before any write if you are unsure of the exact flavor name.',
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'get_staff_feedback',
+    description: 'Notes/questions/ideas staff have left for Zach (the one who knows the app best) — a lightweight feedback box on the Dashboard, not a bug tracker. Defaults to OPEN (unresolved) items only, newest first. Call this when Zach asks "any feedback from the crew", "anything I should look at", or a similar daily-recap question — and proactively mention it if there are open items and the conversation is a natural check-in moment (don\'t force it into an unrelated task).',
+    input_schema: { type: 'object', properties: { include_resolved: { type: 'boolean', description: 'Include already-resolved items too (default false = open only)' }, limit: { type: 'integer', description: 'Max items to return (default 50)' } }, additionalProperties: false },
   },
   {
     name: 'get_ingredients',
@@ -294,6 +300,29 @@ export const TOOL_SCHEMAS = [
         count: { type: 'integer', description: 'How many batches to remove (default 1)' },
       },
       required: ['flavor'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'submit_staff_feedback',
+    description: 'Log a note/question/idea from a staff member for Zach to see (surfaced on the Dashboard feedback section and via get_staff_feedback). Use when someone in the chat says something like "someone should tell Zach...", "can you pass along...", or otherwise wants to leave a note about the app/shop rather than take an inventory action. Not for bug reports about THIS conversation going wrong — just genuine notes for the owner.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', description: 'The feedback/note itself' },
+        submitted_by: { type: 'string', description: 'Optional name of who left it' },
+      },
+      required: ['message'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'resolve_staff_feedback',
+    description: 'Mark a staff feedback item resolved (Zach has read/handled it). Get the id from get_staff_feedback first.',
+    input_schema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'The feedback item id, from get_staff_feedback' } },
+      required: ['id'],
       additionalProperties: false,
     },
   },

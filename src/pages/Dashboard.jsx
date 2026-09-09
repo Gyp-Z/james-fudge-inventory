@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useFlavors } from '../hooks/useFlavors'
-import { seasonPhase, getSeasonSoldTotals, bySoldDesc, fetchAllRows } from '../core/ops.js'
+import { seasonPhase, getSeasonSoldTotals, bySoldDesc, fetchAllRows, submitStaffFeedback } from '../core/ops.js'
 
 export default function Dashboard() {
   const { flavors, loading: flavorsLoading } = useFlavors()
@@ -13,6 +13,9 @@ export default function Dashboard() {
   const [yesterdayEntries, setYesterdayEntries] = useState({})
   const [yesterdayBarrels, setYesterdayBarrels] = useState({})
   const [soldMap, setSoldMap] = useState({})
+  const [feedbackText, setFeedbackText] = useState('')
+  const [feedbackName, setFeedbackName] = useState('')
+  const [feedbackStatus, setFeedbackStatus] = useState('idle') // idle | sending | sent | error
 
   useEffect(() => {
     getSeasonSoldTotals(supabase).then(setSoldMap).catch(() => {})
@@ -266,6 +269,17 @@ export default function Dashboard() {
     )
   }
 
+  async function handleSubmitFeedback() {
+    const message = feedbackText.trim()
+    if (!message) return
+    setFeedbackStatus('sending')
+    const { error } = await submitStaffFeedback(supabase, { message, submittedBy: feedbackName })
+    if (error) { setFeedbackStatus('error'); return }
+    setFeedbackText('')
+    setFeedbackName('')
+    setFeedbackStatus('sent')
+  }
+
   return (
     <div className="space-y-8">
 
@@ -431,6 +445,48 @@ export default function Dashboard() {
             <div className="flex flex-wrap gap-2">{stockedIngredients.map(renderIngredientPill)}</div>
           </div>
         )}
+      </div>
+
+      {/* ── FEEDBACK FOR ZACH ─────────────────────────────────── */}
+      <div className="space-y-3">
+        <h2 className="text-2xl font-bold text-store-brown pl-3 border-l-4 border-store-coral rounded-sm" style={{ fontFamily: 'var(--font-display)' }}>
+          Feedback
+        </h2>
+        <div className="bg-white border border-store-tan rounded-xl shadow-sm p-4 space-y-3">
+          {feedbackStatus === 'sent' ? (
+            <p className="text-sm font-medium text-store-green">Thanks — sent to Zach ✓</p>
+          ) : (
+            <>
+              <p className="text-sm text-store-brown-light">Got an idea, a question, or something that's not working right? Let Zach know here.</p>
+              <textarea
+                value={feedbackText}
+                onChange={(e) => setFeedbackText(e.target.value)}
+                placeholder="What's on your mind?"
+                rows={3}
+                className="w-full border border-store-tan rounded-lg px-3 py-2 text-sm text-store-brown focus:outline-none focus:ring-2 focus:ring-store-green"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  value={feedbackName}
+                  onChange={(e) => setFeedbackName(e.target.value)}
+                  placeholder="Your name (optional)"
+                  className="flex-1 min-w-[140px] border border-store-tan rounded-lg px-3 py-2 text-sm text-store-brown focus:outline-none focus:ring-2 focus:ring-store-green"
+                />
+                <button
+                  onClick={handleSubmitFeedback}
+                  disabled={!feedbackText.trim() || feedbackStatus === 'sending'}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-store-green text-white disabled:opacity-50 touch-manipulation"
+                >
+                  {feedbackStatus === 'sending' ? 'Sending…' : 'Send'}
+                </button>
+              </div>
+              {feedbackStatus === 'error' && (
+                <p className="text-xs text-red-700">Couldn't send that — try again in a bit.</p>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
     </div>

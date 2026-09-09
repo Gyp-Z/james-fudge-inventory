@@ -73,7 +73,7 @@ const VERDICT = {
   done: { text: 'Done for season', cls: 'bg-store-brown text-white' },
   stop: { text: 'Stop · sell down', cls: 'bg-red-100 text-red-700' },
   coast: { text: 'Coast', cls: 'bg-store-tan text-store-brown' },
-  make_small: { text: 'Make as needed', cls: 'bg-amber-100 text-amber-800' },
+  make_small: { text: 'Make — urgent', cls: 'bg-amber-100 text-amber-800' },
 }
 
 function SeasonOutlookPanel() {
@@ -106,13 +106,20 @@ function SeasonOutlookPanel() {
       </div>
 
       {outlook.prior_year_reference && (
-        <p className="px-4 pb-3 text-xs text-store-brown-light">
-          Pace check: ~{outlook.prior_year_reference.total_fudge_trays} total fudge trays on the shelf around this date last year (mom's recollection, not exact) vs{' '}
-          <span className="font-semibold text-store-brown">{outlook.prior_year_reference.total_fudge_trays_now}</span> today
-          {outlook.prior_year_reference.pct_change != null && (
-            <> ({outlook.prior_year_reference.pct_change > 0 ? '+' : ''}{outlook.prior_year_reference.pct_change}%)</>
-          )}.
-        </p>
+        <div className="px-4 pb-3 space-y-1">
+          <p className="text-xs text-store-brown-light">
+            Pace check: ~{outlook.prior_year_reference.total_fudge_trays} total fudge trays on the shelf around this date last year (mom's recollection, not exact) vs{' '}
+            <span className="font-semibold text-store-brown">{outlook.prior_year_reference.total_fudge_trays_now}</span> today
+            {outlook.prior_year_reference.pct_change != null && (
+              <> ({outlook.prior_year_reference.pct_change > 0 ? '+' : ''}{outlook.prior_year_reference.pct_change}%)</>
+            )}.
+          </p>
+          {outlook.pace?.overstocked_vs_last_year && (
+            <p className="text-xs font-medium text-amber-700">
+              We're carrying meaningfully more stock than this point last year, so "Make — urgent" below is tightened to only the top ~{Math.round(outlook.pace.make_small_top_pct * 100)}% of sellers with a {outlook.pace.make_small_margin_days}+ day safety margin — most fudge should not be made right now.
+            </p>
+          )}
+        </div>
       )}
 
       <button onClick={() => setOpen(o => !o)} className="w-full text-left px-4 py-2 text-xs font-semibold text-store-green hover:bg-store-cream border-t border-store-tan transition-colors">
@@ -237,7 +244,9 @@ export default function Analytics() {
 
   // Refetch on tab focus/visibility so a tablet or browser tab left open across a shift (or
   // days) doesn't keep showing stale numbers — and on Jarvis confirming a write, matching the
-  // ShiftReport 'jarvis-applied' pattern.
+  // ShiftReport 'jarvis-applied' pattern. Also poll every 5 minutes: a kitchen tablet that
+  // never sleeps/backgrounds (screen always on, tab always foreground) never fires focus or
+  // visibilitychange at all, so a pure event-based refresh alone can still go stale for days.
   useEffect(() => {
     function onVisible() {
       if (document.visibilityState === 'visible') load()
@@ -245,10 +254,12 @@ export default function Analytics() {
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', load)
     window.addEventListener('jarvis-applied', load)
+    const pollId = setInterval(load, 5 * 60 * 1000)
     return () => {
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', load)
       window.removeEventListener('jarvis-applied', load)
+      clearInterval(pollId)
     }
   }, [])
 
