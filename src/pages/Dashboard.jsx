@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useFlavors } from '../hooks/useFlavors'
-import { seasonPhase, getSeasonSoldTotals, bySoldDesc, fetchAllRows, submitStaffFeedback } from '../core/ops.js'
+import { seasonPhase, getSeasonOutlook, getSeasonSoldTotals, bySoldDesc, fetchAllRows, submitStaffFeedback } from '../core/ops.js'
 
 export default function Dashboard() {
   const { flavors, loading: flavorsLoading } = useFlavors()
@@ -16,6 +16,20 @@ export default function Dashboard() {
   const [feedbackText, setFeedbackText] = useState('')
   const [feedbackName, setFeedbackName] = useState('')
   const [feedbackStatus, setFeedbackStatus] = useState('idle') // idle | sending | sent | error
+  const [urgentFudge, setUrgentFudge] = useState(null) // wind-down only: Set of flavor names worth making (see below)
+
+  // In wind-down, low_tray_threshold is peak-season numbers and stops being the right signal
+  // for "should we make this" (see Analytics Season Outlook / get_season_outlook) — sitting
+  // under threshold is EXPECTED that late. Pull the same pace-aware verdict Jarvis/Analytics
+  // use so the Dashboard's "Make Soon" bucket doesn't contradict them. Peak season is
+  // untouched (urgentFudge stays null, so the threshold path below still runs).
+  useEffect(() => {
+    const phase = seasonPhase()
+    if (phase !== 'winddown' && phase !== 'closed') return
+    getSeasonOutlook(supabase, {})
+      .then((o) => setUrgentFudge(new Set(o.fudge.filter((f) => f.verdict === 'make_small').map((f) => f.flavor))))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     getSeasonSoldTotals(supabase).then(setSoldMap).catch(() => {})
@@ -170,8 +184,10 @@ export default function Dashboard() {
   const componentFlavors = flavors.filter(f => f.is_component === true)
   const popcornFlavors = flavors.filter(f => f.product_type === 'popcorn').sort(bySoldDesc(soldMap))
 
-  const needsMaking = fudgeFlavors.filter((f) => (entries[f.id]?.full_trays ?? 0) <= (f.low_tray_threshold ?? 2))
-  const stockedFlavors = fudgeFlavors.filter((f) => (entries[f.id]?.full_trays ?? 0) > (f.low_tray_threshold ?? 2))
+  // urgentFudge (wind-down only) replaces the raw threshold check — see the effect above.
+  const fudgeNeedsMaking = (f) => urgentFudge ? urgentFudge.has(f.name) : (entries[f.id]?.full_trays ?? 0) <= (f.low_tray_threshold ?? 2)
+  const needsMaking = fudgeFlavors.filter(fudgeNeedsMaking)
+  const stockedFlavors = fudgeFlavors.filter((f) => !fudgeNeedsMaking(f))
 
   const lowPopcorn = popcornFlavors.filter((f) => (entries[f.id]?.barrel_count ?? 0) <= (f.low_tray_threshold ?? 1))
   const stockedPopcorn = popcornFlavors.filter((f) => (entries[f.id]?.barrel_count ?? 0) > (f.low_tray_threshold ?? 1))
@@ -190,7 +206,10 @@ export default function Dashboard() {
     const inProgress = entry?.in_progress_trays ?? 0
     const threshold = flavor.low_tray_threshold ?? 2
     const isOut = fullTrays === 0
-    const isLow = !isOut && fullTrays <= threshold
+    // Caramel (a component, not in the fudge sell-down model) always uses the raw threshold;
+    // fudge follows the same wind-down override as the section grouping above, so a pill
+    // never contradicts which bucket it's sitting in.
+    const isLow = !isOut && (urgentFudge && !flavor.is_component ? urgentFudge.has(flavor.name) : fullTrays <= threshold)
 
     const pillClass = isOut
       ? 'bg-red-50 border-red-300 text-red-700'
