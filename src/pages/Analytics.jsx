@@ -193,7 +193,7 @@ export default function Analytics() {
   // silently missing everything reported since (e.g. "yesterday" not showing up).
   async function load() {
     const [
-      { data: reportData },
+      reportData,
       { data: flavorData },
       batchData,
       bucketData,
@@ -202,12 +202,16 @@ export default function Analytics() {
       { data: fudgePopData },
       { data: caramelAppleData },
     ] = await Promise.all([
-      supabase
+      // shift_reports has grown past Supabase's 1000-row cap on an unbounded select — without
+      // fetchAllRows this silently drops the NEWEST rows (ordered ascending by created_at),
+      // making the page look stuck days behind no matter how fresh the fetch is. Same fix as
+      // batch_logs/shelf_bucket_logs below.
+      fetchAllRows(() => supabase
         .from('shift_reports')
         .select(`id, report_date, created_at, shift_report_entries(
           flavor_id, full_trays, trays_sold, trays_wasted, in_progress_wasted, waste_reason, flavors(name)
         )`)
-        .order('created_at'),
+        .order('created_at', { ascending: true })),
       supabase
         .from('flavors')
         .select('id, name, product_type, tracks_shelf_buckets, is_component, default_yield')

@@ -1240,10 +1240,14 @@ export async function getProductionInsights(sb, { since } = {}) {
   const today = todayEastern()
   const startTs = start + 'T00:00:00'
 
-  const [{ data: batches }, { data: entries }, { data: bucketLogs }, { data: popFlavors }] = await Promise.all([
-    sb.from('batch_logs').select('batch_date, is_wasted, flavors!inner(name, product_type)').gte('batch_date', startTs),
-    sb.from('shift_report_entries').select('trays_sold, flavors!inner(name, product_type), shift_reports!inner(report_date)').gte('shift_reports.report_date', start),
-    sb.from('shelf_bucket_logs').select('flavor_id, barrels_used, logged_at').gte('logged_at', startTs),
+  // Full-season scope by default (since = SEASON_START, ~140 days) easily exceeds Supabase's
+  // 1000-row cap on an unbounded select once the season is a few months in — fetchAllRows
+  // pages through it (same fix as the Analytics shift_reports bug: an unwrapped query here
+  // silently drops rows rather than erroring, so the averages just quietly go wrong).
+  const [batches, entries, bucketLogs, { data: popFlavors }] = await Promise.all([
+    fetchAllRows(() => sb.from('batch_logs').select('batch_date, is_wasted, flavors!inner(name, product_type)').gte('batch_date', startTs)),
+    fetchAllRows(() => sb.from('shift_report_entries').select('trays_sold, flavors!inner(name, product_type), shift_reports!inner(report_date)').gte('shift_reports.report_date', start)),
+    fetchAllRows(() => sb.from('shelf_bucket_logs').select('flavor_id, barrels_used, logged_at').gte('logged_at', startTs)),
     sb.from('flavors').select('id, name').eq('product_type', 'popcorn'),
   ])
 
